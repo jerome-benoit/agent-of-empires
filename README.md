@@ -4,6 +4,12 @@
 
 A terminal session manager for Linux and MacOS using tmux to aid in management and monitoring of AI coding agents, written in Rust.
 
+- Git worktree management for easily handling parallel agents in one codebase
+- Easily sandbox your agents in docker containers
+- Interact via either TUI or CLI
+
+`aoe` manages cleanup of worktrees and sandboxes once you've completed your session. 
+
 ![Agent of Empires Demo](assets/demo.gif)
 
 ## Installation
