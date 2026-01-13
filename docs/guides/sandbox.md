@@ -85,6 +85,9 @@ environment = ["ANTHROPIC_API_KEY"]
 
 **Note:** Auth persists across containers. First session requires authentication, subsequent sessions reuse it.
 
+### Source Code Reference
+
+Volume mounts are defined in `src/session/instance.rs` in the `build_container_config()` method (lines 207-274). The actual Docker `-v` arguments are constructed in `src/docker/container.rs` in the `run_container()` function (lines 89-101).
 
 ## Container Naming
 
