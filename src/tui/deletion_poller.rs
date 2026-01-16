@@ -173,10 +173,15 @@ mod tests {
             delete_sandbox: false,
         });
 
-        std::thread::sleep(Duration::from_millis(100));
-
-        let result = poller.try_recv_result();
-        assert!(result.is_some());
+        let mut result = None;
+        for _ in 0..50 {
+            result = poller.try_recv_result();
+            if result.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(result.is_some(), "Timed out waiting for deletion result");
 
         let result = result.unwrap();
         assert_eq!(result.session_id, session_id);
