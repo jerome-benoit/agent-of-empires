@@ -1,5 +1,5 @@
 # aoe-sandbox: Docker image for Agent of Empires sandbox sessions
-# This image provides Claude Code and OpenCode in an isolated environment
+# This image provides Claude Code, OpenCode, and Gemini CLI in an isolated environment
 
 FROM ubuntu:24.04
 
@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y \
     openssh-client \
     ripgrep \
     fzf \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for running Claude (required for --dangerously-skip-permissions)
@@ -34,10 +36,15 @@ ENV PATH="/home/sandbox/.local/bin:${PATH}"
 RUN curl -fsSL https://opencode.ai/install | bash
 ENV PATH="/home/sandbox/.opencode/bin:${PATH}"
 
+# Install Gemini CLI
+RUN npm install -g @google/gemini-cli
+ENV PATH="/home/sandbox/.npm-global/bin:${PATH}"
+
 # Create directories for credential mounts
 RUN mkdir -p /home/sandbox/.claude \
     /home/sandbox/.config/opencode \
     /home/sandbox/.local/share/opencode \
+    /home/sandbox/.gemini \
     /home/sandbox/.ssh
 
 # Set working directory
