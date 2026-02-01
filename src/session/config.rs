@@ -1,7 +1,6 @@
 //! User configuration management
 
 use super::get_app_dir;
-use crate::containers::{self, ContainerRuntimeInterface};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -265,9 +264,7 @@ impl Default for SandboxConfig {
 }
 
 fn default_sandbox_image() -> String {
-    containers::get_container_runtime()
-        .default_sandbox_image()
-        .to_string()
+    "ghcr.io/njbrake/aoe-sandbox:latest".to_string()
 }
 
 fn default_sandbox_environment() -> Vec<String> {
