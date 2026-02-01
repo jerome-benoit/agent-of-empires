@@ -95,8 +95,12 @@ async fn test_sound(name: &str) -> Result<()> {
         return Ok(());
     }
 
-    println!("🔊 Playing '{}'...", name);
+    print!("🔊 Playing '{}'... ", name);
+    std::io::Write::flush(&mut std::io::stdout())?;
+
     sound::play_sound_blocking(name)?;
+
+    println!("✓");
 
     Ok(())
 }
