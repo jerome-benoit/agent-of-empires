@@ -609,7 +609,7 @@ fn build_sound_fields(
         SettingField {
             key: FieldKey::SoundOnStart,
             label: "On Start",
-            description: "Sound name without extension (e.g., 'coins', not 'coins.wav')",
+            description: "Specify file name with extension",
             value: FieldValue::OptionalText(on_start),
             category: SettingsCategory::Sound,
             has_override: o3,
@@ -617,7 +617,7 @@ fn build_sound_fields(
         SettingField {
             key: FieldKey::SoundOnRunning,
             label: "On Running",
-            description: "Sound name without extension (e.g., 'coins', not 'coins.wav')",
+            description: "Specify file name with extension",
             value: FieldValue::OptionalText(on_running),
             category: SettingsCategory::Sound,
             has_override: o4,
@@ -625,7 +625,7 @@ fn build_sound_fields(
         SettingField {
             key: FieldKey::SoundOnWaiting,
             label: "On Waiting",
-            description: "Sound name without extension (e.g., 'coins', not 'coins.wav')",
+            description: "Specify file name with extension",
             value: FieldValue::OptionalText(on_waiting),
             category: SettingsCategory::Sound,
             has_override: o5,
@@ -633,7 +633,7 @@ fn build_sound_fields(
         SettingField {
             key: FieldKey::SoundOnIdle,
             label: "On Idle",
-            description: "Sound name without extension (e.g., 'coins', not 'coins.wav')",
+            description: "Specify file name with extension",
             value: FieldValue::OptionalText(on_idle),
             category: SettingsCategory::Sound,
             has_override: o6,
@@ -641,7 +641,7 @@ fn build_sound_fields(
         SettingField {
             key: FieldKey::SoundOnError,
             label: "On Error",
-            description: "Sound name without extension (e.g., 'coins', not 'coins.wav')",
+            description: "Specify file name with extension",
             value: FieldValue::OptionalText(on_error),
             category: SettingsCategory::Sound,
             has_override: o7,
