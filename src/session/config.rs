@@ -4,6 +4,7 @@ use super::get_app_dir;
 use crate::containers::{self, ContainerRuntimeInterface};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -47,6 +48,12 @@ pub struct AppStateConfig {
 
     #[serde(default)]
     pub last_seen_version: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_list_width: Option<u16>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff_file_list_width: Option<u16>,
 }
 
 /// Session-related configuration defaults
@@ -198,6 +205,12 @@ pub struct SandboxConfig {
     #[serde(default = "default_sandbox_environment")]
     pub environment: Vec<String>,
 
+    /// Environment variables with explicit values to inject into sandbox containers.
+    /// Unlike `environment` (which passes through host values), these are stored in config
+    /// and injected directly. Useful for sandbox-specific credentials like GH_TOKEN.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub environment_values: HashMap<String, String>,
+
     #[serde(default = "default_true")]
     pub auto_cleanup: bool,
 
@@ -210,6 +223,10 @@ pub struct SandboxConfig {
     /// Default terminal mode for sandboxed sessions (host or container)
     #[serde(default)]
     pub default_terminal_mode: DefaultTerminalMode,
+
+    /// Relative directory paths to exclude from the host bind mount via anonymous volumes
+    #[serde(default)]
+    pub volume_ignores: Vec<String>,
 
     #[serde(default = "default_true")]
     pub share_ssh_folder: bool,
@@ -235,10 +252,12 @@ impl Default for SandboxConfig {
             default_image: default_sandbox_image(),
             extra_volumes: Vec::new(),
             environment: default_sandbox_environment(),
+            environment_values: HashMap::new(),
             auto_cleanup: true,
             cpu_limit: None,
             memory_limit: None,
             default_terminal_mode: DefaultTerminalMode::default(),
+            volume_ignores: Vec::new(),
             share_ssh_folder: true,
             container_runtime: ContainerRuntimeName::default(),
         }
@@ -524,6 +543,7 @@ mod tests {
         assert!(sb.environment.contains(&"COLORTERM".to_string()));
         assert!(sb.cpu_limit.is_none());
         assert!(sb.memory_limit.is_none());
+        assert!(sb.volume_ignores.is_empty());
     }
 
     #[test]
@@ -545,6 +565,36 @@ mod tests {
         assert!(!sb.auto_cleanup);
         assert_eq!(sb.cpu_limit, Some("2".to_string()));
         assert_eq!(sb.memory_limit, Some("4g".to_string()));
+    }
+
+    #[test]
+    fn test_sandbox_config_volume_ignores_deserialize() {
+        let toml = r#"
+            volume_ignores = ["target", ".venv", "node_modules"]
+        "#;
+        let sb: SandboxConfig = toml::from_str(toml).unwrap();
+        assert_eq!(sb.volume_ignores, vec!["target", ".venv", "node_modules"]);
+    }
+
+    #[test]
+    fn test_sandbox_config_volume_ignores_defaults_empty() {
+        let toml = r#"enabled_by_default = false"#;
+        let sb: SandboxConfig = toml::from_str(toml).unwrap();
+        assert!(sb.volume_ignores.is_empty());
+    }
+
+    #[test]
+    fn test_sandbox_config_volume_ignores_roundtrip() {
+        let mut config = Config::default();
+        config.sandbox.volume_ignores = vec!["target".to_string(), "node_modules".to_string()];
+
+        let serialized = toml::to_string(&config).unwrap();
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+
+        assert_eq!(
+            deserialized.sandbox.volume_ignores,
+            vec!["target", "node_modules"]
+        );
     }
 
     // Tests for ClaudeConfig

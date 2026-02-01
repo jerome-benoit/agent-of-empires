@@ -3,6 +3,7 @@
 pub mod add;
 pub mod definition;
 pub mod group;
+pub mod init;
 pub mod list;
 pub mod profile;
 pub mod remove;
@@ -42,12 +43,14 @@ pub fn resolve_session<'a>(identifier: &str, instances: &'a [Instance]) -> Resul
 }
 
 pub fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    let char_count = s.chars().count();
+    if char_count <= max {
         s.to_string()
     } else if max <= 3 {
-        s[..max].to_string()
+        s.chars().take(max).collect()
     } else {
-        format!("{}...", &s[..max - 3])
+        let truncated: String = s.chars().take(max - 3).collect();
+        format!("{}...", truncated)
     }
 }
 

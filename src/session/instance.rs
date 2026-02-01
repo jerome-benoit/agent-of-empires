@@ -20,8 +20,35 @@ fn default_true() -> bool {
 /// Terminal environment variables that are always passed through for proper UI/theming
 const DEFAULT_TERMINAL_ENV_VARS: &[&str] = &["TERM", "COLORTERM", "FORCE_COLOR", "NO_COLOR"];
 
-/// Build docker exec environment flags from config and optional per-session extra keys
-fn build_docker_env_args(extra_env_keys: Option<&Vec<String>>) -> String {
+/// Shell-escape a value for safe interpolation into a shell command string.
+/// Uses double-quote escaping so values can be nested inside `bash -c '...'`
+/// (single quotes in the outer wrapper are literal, double quotes work inside).
+fn shell_escape(val: &str) -> String {
+    let escaped = val
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('`', "\\`");
+    format!("\"{}\"", escaped)
+}
+
+/// Resolve an environment_values entry. If the value starts with `$`, read the
+/// named variable from the host environment (use `$$` to escape a literal `$`).
+/// Otherwise return the literal value.
+fn resolve_env_value(val: &str) -> Option<String> {
+    if let Some(rest) = val.strip_prefix("$$") {
+        Some(format!("${}", rest))
+    } else if let Some(var_name) = val.strip_prefix('$') {
+        std::env::var(var_name).ok()
+    } else {
+        Some(val.to_string())
+    }
+}
+
+/// Build docker exec environment flags from config and optional per-session extra keys.
+/// Used for `docker exec` commands (shell string interpolation, hence shell-escaping).
+/// Container creation uses `ContainerConfig.environment` (separate args, no escaping needed).
+fn build_docker_env_args(sandbox: &SandboxInfo) -> String {
     let config = super::config::Config::load().unwrap_or_default();
 
     // Start with default terminal variables (always included for proper UI)
@@ -38,7 +65,7 @@ fn build_docker_env_args(extra_env_keys: Option<&Vec<String>>) -> String {
     }
 
     // Add per-session extra env keys
-    if let Some(extra_keys) = extra_env_keys {
+    if let Some(extra_keys) = &sandbox.extra_env_keys {
         for key in extra_keys {
             if !env_keys.contains(key) {
                 env_keys.push(key.clone());
@@ -46,15 +73,32 @@ fn build_docker_env_args(extra_env_keys: Option<&Vec<String>>) -> String {
         }
     }
 
-    env_keys
+    let mut args: Vec<String> = env_keys
         .iter()
         .filter_map(|key| {
             std::env::var(key)
                 .ok()
-                .map(|val| format!("-e {}={}", key, val))
+                .map(|val| format!("-e {}={}", key, shell_escape(&val)))
         })
-        .collect::<Vec<_>>()
-        .join(" ")
+        .collect();
+
+    // Inject environment_values (AOE-managed, used for docker exec sessions)
+    for (key, val) in &config.sandbox.environment_values {
+        if let Some(resolved) = resolve_env_value(val) {
+            args.push(format!("-e {}={}", key, shell_escape(&resolved)));
+        }
+    }
+
+    // Inject per-session extra env values
+    if let Some(extra_vals) = &sandbox.extra_env_values {
+        for (key, val) in extra_vals {
+            if let Some(resolved) = resolve_env_value(val) {
+                args.push(format!("-e {}={}", key, shell_escape(&resolved)));
+            }
+        }
+    }
+
+    args.join(" ")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +145,9 @@ pub struct SandboxInfo {
     /// Additional environment variable keys to pass from host (session-specific)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_env_keys: Option<Vec<String>>,
+    /// Additional KEY=VALUE environment variables (session-specific overrides)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_env_values: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -275,7 +322,7 @@ impl Instance {
         let container = self.get_container_for_instance()?;
         let sandbox = self.sandbox_info.as_ref().unwrap();
 
-        let env_args = build_docker_env_args(sandbox.extra_env_keys.as_ref());
+        let env_args = build_docker_env_args(sandbox);
         let env_part = if env_args.is_empty() {
             String::new()
         } else {
@@ -334,14 +381,54 @@ impl Instance {
     }
 
     pub fn start_with_size(&mut self, size: Option<(u16, u16)>) -> Result<()> {
+        self.start_with_size_opts(size, false)
+    }
+
+    /// Start the session, optionally skipping on_launch hooks (e.g. when they
+    /// already ran in the background creation poller).
+    pub fn start_with_size_opts(
+        &mut self,
+        size: Option<(u16, u16)>,
+        skip_on_launch: bool,
+    ) -> Result<()> {
         let session = self.tmux_session()?;
 
         if session.exists() {
             return Ok(());
         }
 
+        // Execute on_launch hooks (trust already verified during creation).
+        // Use check_hook_trust which normalizes the path, so symlinked
+        // project_paths resolve correctly against the trust store.
+        let on_launch_hooks = if skip_on_launch {
+            None
+        } else {
+            match super::repo_config::check_hook_trust(std::path::Path::new(&self.project_path)) {
+                Ok(super::repo_config::HookTrustStatus::Trusted(hooks))
+                    if !hooks.on_launch.is_empty() =>
+                {
+                    Some(hooks.on_launch.clone())
+                }
+                _ => None,
+            }
+        };
+
         let cmd = if self.is_sandboxed() {
             let container = self.get_container_for_instance()?;
+            // Run on_launch hooks inside the container
+            if let Some(ref hook_cmds) = on_launch_hooks {
+                if let Some(ref sandbox) = self.sandbox_info {
+                    let workdir = self.container_workdir();
+                    if let Err(e) = super::repo_config::execute_hooks_in_container(
+                        hook_cmds,
+                        &sandbox.container_name,
+                        &workdir,
+                    ) {
+                        tracing::warn!("on_launch hook failed in container: {}", e);
+                    }
+                }
+            }
+
             let sandbox = self.sandbox_info.as_ref().unwrap();
             let tool_cmd = if self.is_yolo_mode() {
                 match self.tool.as_str() {
@@ -354,7 +441,7 @@ impl Instance {
             } else {
                 self.get_tool_command().to_string()
             };
-            let env_args = build_docker_env_args(sandbox.extra_env_keys.as_ref());
+            let env_args = build_docker_env_args(sandbox);
             let env_part = if env_args.is_empty() {
                 String::new()
             } else {
@@ -365,16 +452,28 @@ impl Instance {
                 container.exec_command(Some(&env_part)),
                 tool_cmd
             )))
-        } else if self.command.is_empty() {
-            match self.tool.as_str() {
-                "claude" => Some(wrap_command_ignore_suspend("claude")),
-                "vibe" => Some(wrap_command_ignore_suspend("vibe")),
-                "codex" => Some(wrap_command_ignore_suspend("codex")),
-                "gemini" => Some(wrap_command_ignore_suspend("gemini")),
-                _ => None,
-            }
         } else {
-            Some(wrap_command_ignore_suspend(&self.command))
+            // Run on_launch hooks on host for non-sandboxed sessions
+            if let Some(ref hook_cmds) = on_launch_hooks {
+                if let Err(e) = super::repo_config::execute_hooks(
+                    hook_cmds,
+                    std::path::Path::new(&self.project_path),
+                ) {
+                    tracing::warn!("on_launch hook failed: {}", e);
+                }
+            }
+
+            if self.command.is_empty() {
+                match self.tool.as_str() {
+                    "claude" => Some(wrap_command_ignore_suspend("claude")),
+                    "vibe" => Some(wrap_command_ignore_suspend("vibe")),
+                    "codex" => Some(wrap_command_ignore_suspend("codex")),
+                    "gemini" => Some(wrap_command_ignore_suspend("gemini")),
+                    _ => None,
+                }
+            } else {
+                Some(wrap_command_ignore_suspend(&self.command))
+            }
         };
 
         tracing::info!(
@@ -431,7 +530,7 @@ impl Instance {
         apply_all_tmux_options(&session_name, &terminal_title, branch, sandbox.as_ref());
     }
 
-    fn get_container_for_instance(&mut self) -> Result<containers::DockerContainer> {
+    pub fn get_container_for_instance(&mut self) -> Result<containers::DockerContainer> {
         let sandbox = self
             .sandbox_info
             .as_ref()
@@ -533,6 +632,13 @@ impl Instance {
             workspace_path.clone(),
             workspace_path,
         ))
+    }
+
+    /// Get the container working directory for this instance.
+    pub fn container_workdir(&self) -> String {
+        self.compute_volume_paths(std::path::Path::new(&self.project_path))
+            .map(|(_, _, wd)| wd)
+            .unwrap_or_else(|_| "/workspace".to_string())
     }
 
     fn build_container_config(&self) -> Result<ContainerConfig> {
@@ -664,6 +770,26 @@ impl Instance {
             format!("{}/.claude", CONTAINER_HOME),
         ));
 
+        // Inject environment_values (AOE-managed, used for container creation via separate args)
+        for (key, val) in &sandbox_config.environment_values {
+            if let Some(resolved) = resolve_env_value(val) {
+                environment.push((key.clone(), resolved));
+            }
+        }
+
+        // Inject per-session extra env values
+        if let Some(extra_vals) = self
+            .sandbox_info
+            .as_ref()
+            .and_then(|s| s.extra_env_values.as_ref())
+        {
+            for (key, val) in extra_vals {
+                if let Some(resolved) = resolve_env_value(val) {
+                    environment.push((key.clone(), resolved));
+                }
+            }
+        }
+
         if self.is_yolo_mode() && self.tool == "opencode" {
             environment.push((
                 "OPENCODE_PERMISSION".to_string(),
@@ -671,10 +797,17 @@ impl Instance {
             ));
         }
 
+        let anonymous_volumes: Vec<String> = sandbox_config
+            .volume_ignores
+            .iter()
+            .map(|ignore| format!("{}/{}", workspace_path, ignore))
+            .collect();
+
         Ok(ContainerConfig {
             working_dir: workspace_path,
             volumes,
             named_volumes,
+            anonymous_volumes,
             environment,
             cpu_limit: sandbox_config.cpu_limit,
             memory_limit: sandbox_config.memory_limit,
@@ -847,6 +980,7 @@ mod tests {
             created_at: None,
             yolo_mode: Some(true),
             extra_env_keys: None,
+            extra_env_values: None,
         });
         assert!(inst.is_yolo_mode());
 
@@ -875,6 +1009,7 @@ mod tests {
             created_at: None,
             yolo_mode: None,
             extra_env_keys: None,
+            extra_env_values: None,
         });
         assert!(!inst.is_sandboxed());
     }
@@ -890,6 +1025,7 @@ mod tests {
             created_at: None,
             yolo_mode: None,
             extra_env_keys: None,
+            extra_env_values: None,
         });
         assert!(inst.is_sandboxed());
     }
@@ -1021,6 +1157,7 @@ mod tests {
             created_at: Some(Utc::now()),
             yolo_mode: Some(true),
             extra_env_keys: Some(vec!["MY_VAR".to_string(), "OTHER_VAR".to_string()]),
+            extra_env_values: None,
         };
 
         let json = serde_json::to_string(&info).unwrap();

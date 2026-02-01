@@ -92,6 +92,10 @@ impl GitWorktree {
             return Err(GitError::WorktreeAlreadyExists(path.to_path_buf()));
         }
 
+        // Prune stale worktree entries so git doesn't reject a path that was
+        // previously used by a now-deleted worktree directory.
+        self.prune_worktrees()?;
+
         let repo = git2::Repository::discover(&self.repo_path)?;
 
         if create_branch {
@@ -99,23 +103,62 @@ impl GitWorktree {
             let commit = head.peel_to_commit()?;
             repo.branch(branch, &commit, false)?;
         } else {
-            repo.find_branch(branch, git2::BranchType::Local)
-                .map_err(|_| GitError::BranchNotFound(branch.to_string()))?;
+            let has_local = repo.find_branch(branch, git2::BranchType::Local).is_ok();
+            if !has_local {
+                let has_remote = repo
+                    .branches(Some(git2::BranchType::Remote))
+                    .ok()
+                    .map(|branches| {
+                        branches.filter_map(|b| b.ok()).any(|(b, _)| {
+                            b.name()
+                                .ok()
+                                .flatten()
+                                .map(|name| {
+                                    name.ends_with(&format!("/{}", branch)) || name == branch
+                                })
+                                .unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false);
+                if !has_remote {
+                    return Err(GitError::BranchNotFound(branch.to_string()));
+                }
+            }
         }
 
         let path_str = path
             .to_str()
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid path"))?;
 
-        std::process::Command::new("git")
+        let output = std::process::Command::new("git")
             .args(["worktree", "add", path_str, branch])
             .current_dir(&self.repo_path)
             .output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(GitError::WorktreeCommandFailed(stderr));
+        }
 
         // Convert the .git file from absolute to relative path.
         // Git always writes absolute paths, but relative paths work better when
         // the repo is mounted at different locations (e.g., in Docker containers).
         Self::convert_git_file_to_relative(path)?;
+
+        Ok(())
+    }
+
+    /// Prune stale worktree entries whose directories no longer exist on disk.
+    fn prune_worktrees(&self) -> Result<()> {
+        let output = std::process::Command::new("git")
+            .args(["worktree", "prune"])
+            .current_dir(&self.repo_path)
+            .output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(GitError::WorktreeCommandFailed(stderr));
+        }
 
         Ok(())
     }
@@ -229,10 +272,15 @@ impl GitWorktree {
             .to_str()
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid path"))?;
 
-        std::process::Command::new("git")
+        let output = std::process::Command::new("git")
             .args(["worktree", "remove", path_str])
             .current_dir(&self.repo_path)
             .output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(GitError::WorktreeCommandFailed(stderr));
+        }
 
         Ok(())
     }
@@ -642,6 +690,56 @@ mod tests {
     }
 
     #[test]
+    fn test_create_worktree_from_remote_branch() {
+        let dir = TempDir::new().unwrap();
+
+        // Create the "remote" repo with a branch
+        let remote_path = dir.path().join("remote");
+        std::fs::create_dir(&remote_path).unwrap();
+        let remote_repo = git2::Repository::init(&remote_path).unwrap();
+        let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+        let tree_id = remote_repo.index().unwrap().write_tree().unwrap();
+        let tree = remote_repo.find_tree(tree_id).unwrap();
+        let commit_oid = remote_repo
+            .commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
+            .unwrap();
+        let commit = remote_repo.find_commit(commit_oid).unwrap();
+        remote_repo
+            .branch("remote-only-branch", &commit, false)
+            .unwrap();
+
+        // Clone it as the "local" repo
+        let local_path = dir.path().join("local");
+        std::process::Command::new("git")
+            .args([
+                "clone",
+                remote_path.to_str().unwrap(),
+                local_path.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+
+        // Verify the branch is not local but is remote
+        let local_repo = git2::Repository::open(&local_path).unwrap();
+        assert!(local_repo
+            .find_branch("remote-only-branch", git2::BranchType::Local)
+            .is_err());
+        assert!(local_repo
+            .find_branch("origin/remote-only-branch", git2::BranchType::Remote)
+            .is_ok());
+
+        // Create a worktree from the remote branch
+        let wt_path = dir.path().join("remote-wt");
+        let git_wt = GitWorktree::new(local_path).unwrap();
+        git_wt
+            .create_worktree("remote-only-branch", &wt_path, false)
+            .unwrap();
+
+        assert!(wt_path.exists());
+        assert!(wt_path.join(".git").exists());
+    }
+
+    #[test]
     fn test_delete_branch_fails_for_nonexistent_branch() {
         let (_dir, repo) = setup_test_repo();
         let repo_path = repo.path().parent().unwrap();
@@ -650,5 +748,61 @@ mod tests {
         let result = git_wt.delete_branch("nonexistent");
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_worktree_succeeds_after_stale_directory_deleted() {
+        let (dir, repo) = setup_test_repo();
+        let repo_path = repo.path().parent().unwrap();
+
+        let head = repo.head().unwrap();
+        let commit = head.peel_to_commit().unwrap();
+        repo.branch("stale-branch", &commit, false).unwrap();
+
+        let wt_path = dir.path().join("stale-worktree");
+        let git_wt = GitWorktree::new(repo_path.to_path_buf()).unwrap();
+        git_wt
+            .create_worktree("stale-branch", &wt_path, false)
+            .unwrap();
+        assert!(wt_path.exists());
+
+        // Simulate external deletion (e.g., container rebuild) by removing the
+        // worktree directory without going through `git worktree remove`.
+        std::fs::remove_dir_all(&wt_path).unwrap();
+        assert!(!wt_path.exists());
+
+        // Creating a worktree at the same path should succeed because
+        // create_worktree prunes stale entries first.
+        git_wt
+            .create_worktree("stale-branch", &wt_path, false)
+            .unwrap();
+        assert!(wt_path.exists());
+    }
+
+    #[test]
+    fn test_create_worktree_returns_error_on_git_failure() {
+        let (dir, repo) = setup_test_repo();
+        let repo_path = repo.path().parent().unwrap();
+
+        let head = repo.head().unwrap();
+        let commit = head.peel_to_commit().unwrap();
+        repo.branch("fail-branch", &commit, false).unwrap();
+
+        let wt_path = dir.path().join("fail-worktree");
+        let git_wt = GitWorktree::new(repo_path.to_path_buf()).unwrap();
+        git_wt
+            .create_worktree("fail-branch", &wt_path, false)
+            .unwrap();
+
+        // Try creating again at a different path but same branch - git won't
+        // allow two worktrees to check out the same branch.
+        let wt_path2 = dir.path().join("fail-worktree-2");
+        let result = git_wt.create_worktree("fail-branch", &wt_path2, false);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("worktree command failed"),
+            "Expected WorktreeCommandFailed error, got: {err_msg}"
+        );
     }
 }

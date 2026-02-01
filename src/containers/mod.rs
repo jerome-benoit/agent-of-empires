@@ -75,6 +75,11 @@ impl DockerContainer {
         self.runtime.is_container_running(&self.name)
     }
 
+    pub fn build_create_args(&self, config: &ContainerConfig) -> Vec<String> {
+        self.runtime
+            .build_create_args(&self.name, &self.image, config)
+    }
+
     pub fn create(&self, config: &ContainerConfig) -> Result<String> {
         self.runtime
             .create_container(&self.name, &self.image, config)
@@ -122,5 +127,55 @@ mod tests {
         let container = DockerContainer::new("test1234567890ab", "ubuntu:latest");
         let cmd = container.exec_command(None);
         assert_eq!(cmd, "docker exec -it aoe-sandbox-test1234");
+    }
+    #[test]
+    fn test_anonymous_volumes_in_create_args() {
+        let container = DockerContainer::new("test1234567890ab", "alpine:latest");
+        let config = ContainerConfig {
+            working_dir: "/workspace/myproject".to_string(),
+            volumes: vec![],
+            named_volumes: vec![],
+            anonymous_volumes: vec![
+                "/workspace/myproject/target".to_string(),
+                "/workspace/myproject/node_modules".to_string(),
+            ],
+            environment: vec![],
+            cpu_limit: None,
+            memory_limit: None,
+        };
+
+        let args = container.build_create_args(&config);
+
+        // Find the anonymous volume flags
+        let v_positions: Vec<usize> = args
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| *a == "-v")
+            .map(|(i, _)| i)
+            .collect();
+
+        let volume_values: Vec<&str> = v_positions.iter().map(|&i| args[i + 1].as_str()).collect();
+
+        assert!(volume_values.contains(&"/workspace/myproject/target"));
+        assert!(volume_values.contains(&"/workspace/myproject/node_modules"));
+    }
+
+    #[test]
+    fn test_no_anonymous_volumes_when_empty() {
+        let container = DockerContainer::new("test1234567890ab", "alpine:latest");
+        let config = ContainerConfig {
+            working_dir: "/workspace".to_string(),
+            volumes: vec![],
+            named_volumes: vec![],
+            anonymous_volumes: vec![],
+            environment: vec![],
+            cpu_limit: None,
+            memory_limit: None,
+        };
+
+        let args = container.build_create_args(&config);
+
+        // No -v flags at all
+        assert!(!args.contains(&"-v".to_string()));
     }
 }

@@ -11,6 +11,7 @@ pub struct ContainerConfig {
     pub working_dir: String,
     pub volumes: Vec<VolumeMount>,
     pub named_volumes: Vec<(String, String)>,
+    pub anonymous_volumes: Vec<String>,
     pub environment: Vec<(String, String)>,
     pub cpu_limit: Option<String>,
     pub memory_limit: Option<String>,
@@ -41,6 +42,10 @@ pub trait ContainerRuntimeInterface {
     fn does_container_exist(&self, name: &str) -> Result<bool>;
 
     fn is_container_running(&self, name: &str) -> Result<bool>;
+
+    /// Build the docker run arguments from the container config.
+    /// Separated from `create` to enable unit testing.
+    fn build_create_args(&self, name: &str, image: &str, config: &ContainerConfig) -> Vec<String>;
 
     fn create_container(&self, name: &str, image: &str, config: &ContainerConfig)
         -> Result<String>;

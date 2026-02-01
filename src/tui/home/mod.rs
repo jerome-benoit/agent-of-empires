@@ -7,12 +7,13 @@ mod render;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use tui_input::Input;
 
 use crate::session::{
+    config::{load_config, save_config},
     flatten_tree, resolve_config, DefaultTerminalMode, Group, GroupTree, Instance, Item, Storage,
 };
 use crate::tmux::AvailableTools;
@@ -20,8 +21,8 @@ use crate::tmux::AvailableTools;
 use super::creation_poller::{CreationPoller, CreationRequest};
 use super::deletion_poller::DeletionPoller;
 use super::dialogs::{
-    ChangelogDialog, ConfirmDialog, GroupDeleteOptionsDialog, InfoDialog, NewSessionData,
-    NewSessionDialog, RenameDialog, UnifiedDeleteDialog, WelcomeDialog,
+    ChangelogDialog, ConfirmDialog, GroupDeleteOptionsDialog, HookTrustDialog, InfoDialog,
+    NewSessionData, NewSessionDialog, RenameDialog, UnifiedDeleteDialog, WelcomeDialog,
 };
 use super::diff::DiffView;
 use super::settings::SettingsView;
@@ -109,6 +110,9 @@ pub struct HomeView {
     pub(super) unified_delete_dialog: Option<UnifiedDeleteDialog>,
     pub(super) group_delete_options_dialog: Option<GroupDeleteOptionsDialog>,
     pub(super) rename_dialog: Option<RenameDialog>,
+    pub(super) hook_trust_dialog: Option<HookTrustDialog>,
+    /// Session data pending hook trust approval
+    pub(super) pending_hook_trust_data: Option<NewSessionData>,
     pub(super) welcome_dialog: Option<WelcomeDialog>,
     pub(super) changelog_dialog: Option<ChangelogDialog>,
     pub(super) info_dialog: Option<InfoDialog>,
@@ -132,6 +136,8 @@ pub struct HomeView {
     pub(super) creation_poller: CreationPoller,
     /// Set to true if user cancelled while creation was pending
     pub(super) creation_cancelled: bool,
+    /// Sessions whose on_launch hooks already ran in the creation poller
+    pub(super) on_launch_hooks_ran: HashSet<String>,
 
     // Performance: preview caching
     pub(super) preview_cache: PreviewCache,
@@ -150,6 +156,9 @@ pub struct HomeView {
 
     // Diff view
     pub(super) diff_view: Option<DiffView>,
+
+    // Resizable list column width (percentage-like units)
+    pub(super) list_width: u16,
 }
 
 impl HomeView {
@@ -192,6 +201,8 @@ impl HomeView {
             unified_delete_dialog: None,
             group_delete_options_dialog: None,
             rename_dialog: None,
+            hook_trust_dialog: None,
+            pending_hook_trust_data: None,
             welcome_dialog: None,
             changelog_dialog: None,
             info_dialog: None,
@@ -204,6 +215,7 @@ impl HomeView {
             deletion_poller: DeletionPoller::new(),
             creation_poller: CreationPoller::new(),
             creation_cancelled: false,
+            on_launch_hooks_ran: HashSet::new(),
             preview_cache: PreviewCache::default(),
             terminal_preview_cache: PreviewCache::default(),
             container_terminal_preview_cache: PreviewCache::default(),
@@ -212,6 +224,11 @@ impl HomeView {
             settings_view: None,
             settings_close_confirm: false,
             diff_view: None,
+            list_width: load_config()
+                .ok()
+                .flatten()
+                .and_then(|c| c.app_state.home_list_width)
+                .unwrap_or(35),
         };
 
         view.update_selected();
@@ -321,15 +338,24 @@ impl HomeView {
     }
 
     /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
-    pub fn request_creation(&mut self, data: NewSessionData) {
+    pub fn request_creation(
+        &mut self,
+        data: NewSessionData,
+        hooks: Option<crate::session::HooksConfig>,
+    ) {
+        let has_hooks = hooks
+            .as_ref()
+            .is_some_and(|h| !h.on_create.is_empty() || !h.on_launch.is_empty());
         if let Some(dialog) = &mut self.new_dialog {
             dialog.set_loading(true);
+            dialog.set_has_hooks(has_hooks);
         }
 
         self.creation_cancelled = false;
         let request = CreationRequest {
             data,
             existing_instances: self.instances.clone(),
+            hooks,
         };
         self.creation_poller.request_creation(request);
     }
@@ -373,6 +399,7 @@ impl HomeView {
             CreationResult::Success {
                 session_id,
                 instance,
+                on_launch_hooks_ran,
                 ..
             } => {
                 let instance = *instance;
@@ -387,6 +414,10 @@ impl HomeView {
                     .save_with_groups(&self.instances, &self.group_tree)
                 {
                     tracing::error!("Failed to save after creation: {}", e);
+                }
+
+                if on_launch_hooks_ran {
+                    self.on_launch_hooks_ran.insert(session_id.clone());
                 }
 
                 let _ = self.reload();
@@ -404,16 +435,25 @@ impl HomeView {
         }
     }
 
+    /// Check if on_launch hooks already ran for this session (and consume the flag).
+    pub fn take_on_launch_hooks_ran(&mut self, session_id: &str) -> bool {
+        self.on_launch_hooks_ran.remove(session_id)
+    }
+
     /// Check if there's a pending creation operation
     pub fn is_creation_pending(&self) -> bool {
         self.creation_poller.is_pending()
     }
 
-    /// Tick the dialog spinner animation if loading
+    /// Tick the dialog spinner animation if loading, and drain hook progress
     pub fn tick_dialog(&mut self) {
         if let Some(dialog) = &mut self.new_dialog {
             if dialog.is_loading() {
                 dialog.tick();
+                // Drain all pending hook progress messages
+                while let Some(progress) = self.creation_poller.try_recv_progress() {
+                    dialog.push_hook_progress(progress);
+                }
             }
         }
     }
@@ -425,11 +465,29 @@ impl HomeView {
             || self.unified_delete_dialog.is_some()
             || self.group_delete_options_dialog.is_some()
             || self.rename_dialog.is_some()
+            || self.hook_trust_dialog.is_some()
             || self.welcome_dialog.is_some()
             || self.changelog_dialog.is_some()
             || self.info_dialog.is_some()
             || self.settings_view.is_some()
             || self.diff_view.is_some()
+    }
+
+    pub fn shrink_list(&mut self) {
+        self.list_width = self.list_width.saturating_sub(5).max(10);
+        self.save_list_width();
+    }
+
+    pub fn grow_list(&mut self) {
+        self.list_width = (self.list_width + 5).min(80);
+        self.save_list_width();
+    }
+
+    fn save_list_width(&self) {
+        if let Ok(mut config) = load_config().map(|c| c.unwrap_or_default()) {
+            config.app_state.home_list_width = Some(self.list_width);
+            let _ = save_config(&config);
+        }
     }
 
     pub fn show_welcome(&mut self) {
