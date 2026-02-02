@@ -24,6 +24,16 @@
           "labeled_at": "2026-02-02T08:49:33.205Z"
         }
       ]
+    },
+    {
+      "username": "jlamberts",
+      "issues": [
+        {
+          "number": 208,
+          "title": "Feature: Pass env vars through to Tmux session when not in sandbox mode",
+          "labeled_at": "2026-02-02T08:52:42.570Z"
+        }
+      ]
     }
   ]
 }
