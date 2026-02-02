@@ -44,6 +44,16 @@
           "labeled_at": "2026-02-02T09:07:57.126Z"
         }
       ]
+    },
+    {
+      "username": "guillaumedeslandes",
+      "issues": [
+        {
+          "number": 144,
+          "title": "Linked worktree bare repos not recognized as git repositories",
+          "labeled_at": "2026-02-02T09:11:06.374Z"
+        }
+      ]
     }
   ]
 }
