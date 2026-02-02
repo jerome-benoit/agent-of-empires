@@ -452,6 +452,11 @@ impl SettingsView {
                     s.volume_ignores = None;
                 }
             }
+            FieldKey::MountSsh => {
+                if let Some(ref mut s) = self.profile_config.sandbox {
+                    s.mount_ssh = None;
+                }
+            }
             FieldKey::CpuLimit => {
                 if let Some(ref mut s) = self.profile_config.sandbox {
                     s.cpu_limit = None;
