@@ -62,26 +62,6 @@ This downloads and installs 10 CC0 (public domain) fantasy/RPG sounds from the G
 **Note:** Requires an internet connection for the initial download. Sounds are downloaded from:
 `https://github.com/njbrake/agent-of-empires/tree/main/bundled_sounds`
 
-### Install Age of Empires II Sounds
-
-If you own AoE II, manually copy the taunt `.wav` files from:
-```
-(AoE II directory)/resources/_common/sound/taunt/
-```
-or
-```
-(AoE II directory)/Sound/taunt/
-```
-
-To your sounds directory:
-```bash
-# Linux
-cp "/path/to/AoE2/resources/_common/sound/taunt/"*.wav ~/.config/agent-of-empires/sounds/
-
-# macOS
-cp "/path/to/AoE2/resources/_common/sound/taunt/"*.wav ~/.agent-of-empires/sounds/
-```
-
 ### Useful Commands
 
 **Check installed sounds:**
@@ -183,7 +163,7 @@ sudo pacman -S alsa-utils pulseaudio
 - Check logs: `AGENT_OF_EMPIRES_DEBUG=1 aoe`
 
 **Want Age of Empires II sounds?**
-If you own AoE II, manually copy the taunt files to your sounds directory (see Installation section above).
+If you own AoE II, manually copy the taunt files to your sounds directory.
 
 **Custom sounds aren't listed?**
 - Ensure files have `.wav` or `.ogg` extension
