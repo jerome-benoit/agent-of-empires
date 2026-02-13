@@ -357,7 +357,7 @@ impl Instance {
 
         let cmd = format!(
             "{} /bin/bash",
-            container.exec_command(Some(&format!("{} {}", container_workdir, env_part)))
+            container.exec_command(Some(&format!("-w {} {}", container_workdir, env_part)))
         );
 
         let session = self.container_terminal_tmux_session()?;

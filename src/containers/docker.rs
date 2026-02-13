@@ -1,6 +1,5 @@
 use super::container_interface::{ContainerConfig, ContainerRuntimeInterface};
 use super::error::{DockerError, Result};
-use serde_json::Value;
 use std::process::Command;
 
 #[derive(Default)]
@@ -105,27 +104,24 @@ impl ContainerRuntimeInterface for Docker {
     }
 
     fn does_container_exist(&self, name: &str) -> Result<bool> {
-        // container inspect returns success(0) for non-existent container
-        let output = Command::new("docker").args(["logs", name]).output()?;
+        let output = Command::new("docker")
+            .args(["container", "inspect", name])
+            .output()?;
 
         Ok(output.status.success())
     }
 
     fn is_container_running(&self, name: &str) -> Result<bool> {
-        let output = Command::new("docker").args(["inspect", name]).output()?;
+        let output = Command::new("docker")
+            .args(["container", "inspect", "-f", "{{.State.Running}}", name])
+            .output()?;
 
         if !output.status.success() {
             return Ok(false);
         }
 
-        let out_json: Value = serde_json::from_slice(&output.stdout)
-            .map_err(|e| DockerError::CommandFailed(e.to_string()))?;
-
-        if let Some(status) = out_json.pointer("/0/status") {
-            Ok(status == "running")
-        } else {
-            Ok(false)
-        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(stdout.trim() == "true")
     }
 
     fn create_container(

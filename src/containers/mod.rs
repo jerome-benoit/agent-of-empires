@@ -29,6 +29,18 @@ impl Default for ContainerRuntime {
     }
 }
 
+/// Returns the CLI binary name for the configured container runtime.
+pub fn runtime_binary() -> &'static str {
+    if let Ok(cfg) = Config::load() {
+        match cfg.sandbox.container_runtime {
+            ContainerRuntimeName::AppleContainer => "container",
+            ContainerRuntimeName::Docker => "docker",
+        }
+    } else {
+        "docker"
+    }
+}
+
 pub fn get_container_runtime() -> ContainerRuntime {
     if let Ok(cfg) = Config::load() {
         match cfg.sandbox.container_runtime {

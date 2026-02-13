@@ -262,9 +262,9 @@ impl ContainerRuntimeInterface for AppleContainer {
 
     fn exec_command(&self, name: &str, options: Option<&str>) -> String {
         if let Some(opt_str) = options {
-            ["container", "exec", "-it", opt_str, name, "sh", "-c"].join(" ")
+            ["container", "exec", "-it", opt_str, name].join(" ")
         } else {
-            ["container", "exec", "-it", name, "sh", "-c"].join(" ")
+            ["container", "exec", "-it", name].join(" ")
         }
     }
 

@@ -192,7 +192,7 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
                 .sandbox_image
                 .as_ref()
                 .map(|s| s.trim().to_string())
-                .unwrap_or(runtime.effective_default_image());
+                .unwrap_or_else(|| runtime.effective_default_image());
             instance.sandbox_info = Some(SandboxInfo {
                 enabled: true,
                 container_id: None,
