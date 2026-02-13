@@ -7,7 +7,7 @@ use std::process::Command;
 pub struct AppleContainer;
 
 impl ContainerRuntimeInterface for AppleContainer {
-    fn is_docker_available(&self) -> bool {
+    fn is_available(&self) -> bool {
         Command::new("container")
             .arg("--version")
             .output()
@@ -23,7 +23,7 @@ impl ContainerRuntimeInterface for AppleContainer {
             .unwrap_or(false)
     }
 
-    fn get_docker_version(&self) -> Result<String> {
+    fn get_version(&self) -> Result<String> {
         let output = Command::new("container").arg("--version").output()?;
 
         if !output.status.success() {
@@ -138,11 +138,14 @@ impl ContainerRuntimeInterface for AppleContainer {
         ];
 
         for vol in &config.volumes {
-            let mount = if vol.read_only {
-                format!("{}:{}:ro", vol.host_path, vol.container_path)
-            } else {
-                format!("{}:{}", vol.host_path, vol.container_path)
-            };
+            // Apple Container does not support read-only volumes
+            if vol.read_only {
+                tracing::warn!(
+                    "Apple Container does not support read-only volumes, mounting {} read-write",
+                    vol.container_path
+                );
+            }
+            let mount = format!("{}:{}", vol.host_path, vol.container_path);
             args.push("-v".to_string());
             args.push(mount);
         }
@@ -189,51 +192,8 @@ impl ContainerRuntimeInterface for AppleContainer {
             return Err(DockerError::ContainerAlreadyExists(name.to_string()));
         }
 
-        let mut args = vec![
-            "run".to_string(),
-            "-d".to_string(),
-            "--name".to_string(),
-            name.to_string(),
-            "-w".to_string(),
-            config.working_dir.clone(),
-        ];
-
-        for vol in &config.volumes {
-            if vol.read_only {
-                tracing::warn!(
-                    "apple container does not support read-only volume, will mount read-write."
-                );
-            }
-            let mount = format!("{}:{}", vol.host_path, vol.container_path);
-            args.push("-v".to_string());
-            args.push(mount);
-        }
-
-        for (vol_name, container_path) in &config.named_volumes {
-            args.push("-v".to_string());
-            args.push(format!("{}:{}", vol_name, container_path));
-        }
-
-        for (key, value) in &config.environment {
-            args.push("-e".to_string());
-            args.push(format!("{}={}", key, value));
-        }
-
-        if let Some(cpu) = &config.cpu_limit {
-            args.push("--cpus".to_string());
-            args.push(cpu.clone());
-        }
-
-        if let Some(mem) = &config.memory_limit {
-            args.push("-m".to_string());
-            args.push(mem.clone());
-        }
-
-        args.push(image.to_string());
-        args.push("sleep".to_string());
-        args.push("infinity".to_string());
-
-        tracing::debug!("args to container command: {}", args.join(" "));
+        let args = self.build_create_args(name, image, config);
+        tracing::debug!("Apple Container create args: {}", args.join(" "));
         let output = Command::new("container").args(&args).output()?;
 
         if !output.status.success() {
@@ -325,7 +285,7 @@ mod tests {
 
     fn get_apple_container_runtime_if_available() -> Option<AppleContainer> {
         let apple_container = AppleContainer;
-        if !apple_container.is_docker_available() || !apple_container.is_daemon_running() {
+        if !apple_container.is_available() || !apple_container.is_daemon_running() {
             None
         } else {
             Some(apple_container)

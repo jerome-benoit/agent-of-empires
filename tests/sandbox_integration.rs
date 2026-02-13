@@ -10,7 +10,7 @@ use agent_of_empires::session::{Instance, SandboxInfo, Storage};
 
 fn docker_available() -> bool {
     let rt = containers::get_container_runtime();
-    rt.is_docker_available() && rt.is_daemon_running()
+    rt.is_available() && rt.is_daemon_running()
 }
 
 #[test]

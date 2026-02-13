@@ -177,11 +177,12 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
 
     let runtime = containers::get_container_runtime();
     if use_sandbox || config.sandbox.enabled_by_default {
-        if !runtime.is_docker_available() {
+        if !runtime.is_available() {
             if use_sandbox {
                 bail!(
-                    "Docker is not installed or not accessible.\n\
+                    "Container runtime is not installed or not accessible.\n\
                      Install Docker: https://docs.docker.com/get-docker/\n\
+                     Or on macOS: Apple Container\n\
                      Tip: Use 'aoe add' without --sandbox to run directly on host"
                 );
             }

@@ -7,7 +7,7 @@ use std::process::Command;
 pub struct Docker;
 
 impl ContainerRuntimeInterface for Docker {
-    fn is_docker_available(&self) -> bool {
+    fn is_available(&self) -> bool {
         Command::new("docker")
             .arg("--version")
             .output()
@@ -23,7 +23,7 @@ impl ContainerRuntimeInterface for Docker {
             .unwrap_or(false)
     }
 
-    fn get_docker_version(&self) -> Result<String> {
+    fn get_version(&self) -> Result<String> {
         let output = Command::new("docker").arg("--version").output()?;
 
         if !output.status.success() {
@@ -138,45 +138,8 @@ impl ContainerRuntimeInterface for Docker {
             return Err(DockerError::ContainerAlreadyExists(name.to_string()));
         }
 
-        let mut args = vec![
-            "run".to_string(),
-            "-d".to_string(),
-            "--name".to_string(),
-            name.to_string(),
-            "-w".to_string(),
-            config.working_dir.clone(),
-        ];
-
-        for vol in &config.volumes {
-            let mount = format!("{}:{}", vol.host_path, vol.container_path);
-            args.push("-v".to_string());
-            args.push(mount);
-        }
-
-        for (vol_name, container_path) in &config.named_volumes {
-            args.push("-v".to_string());
-            args.push(format!("{}:{}", vol_name, container_path));
-        }
-
-        for (key, value) in &config.environment {
-            args.push("-e".to_string());
-            args.push(format!("{}={}", key, value));
-        }
-
-        if let Some(cpu) = &config.cpu_limit {
-            args.push("--cpus".to_string());
-            args.push(cpu.clone());
-        }
-
-        if let Some(mem) = &config.memory_limit {
-            args.push("-m".to_string());
-            args.push(mem.clone());
-        }
-
-        args.push(image.to_string());
-        args.push("sleep".to_string());
-        args.push("infinity".to_string());
-
+        let args = self.build_create_args(name, image, config);
+        tracing::debug!("Docker create args: {}", args.join(" "));
         let output = Command::new("docker").args(&args).output()?;
 
         if !output.status.success() {
@@ -319,7 +282,7 @@ mod tests {
 
     fn get_docker_runtime_if_available() -> Option<Docker> {
         let docker = Docker;
-        if !docker.is_docker_available() || !docker.is_daemon_running() {
+        if !docker.is_available() || !docker.is_daemon_running() {
             None
         } else {
             Some(docker)

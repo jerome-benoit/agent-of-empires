@@ -148,7 +148,7 @@ impl NewSessionDialog {
             .unwrap_or_default();
 
         let available_tools = tools.available_list();
-        let docker_available = containers::get_container_runtime().is_docker_available();
+        let docker_available = containers::get_container_runtime().is_available();
 
         // Load resolved config (global merged with profile overrides)
         let config = resolve_config(profile).unwrap_or_default();

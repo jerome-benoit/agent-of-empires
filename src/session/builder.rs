@@ -54,11 +54,11 @@ pub struct CreatedWorktree {
 pub fn build_instance(params: InstanceParams, existing_titles: &[&str]) -> Result<BuildResult> {
     if params.sandbox {
         let runtime = containers::get_container_runtime();
-        if !runtime.is_docker_available() {
-            bail!("Docker is not installed. Please install Docker to use sandbox mode.");
+        if !runtime.is_available() {
+            bail!("Container runtime is not installed. Please install Docker or Apple Container to use sandbox mode.");
         }
         if !runtime.is_daemon_running() {
-            bail!("Docker daemon is not running. Please start Docker to use sandbox mode.");
+            bail!("Container runtime daemon is not running. Please start Docker or Apple Container to use sandbox mode.");
         }
     }
 

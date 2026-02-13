@@ -19,12 +19,14 @@ pub struct ContainerConfig {
 
 #[enum_dispatch]
 pub trait ContainerRuntimeInterface {
-    // backend stuff
-    fn is_docker_available(&self) -> bool;
+    /// Check if the container runtime CLI is available
+    fn is_available(&self) -> bool;
 
+    /// Check if the container runtime daemon is running
     fn is_daemon_running(&self) -> bool;
 
-    fn get_docker_version(&self) -> Result<String>;
+    /// Get the container runtime version string
+    fn get_version(&self) -> Result<String>;
 
     fn pull_image(&self, image: &str) -> Result<()>;
 

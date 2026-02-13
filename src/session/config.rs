@@ -227,17 +227,18 @@ pub struct SandboxConfig {
     #[serde(default)]
     pub volume_ignores: Vec<String>,
 
+    /// Mount ~/.ssh into sandbox containers (for git SSH access)
     #[serde(default = "default_true")]
-    pub share_ssh_folder: bool,
+    pub mount_ssh: bool,
 
+    /// Container runtime to use for sandboxing (docker or apple_container)
     #[serde(default)]
     pub container_runtime: ContainerRuntimeName,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
-#[serde(rename_all = "lowercase")]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ContainerRuntimeName {
-    #[serde(rename = "apple_container")]
     AppleContainer,
     #[default]
     Docker,
@@ -257,7 +258,7 @@ impl Default for SandboxConfig {
             memory_limit: None,
             default_terminal_mode: DefaultTerminalMode::default(),
             volume_ignores: Vec::new(),
-            share_ssh_folder: true,
+            mount_ssh: true,
             container_runtime: ContainerRuntimeName::default(),
         }
     }

@@ -476,9 +476,9 @@ impl Instance {
             }
         };
 
-        tracing::info!(
-            "container cmd is {}.",
-            cmd.as_ref().map_or("not found.", |v| v)
+        tracing::debug!(
+            "container cmd: {}",
+            cmd.as_ref().map_or("none", |v| v)
         );
         session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
 
@@ -661,16 +661,13 @@ impl Instance {
 
         const CONTAINER_HOME: &str = "/root";
 
-        #[cfg(not(target_os = "macos"))]
-        {
-            let gitconfig = home.join(".gitconfig");
-            if gitconfig.exists() {
-                volumes.push(VolumeMount {
-                    host_path: gitconfig.to_string_lossy().to_string(),
-                    container_path: format!("{}/.gitconfig", CONTAINER_HOME),
-                    read_only: true,
-                });
-            }
+        let gitconfig = home.join(".gitconfig");
+        if gitconfig.exists() {
+            volumes.push(VolumeMount {
+                host_path: gitconfig.to_string_lossy().to_string(),
+                container_path: format!("{}/.gitconfig", CONTAINER_HOME),
+                read_only: true,
+            });
         }
 
         let ssh_dir = home.join(".ssh");
