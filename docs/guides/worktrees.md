@@ -33,8 +33,8 @@ aoe worktree cleanup
 # Remove session (prompts for worktree cleanup)
 aoe remove <session>
 
-# Remove session (keep worktree)
-aoe remove <session> --keep-worktree
+# Remove session and delete worktree
+aoe remove <session> --delete-worktree
 ```
 
 ## TUI Keyboard Shortcuts
@@ -58,6 +58,7 @@ path_template = "../{repo-name}-worktrees/{branch}"
 bare_repo_path_template = "./{branch}"
 auto_cleanup = true
 show_branch_in_tui = true
+delete_branch_on_cleanup = false
 ```
 
 ### Template Variables
@@ -93,7 +94,7 @@ path_template = "../wt/{branch}-{session-id}"
 |----------|-----------------|
 | aoe-managed worktree | Yes |
 | Manual worktree | No |
-| `--keep-worktree` flag | No (skips prompt) |
+| `--delete-worktree` flag | Yes (deletes worktree) |
 | Non-worktree session | No |
 
 ## Auto-Detection

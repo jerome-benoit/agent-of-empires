@@ -1,6 +1,7 @@
 //! User configuration management
 
 use super::get_app_dir;
+use super::repo_config::HooksConfig;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -37,6 +38,12 @@ pub struct Config {
     pub diff: DiffConfig,
 
     #[serde(default)]
+    pub hooks: HooksConfig,
+
+    #[serde(default)]
+    pub sound: crate::sound::SoundConfig,
+
+    #[serde(default)]
     pub app_state: AppStateConfig,
 }
 
@@ -53,6 +60,9 @@ pub struct AppStateConfig {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diff_file_list_width: Option<u16>,
+
+    #[serde(default)]
+    pub has_seen_custom_instruction_warning: bool,
 }
 
 /// Session-related configuration defaults
@@ -227,15 +237,20 @@ pub struct SandboxConfig {
     #[serde(default)]
     pub volume_ignores: Vec<String>,
 
-    /// Mount ~/.ssh into sandbox containers (for git SSH access)
-    #[serde(default = "default_true")]
+    /// Mount ~/.ssh into sandbox containers (default: false)
+    #[serde(default)]
     pub mount_ssh: bool,
+
+    /// Custom instruction text appended to the agent's system prompt in sandboxed sessions
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_instruction: Option<String>,
 
     /// Container runtime to use for sandboxing (docker or apple_container)
     #[serde(default)]
     pub container_runtime: ContainerRuntimeName,
 }
 
+/// Container runtime options for sandboxing
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ContainerRuntimeName {
@@ -258,7 +273,8 @@ impl Default for SandboxConfig {
             memory_limit: None,
             default_terminal_mode: DefaultTerminalMode::default(),
             volume_ignores: Vec::new(),
-            mount_ssh: true,
+            mount_ssh: false,
+            custom_instruction: None,
             container_runtime: ContainerRuntimeName::default(),
         }
     }
@@ -389,10 +405,7 @@ pub fn load_config() -> Result<Option<Config>> {
     if !path.exists() {
         return Ok(None);
     }
-
-    let content = fs::read_to_string(&path)?;
-    let config: Config = toml::from_str(&content)?;
-    Ok(Some(config))
+    Ok(Some(Config::load()?))
 }
 
 pub fn save_config(config: &Config) -> Result<()> {

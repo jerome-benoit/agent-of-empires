@@ -24,6 +24,7 @@ fn test_sandbox_info_serialization() {
         yolo_mode: None,
         extra_env_keys: Some(vec!["MY_VAR".to_string()]),
         extra_env_values: None,
+        custom_instruction: None,
     };
 
     let json = serde_json::to_string(&sandbox_info).unwrap();
@@ -53,6 +54,7 @@ fn test_instance_is_sandboxed() {
         yolo_mode: None,
         extra_env_keys: None,
         extra_env_values: None,
+        custom_instruction: None,
     });
     assert!(inst.is_sandboxed());
 
@@ -65,6 +67,7 @@ fn test_instance_is_sandboxed() {
         yolo_mode: None,
         extra_env_keys: None,
         extra_env_values: None,
+        custom_instruction: None,
     });
     assert!(!inst.is_sandboxed());
 }
@@ -86,6 +89,7 @@ fn test_sandbox_info_persists_across_save_load() {
         yolo_mode: Some(true),
         extra_env_keys: Some(vec!["API_KEY".to_string(), "SECRET".to_string()]),
         extra_env_values: None,
+        custom_instruction: None,
     });
 
     storage.save(&[inst.clone()]).unwrap();

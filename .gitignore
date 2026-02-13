@@ -1,3 +1,6 @@
+# Claude artifacts (allow .claude/skills/ for cross-agent skills)
+.claude/*
+!.claude/skills/
 # Rust build artifacts
 /target/
 Cargo.lock
@@ -42,6 +45,10 @@ Thumbs.db
 # Per-repo aoe config (created by `aoe init`, should be committed per-repo by users)
 # Ignored here since this is the aoe tool repo itself
 .aoe/
+
+# Spec Kit
+.genreleases/
+sdd-*/
 
 # Personal/local files
 *.screenstudio/

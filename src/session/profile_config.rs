@@ -34,6 +34,12 @@ pub struct ProfileConfig {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionConfigOverride>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hooks: Option<HooksConfigOverride>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<crate::sound::SoundConfigOverride>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -118,6 +124,12 @@ pub struct SandboxConfigOverride {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volume_ignores: Option<Vec<String>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mount_ssh: Option<bool>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_instruction: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -133,6 +145,15 @@ pub struct TmuxConfigOverride {
 pub struct SessionConfigOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_tool: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HooksConfigOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_create: Option<Vec<String>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_launch: Option<Vec<String>>,
 }
 
 /// Load profile-specific config. Returns empty config if file doesn't exist.
@@ -171,6 +192,8 @@ pub fn profile_has_overrides(config: &ProfileConfig) -> bool {
         || config.sandbox.is_some()
         || config.tmux.is_some()
         || config.session.is_some()
+        || config.hooks.is_some()
+        || config.sound.is_some()
 }
 
 /// Load effective config for a profile (global + profile overrides merged)
@@ -180,23 +203,124 @@ pub fn resolve_config(profile: &str) -> Result<Config> {
     Ok(merge_configs(global, &profile_config))
 }
 
+/// Apply sandbox config overrides to a target config.
+pub fn apply_sandbox_overrides(
+    target: &mut super::config::SandboxConfig,
+    source: &SandboxConfigOverride,
+) {
+    if let Some(enabled_by_default) = source.enabled_by_default {
+        target.enabled_by_default = enabled_by_default;
+    }
+    if let Some(yolo_mode_default) = source.yolo_mode_default {
+        target.yolo_mode_default = yolo_mode_default;
+    }
+    if let Some(ref default_image) = source.default_image {
+        target.default_image = default_image.clone();
+    }
+    if let Some(ref extra_volumes) = source.extra_volumes {
+        target.extra_volumes = extra_volumes.clone();
+    }
+    if let Some(ref environment) = source.environment {
+        target.environment = environment.clone();
+    }
+    if let Some(ref environment_values) = source.environment_values {
+        target.environment_values = environment_values.clone();
+    }
+    if let Some(auto_cleanup) = source.auto_cleanup {
+        target.auto_cleanup = auto_cleanup;
+    }
+    if let Some(ref cpu_limit) = source.cpu_limit {
+        target.cpu_limit = Some(cpu_limit.clone());
+    }
+    if let Some(ref memory_limit) = source.memory_limit {
+        target.memory_limit = Some(memory_limit.clone());
+    }
+    if let Some(default_terminal_mode) = source.default_terminal_mode {
+        target.default_terminal_mode = default_terminal_mode;
+    }
+    if let Some(ref volume_ignores) = source.volume_ignores {
+        target.volume_ignores = volume_ignores.clone();
+    }
+    if let Some(mount_ssh) = source.mount_ssh {
+        target.mount_ssh = mount_ssh;
+    }
+    if let Some(ref custom_instruction) = source.custom_instruction {
+        target.custom_instruction = Some(custom_instruction.clone());
+    }
+}
+
+/// Apply worktree config overrides to a target config.
+pub fn apply_worktree_overrides(
+    target: &mut super::config::WorktreeConfig,
+    source: &WorktreeConfigOverride,
+) {
+    if let Some(enabled) = source.enabled {
+        target.enabled = enabled;
+    }
+    if let Some(ref path_template) = source.path_template {
+        target.path_template = path_template.clone();
+    }
+    if let Some(ref bare_repo_path_template) = source.bare_repo_path_template {
+        target.bare_repo_path_template = bare_repo_path_template.clone();
+    }
+    if let Some(auto_cleanup) = source.auto_cleanup {
+        target.auto_cleanup = auto_cleanup;
+    }
+    if let Some(show_branch_in_tui) = source.show_branch_in_tui {
+        target.show_branch_in_tui = show_branch_in_tui;
+    }
+    if let Some(delete_branch_on_cleanup) = source.delete_branch_on_cleanup {
+        target.delete_branch_on_cleanup = delete_branch_on_cleanup;
+    }
+}
+
+/// Apply hooks config overrides to a target config.
+pub fn apply_hooks_overrides(
+    target: &mut crate::session::repo_config::HooksConfig,
+    source: &HooksConfigOverride,
+) {
+    if let Some(ref on_create) = source.on_create {
+        target.on_create = on_create.clone();
+    }
+    if let Some(ref on_launch) = source.on_launch {
+        target.on_launch = on_launch.clone();
+    }
+}
+
+/// Apply session config overrides to a target config.
+pub fn apply_session_overrides(
+    target: &mut super::config::SessionConfig,
+    source: &SessionConfigOverride,
+) {
+    if source.default_tool.is_some() {
+        target.default_tool = source.default_tool.clone();
+    }
+}
+
+/// Apply tmux config overrides to a target config.
+pub fn apply_tmux_overrides(target: &mut super::config::TmuxConfig, source: &TmuxConfigOverride) {
+    if let Some(status_bar) = source.status_bar {
+        target.status_bar = status_bar;
+    }
+    if let Some(mouse) = source.mouse {
+        target.mouse = mouse;
+    }
+}
+
 /// Merge profile overrides into global config
 pub fn merge_configs(mut global: Config, profile: &ProfileConfig) -> Config {
-    // Theme
     if let Some(ref theme_override) = profile.theme {
         if let Some(ref name) = theme_override.name {
             global.theme.name = name.clone();
         }
     }
 
-    // Claude
     if let Some(ref claude_override) = profile.claude {
         if claude_override.config_dir.is_some() {
             global.claude.config_dir = claude_override.config_dir.clone();
         }
     }
 
-    // Updates
     if let Some(ref updates_override) = profile.updates {
         if let Some(check_enabled) = updates_override.check_enabled {
             global.updates.check_enabled = check_enabled;
@@ -212,80 +336,28 @@ pub fn merge_configs(mut global: Config, profile: &ProfileConfig) -> Config {
         }
     }
 
-    // Worktree
     if let Some(ref worktree_override) = profile.worktree {
-        if let Some(enabled) = worktree_override.enabled {
-            global.worktree.enabled = enabled;
-        }
-        if let Some(ref path_template) = worktree_override.path_template {
-            global.worktree.path_template = path_template.clone();
-        }
-        if let Some(ref bare_repo_path_template) = worktree_override.bare_repo_path_template {
-            global.worktree.bare_repo_path_template = bare_repo_path_template.clone();
-        }
-        if let Some(auto_cleanup) = worktree_override.auto_cleanup {
-            global.worktree.auto_cleanup = auto_cleanup;
-        }
-        if let Some(show_branch_in_tui) = worktree_override.show_branch_in_tui {
-            global.worktree.show_branch_in_tui = show_branch_in_tui;
-        }
-        if let Some(delete_branch_on_cleanup) = worktree_override.delete_branch_on_cleanup {
-            global.worktree.delete_branch_on_cleanup = delete_branch_on_cleanup;
-        }
+        apply_worktree_overrides(&mut global.worktree, worktree_override);
     }
 
-    // Sandbox
     if let Some(ref sandbox_override) = profile.sandbox {
-        if let Some(enabled_by_default) = sandbox_override.enabled_by_default {
-            global.sandbox.enabled_by_default = enabled_by_default;
-        }
-        if let Some(yolo_mode_default) = sandbox_override.yolo_mode_default {
-            global.sandbox.yolo_mode_default = yolo_mode_default;
-        }
-        if let Some(ref default_image) = sandbox_override.default_image {
-            global.sandbox.default_image = default_image.clone();
-        }
-        if let Some(ref extra_volumes) = sandbox_override.extra_volumes {
-            global.sandbox.extra_volumes = extra_volumes.clone();
-        }
-        if let Some(ref environment) = sandbox_override.environment {
-            global.sandbox.environment = environment.clone();
-        }
-        if let Some(ref environment_values) = sandbox_override.environment_values {
-            global.sandbox.environment_values = environment_values.clone();
-        }
-        if let Some(auto_cleanup) = sandbox_override.auto_cleanup {
-            global.sandbox.auto_cleanup = auto_cleanup;
-        }
-        if let Some(ref cpu_limit) = sandbox_override.cpu_limit {
-            global.sandbox.cpu_limit = Some(cpu_limit.clone());
-        }
-        if let Some(ref memory_limit) = sandbox_override.memory_limit {
-            global.sandbox.memory_limit = Some(memory_limit.clone());
-        }
-        if let Some(default_terminal_mode) = sandbox_override.default_terminal_mode {
-            global.sandbox.default_terminal_mode = default_terminal_mode;
-        }
-        if let Some(ref volume_ignores) = sandbox_override.volume_ignores {
-            global.sandbox.volume_ignores = volume_ignores.clone();
-        }
+        apply_sandbox_overrides(&mut global.sandbox, sandbox_override);
     }
 
-    // Tmux
     if let Some(ref tmux_override) = profile.tmux {
-        if let Some(status_bar) = tmux_override.status_bar {
-            global.tmux.status_bar = status_bar;
-        }
-        if let Some(mouse) = tmux_override.mouse {
-            global.tmux.mouse = mouse;
-        }
+        apply_tmux_overrides(&mut global.tmux, tmux_override);
     }
 
-    // Session
     if let Some(ref session_override) = profile.session {
-        if session_override.default_tool.is_some() {
-            global.session.default_tool = session_override.default_tool.clone();
-        }
+        apply_session_overrides(&mut global.session, session_override);
+    }
+
+    if let Some(ref hooks_override) = profile.hooks {
+        apply_hooks_overrides(&mut global.hooks, hooks_override);
+    }
+
+    if let Some(ref sound_override) = profile.sound {
+        crate::sound::apply_sound_overrides(&mut global.sound, sound_override);
     }
 
     global

@@ -46,6 +46,7 @@ aoe remove <session> --keep-container
 ```toml
 [sandbox]
 enabled_by_default = false
+yolo_mode_default = false
 default_image = "ghcr.io/njbrake/aoe-sandbox:latest"
 auto_cleanup = true
 cpu_limit = "4"
@@ -58,13 +59,16 @@ environment = ["ANTHROPIC_API_KEY"]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `enabled_by_default` | `false` | Auto-enable sandbox for new sessions |
+| `yolo_mode_default` | `false` | Skip agent permission prompts in sandboxed sessions |
 | `default_image` | `ghcr.io/njbrake/aoe-sandbox:latest` | Docker image to use |
 | `auto_cleanup` | `true` | Remove containers when sessions are deleted |
 | `cpu_limit` | (none) | CPU limit (e.g., "4") |
 | `memory_limit` | (none) | Memory limit (e.g., "8g") |
 | `environment` | `[]` | Env var names to pass through from host |
 | `environment_values` | `{}` | Env vars with explicit values to inject (see below) |
+| `volume_ignores` | `[]` | Directories to exclude from the project mount via anonymous volumes |
 | `extra_volumes` | `[]` | Additional volume mounts |
+| `default_terminal_mode` | `"host"` | Paired terminal location: `"host"` (on host machine) or `"container"` (inside Docker) |
 
 ## Volume Mounts
 
@@ -89,10 +93,6 @@ environment = ["ANTHROPIC_API_KEY"]
 | `aoe-gemini-auth` | `/root/.gemini/` | Gemini CLI credentials |
 
 **Note:** Auth persists across containers. First session requires authentication, subsequent sessions reuse it.
-
-### Source Code Reference
-
-Volume mounts are defined in `src/session/instance.rs` in the `build_container_config()` method (lines 207-274). The actual Docker `-v` arguments are constructed in `src/docker/container.rs` in the `run_container()` function (lines 89-101).
 
 ## Container Naming
 
@@ -286,4 +286,36 @@ git fetch origin
 git worktree add main main
 ```
 
-See the [Worktrees Guide](worktrees.md#bare-repo-workflow-recommended-for-sandboxing) for detailed setup instructions.
+See the [Workflow Guide](workflow.md) for detailed bare repo setup instructions.
+
+## Troubleshooting
+
+### Container killed due to memory (OOM)
+
+**Symptoms:** Your sandboxed session exits unexpectedly, the container disappears, or you see "Killed" in the output. Running `docker inspect <container>` shows `OOMKilled: true`.
+
+**Cause:** On macOS (and Windows), Docker runs inside a Linux VM with a fixed memory ceiling. Docker Desktop defaults to 2 GB for the entire VM. If a container tries to use more memory than the VM has available, the Linux OOM killer terminates it. This commonly happens with AI coding agents that load large language model contexts or process big codebases.
+
+**Fix:**
+
+1. **Increase Docker Desktop VM memory:**
+   Open Docker Desktop, go to **Settings > Resources > Advanced**, increase the **Memory** slider (8 GB+ recommended for AI coding agents), then click **Apply & Restart**.
+
+2. **Set a per-container memory limit** in your AOE config (`~/.agent-of-empires/config.toml`) so containers have an explicit allocation rather than competing for the VM's total memory:
+
+   ```toml
+   [sandbox]
+   memory_limit = "8g"
+   ```
+
+   The per-container limit must be less than or equal to the Docker Desktop VM memory. If you set `memory_limit = "8g"` but your VM only has 4 GB, the container will still be OOM-killed.
+
+3. **Verify the fix:** Start a new session and check the container's limit:
+
+   ```bash
+   docker stats --no-stream
+   ```
+
+   The `MEM LIMIT` column should reflect your configured value.
+
+**Note:** On Linux, Docker runs natively without a VM, so the memory ceiling is your host's physical RAM. You typically only need `memory_limit` on Linux to prevent a single container from consuming all system memory.

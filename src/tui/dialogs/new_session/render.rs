@@ -74,18 +74,9 @@ impl NewSessionDialog {
             .sum();
         let dialog_height = fields_height + 4; // +2 border, +2 margin
 
-        let x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
-        let y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
+        let dialog_area = crate::tui::dialogs::centered_rect(area, dialog_width, dialog_height);
 
-        let dialog_area = Rect {
-            x,
-            y,
-            width: dialog_width.min(area.width),
-            height: dialog_height.min(area.height),
-        };
-
-        let clear = Clear;
-        frame.render_widget(clear, dialog_area);
+        frame.render_widget(Clear, dialog_area);
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -106,10 +97,22 @@ impl NewSessionDialog {
         let mut ci = 0; // chunk index
 
         // Title, Path, Group (always visible)
+        let group_placeholder = if !self.existing_groups.is_empty() && self.focused_field == 2 {
+            Some("(Ctrl+P to browse groups)")
+        } else {
+            None
+        };
+
+        let path_placeholder = if self.focused_field == 1 {
+            Some("(Ctrl+P to browse directories)")
+        } else {
+            None
+        };
+
         let text_fields: [(&str, &tui_input::Input, Option<&str>); 3] = [
             ("Title:", &self.title, Some("(random civ)")),
-            ("Path:", &self.path, None),
-            ("Group:", &self.group, None),
+            ("Path:", &self.path, path_placeholder),
+            ("Group:", &self.group, group_placeholder),
         ];
 
         for (idx, (label, input, placeholder)) in text_fields.iter().enumerate() {
@@ -166,13 +169,18 @@ impl NewSessionDialog {
         ci += 1;
 
         // Worktree Branch (always visible)
+        let worktree_placeholder = if self.focused_field == worktree_field {
+            Some("(leave empty to skip | Ctrl+P to browse branches)")
+        } else {
+            Some("(leave empty to skip worktree)")
+        };
         render_text_field(
             frame,
             chunks[ci],
             "Worktree Branch:",
             &self.worktree_branch,
             self.focused_field == worktree_field,
-            Some("(leave empty to skip worktree)"),
+            worktree_placeholder,
             theme,
         );
         ci += 1;
@@ -318,36 +326,49 @@ impl NewSessionDialog {
                 .wrap(Wrap { trim: true });
             frame.render_widget(error_paragraph, chunks[hint_chunk]);
         } else {
-            let hint = if has_tool_selection {
-                Line::from(vec![
-                    Span::styled("Tab", Style::default().fg(theme.hint)),
-                    Span::raw(" next  "),
-                    Span::styled("←/→", Style::default().fg(theme.hint)),
-                    Span::raw(" tool  "),
-                    Span::styled("Enter", Style::default().fg(theme.hint)),
-                    Span::raw(" create  "),
-                    Span::styled("?", Style::default().fg(theme.hint)),
-                    Span::raw(" help  "),
-                    Span::styled("Esc", Style::default().fg(theme.hint)),
-                    Span::raw(" cancel"),
-                ])
-            } else {
-                Line::from(vec![
-                    Span::styled("Tab", Style::default().fg(theme.hint)),
-                    Span::raw(" next  "),
-                    Span::styled("Enter", Style::default().fg(theme.hint)),
-                    Span::raw(" create  "),
-                    Span::styled("?", Style::default().fg(theme.hint)),
-                    Span::raw(" help  "),
-                    Span::styled("Esc", Style::default().fg(theme.hint)),
-                    Span::raw(" cancel"),
-                ])
-            };
-            frame.render_widget(Paragraph::new(hint), chunks[hint_chunk]);
+            let mut hint_spans = vec![
+                Span::styled("Tab", Style::default().fg(theme.hint)),
+                Span::raw(" next  "),
+            ];
+            if has_tool_selection {
+                hint_spans.push(Span::styled("←/→", Style::default().fg(theme.hint)));
+                hint_spans.push(Span::raw(" tool  "));
+            }
+            if self.focused_field == 1 {
+                hint_spans.push(Span::styled("C-p", Style::default().fg(theme.hint)));
+                hint_spans.push(Span::raw(" browse  "));
+            }
+            if self.focused_field == 2 && !self.existing_groups.is_empty() {
+                hint_spans.push(Span::styled("C-p", Style::default().fg(theme.hint)));
+                hint_spans.push(Span::raw(" groups  "));
+            }
+            if self.focused_field == worktree_field {
+                hint_spans.push(Span::styled("C-p", Style::default().fg(theme.hint)));
+                hint_spans.push(Span::raw(" branches  "));
+            }
+            hint_spans.push(Span::styled("Enter", Style::default().fg(theme.hint)));
+            hint_spans.push(Span::raw(" create  "));
+            hint_spans.push(Span::styled("?", Style::default().fg(theme.hint)));
+            hint_spans.push(Span::raw(" help  "));
+            hint_spans.push(Span::styled("Esc", Style::default().fg(theme.hint)));
+            hint_spans.push(Span::raw(" cancel"));
+            frame.render_widget(Paragraph::new(Line::from(hint_spans)), chunks[hint_chunk]);
         }
 
         if self.show_help {
             self.render_help_overlay(frame, area, theme);
+        }
+
+        if self.group_picker.is_active() {
+            self.group_picker.render(frame, area, theme);
+        }
+
+        if self.branch_picker.is_active() {
+            self.branch_picker.render(frame, area, theme);
+        }
+
+        if self.dir_picker.is_active() {
+            self.dir_picker.render(frame, area, theme);
         }
     }
 
@@ -587,15 +608,7 @@ impl NewSessionDialog {
             + if has_sandbox { 3 } else { 0 }
             + if show_sandbox_options_help { 12 } else { 0 }; // Image, YOLO, Env, Env Values
 
-        let x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
-        let y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
-
-        let dialog_area = Rect {
-            x,
-            y,
-            width: dialog_width.min(area.width),
-            height: dialog_height.min(area.height),
-        };
+        let dialog_area = crate::tui::dialogs::centered_rect(area, dialog_width, dialog_height);
 
         frame.render_widget(Clear, dialog_area);
 
@@ -673,15 +686,7 @@ impl NewSessionDialog {
             7
         };
 
-        let x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
-        let y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
-
-        let dialog_area = Rect {
-            x,
-            y,
-            width: dialog_width.min(area.width),
-            height: dialog_height.min(area.height),
-        };
+        let dialog_area = crate::tui::dialogs::centered_rect(area, dialog_width, dialog_height);
 
         frame.render_widget(Clear, dialog_area);
 
@@ -710,7 +715,9 @@ impl NewSessionDialog {
                 // Truncate long commands to fit the dialog
                 let max_cmd_len = (dialog_width as usize).saturating_sub(12);
                 if cmd.len() > max_cmd_len {
-                    format!("{}...", &cmd[..max_cmd_len.saturating_sub(3)])
+                    let truncated: String =
+                        cmd.chars().take(max_cmd_len.saturating_sub(3)).collect();
+                    format!("{}...", truncated)
                 } else {
                     cmd.clone()
                 }
@@ -733,7 +740,8 @@ impl NewSessionDialog {
 
             for line in visible_lines {
                 let truncated = if line.len() > inner_width {
-                    format!("{}...", &line[..inner_width.saturating_sub(3)])
+                    let t: String = line.chars().take(inner_width.saturating_sub(3)).collect();
+                    format!("{}...", t)
                 } else {
                     line.clone()
                 };
