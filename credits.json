@@ -88,6 +88,17 @@
           "labeled_at": "2026-02-13T12:52:52.225Z"
         }
       ]
+    },
+    {
+      "username": "jerome-benoit",
+      "issues": [
+        {
+          "number": 250,
+          "title": "chore: commit Cargo.lock for reproducible builds",
+          "labeled_at": "2026-02-14T01:46:19.656Z"
+        }
+      ],
+      "pull_requests": []
     }
   ]
 }
