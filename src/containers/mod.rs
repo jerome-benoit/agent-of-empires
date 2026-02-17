@@ -2,6 +2,7 @@ mod apple_container;
 pub mod container_interface;
 mod docker;
 pub mod error;
+pub(crate) mod runtime_base;
 
 use crate::cli::truncate_id;
 use crate::session::{Config, ContainerRuntimeName};
@@ -11,12 +12,6 @@ use docker::Docker;
 use enum_dispatch::enum_dispatch;
 use error::Result;
 
-pub const CLAUDE_AUTH_VOLUME: &str = "aoe-claude-auth";
-pub const OPENCODE_AUTH_VOLUME: &str = "aoe-opencode-auth";
-pub const CODEX_AUTH_VOLUME: &str = "aoe-codex-auth";
-pub const VIBE_AUTH_VOLUME: &str = "aoe-vibe-auth";
-pub const GEMINI_AUTH_VOLUME: &str = "aoe-gemini-auth";
-
 #[enum_dispatch(ContainerRuntimeInterface)]
 pub enum ContainerRuntime {
     AppleContainer,
@@ -25,7 +20,7 @@ pub enum ContainerRuntime {
 
 impl Default for ContainerRuntime {
     fn default() -> Self {
-        Docker.into()
+        Docker::default().into()
     }
 }
 
@@ -44,8 +39,8 @@ pub fn runtime_binary() -> &'static str {
 pub fn get_container_runtime() -> ContainerRuntime {
     if let Ok(cfg) = Config::load() {
         match cfg.sandbox.container_runtime {
-            ContainerRuntimeName::AppleContainer => AppleContainer.into(),
-            ContainerRuntimeName::Docker => Docker.into(),
+            ContainerRuntimeName::AppleContainer => AppleContainer::default().into(),
+            ContainerRuntimeName::Docker => Docker::default().into(),
         }
     } else {
         ContainerRuntime::default()
@@ -146,7 +141,6 @@ mod tests {
         let config = ContainerConfig {
             working_dir: "/workspace/myproject".to_string(),
             volumes: vec![],
-            named_volumes: vec![],
             anonymous_volumes: vec![
                 "/workspace/myproject/target".to_string(),
                 "/workspace/myproject/node_modules".to_string(),
@@ -178,7 +172,6 @@ mod tests {
         let config = ContainerConfig {
             working_dir: "/workspace".to_string(),
             volumes: vec![],
-            named_volumes: vec![],
             anonymous_volumes: vec![],
             environment: vec![],
             cpu_limit: None,
