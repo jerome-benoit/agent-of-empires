@@ -18,9 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-          # Use the default GITHUB_TOKEN. If you have branch protection rules
-          # that block pushes, you may need to use a PAT instead:
-          #   token: ${{ secrets.RELEASE_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Validate version format
         run: |
