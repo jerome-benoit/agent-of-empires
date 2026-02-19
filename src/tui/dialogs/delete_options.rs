@@ -399,17 +399,17 @@ impl UnifiedDeleteDialog {
         let checkbox = if checked { "[x]" } else { "[ ]" };
 
         let checkbox_style = if focused {
-            Style::default().fg(theme.accent).bold()
+            Style::default().fg(*theme.accent).bold()
         } else if checked {
-            Style::default().fg(theme.error).bold()
+            Style::default().fg(*theme.error).bold()
         } else {
-            Style::default().fg(theme.dimmed)
+            Style::default().fg(*theme.dimmed)
         };
 
         let label_style = if focused {
-            Style::default().fg(theme.accent).underlined()
+            Style::default().fg(*theme.accent).underlined()
         } else {
-            Style::default().fg(theme.text)
+            Style::default().fg(*theme.text)
         };
 
         let spans = vec![

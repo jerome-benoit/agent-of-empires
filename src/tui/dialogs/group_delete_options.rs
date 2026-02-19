@@ -311,11 +311,11 @@ impl GroupDeleteOptionsDialog {
                     "[ ]"
                 };
                 let fc_style = if fc_focused {
-                    Style::default().fg(theme.error).underlined()
+                    Style::default().fg(*theme.error).underlined()
                 } else if self.options.force_delete_worktrees {
-                    Style::default().fg(theme.error)
+                    Style::default().fg(*theme.error)
                 } else {
-                    Style::default().fg(theme.dimmed)
+                    Style::default().fg(*theme.dimmed)
                 };
                 let fc_line = Line::from(vec![
                     Span::raw("        "),
