@@ -69,7 +69,7 @@ impl DiffView {
     fn render_header(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let block = Block::default()
             .borders(Borders::BOTTOM)
-            .border_style(Style::default().fg(theme.border));
+            .border_style(Style::default().fg(*theme.border));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -88,14 +88,14 @@ impl DiffView {
         let header = Line::from(vec![
             Span::styled(
                 format!("  {} ", repo_name),
-                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+                Style::default().fg(*theme.text).add_modifier(Modifier::BOLD),
             ),
-            Span::styled("vs ", Style::default().fg(theme.dimmed)),
-            Span::styled(&self.base_branch, Style::default().fg(theme.accent)),
-            Span::styled("  |  ", Style::default().fg(theme.border)),
+            Span::styled("vs ", Style::default().fg(*theme.dimmed)),
+            Span::styled(&self.base_branch, Style::default().fg(*theme.accent)),
+            Span::styled("  |  ", Style::default().fg(*theme.border)),
             Span::styled(
                 format!("{} changed", file_count),
-                Style::default().fg(theme.dimmed),
+                Style::default().fg(*theme.dimmed),
             ),
             Span::styled("  ", Style::default()),
             Span::styled(format!("+{}", additions), Style::default().fg(Color::Green)),
@@ -124,14 +124,14 @@ impl DiffView {
         let block = Block::default()
             .title(" Files ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme.border))
+            .border_style(Style::default().fg(*theme.border))
             .padding(Padding::horizontal(1));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
         if self.files.is_empty() {
-            let msg = Paragraph::new("No changes").style(Style::default().fg(theme.dimmed));
+            let msg = Paragraph::new("No changes").style(Style::default().fg(*theme.dimmed));
             frame.render_widget(msg, inner);
             return;
         }
@@ -157,10 +157,10 @@ impl DiffView {
 
                 let style = if is_selected {
                     Style::default()
-                        .fg(theme.accent)
+                        .fg(*theme.accent)
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(theme.dimmed)
+                    Style::default().fg(*theme.dimmed)
                 };
 
                 let prefix = if is_selected { "> " } else { "  " };
@@ -204,7 +204,7 @@ impl DiffView {
         let block = Block::default()
             .title(title)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme.accent));
+            .border_style(Style::default().fg(*theme.accent));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -213,7 +213,7 @@ impl DiffView {
             if let Some(diff) = self.diff_cache.get(&file.path) {
                 if diff.is_binary {
                     let msg =
-                        Paragraph::new("Binary file").style(Style::default().fg(theme.dimmed));
+                        Paragraph::new("Binary file").style(Style::default().fg(*theme.dimmed));
                     frame.render_widget(msg, inner);
                     return;
                 }
@@ -246,7 +246,7 @@ impl DiffView {
                         let (prefix, style) = match line.tag {
                             ChangeTag::Delete => ("-", Style::default().fg(Color::Red)),
                             ChangeTag::Insert => ("+", Style::default().fg(Color::Green)),
-                            ChangeTag::Equal => (" ", Style::default().fg(theme.dimmed)),
+                            ChangeTag::Equal => (" ", Style::default().fg(*theme.dimmed)),
                         };
 
                         let old_num = line
@@ -263,7 +263,7 @@ impl DiffView {
                         lines.push(Line::from(vec![
                             Span::styled(
                                 format!("{} {} ", old_num, new_num),
-                                Style::default().fg(theme.dimmed),
+                                Style::default().fg(*theme.dimmed),
                             ),
                             Span::styled(prefix, style),
                             Span::styled(content, style),
@@ -309,11 +309,11 @@ impl DiffView {
                 }
             } else {
                 let msg =
-                    Paragraph::new("Loading diff...").style(Style::default().fg(theme.dimmed));
+                    Paragraph::new("Loading diff...").style(Style::default().fg(*theme.dimmed));
                 frame.render_widget(msg, inner);
             }
         } else {
-            let msg = Paragraph::new("No file selected").style(Style::default().fg(theme.dimmed));
+            let msg = Paragraph::new("No file selected").style(Style::default().fg(*theme.dimmed));
             frame.render_widget(msg, inner);
         }
     }
@@ -321,32 +321,32 @@ impl DiffView {
     fn render_footer(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let block = Block::default()
             .borders(Borders::TOP)
-            .border_style(Style::default().fg(theme.border));
+            .border_style(Style::default().fg(*theme.border));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
         // Show error or success message, or help text
         let content = if let Some(ref error) = self.error_message {
-            Line::from(Span::styled(error, Style::default().fg(theme.error)))
+            Line::from(Span::styled(error, Style::default().fg(*theme.error)))
         } else if let Some(ref success) = self.success_message {
             Line::from(Span::styled(success, Style::default().fg(Color::Green)))
         } else {
             Line::from(vec![
-                Span::styled("j/k", Style::default().fg(theme.accent)),
-                Span::styled(": files  ", Style::default().fg(theme.dimmed)),
-                Span::styled("h/l", Style::default().fg(theme.accent)),
-                Span::styled(": resize  ", Style::default().fg(theme.dimmed)),
-                Span::styled("scroll", Style::default().fg(theme.accent)),
-                Span::styled(": diff  ", Style::default().fg(theme.dimmed)),
-                Span::styled("e/Enter", Style::default().fg(theme.accent)),
-                Span::styled(": edit  ", Style::default().fg(theme.dimmed)),
-                Span::styled("b", Style::default().fg(theme.accent)),
-                Span::styled(": branch  ", Style::default().fg(theme.dimmed)),
-                Span::styled("?", Style::default().fg(theme.accent)),
-                Span::styled(": help  ", Style::default().fg(theme.dimmed)),
-                Span::styled("q/Esc", Style::default().fg(theme.accent)),
-                Span::styled(": close", Style::default().fg(theme.dimmed)),
+                Span::styled("j/k", Style::default().fg(*theme.accent)),
+                Span::styled(": files  ", Style::default().fg(*theme.dimmed)),
+                Span::styled("h/l", Style::default().fg(*theme.accent)),
+                Span::styled(": resize  ", Style::default().fg(*theme.dimmed)),
+                Span::styled("scroll", Style::default().fg(*theme.accent)),
+                Span::styled(": diff  ", Style::default().fg(*theme.dimmed)),
+                Span::styled("e/Enter", Style::default().fg(*theme.accent)),
+                Span::styled(": edit  ", Style::default().fg(*theme.dimmed)),
+                Span::styled("b", Style::default().fg(*theme.accent)),
+                Span::styled(": branch  ", Style::default().fg(*theme.dimmed)),
+                Span::styled("?", Style::default().fg(*theme.accent)),
+                Span::styled(": help  ", Style::default().fg(*theme.dimmed)),
+                Span::styled("q/Esc", Style::default().fg(*theme.accent)),
+                Span::styled(": close", Style::default().fg(*theme.dimmed)),
             ])
         };
 
@@ -392,8 +392,8 @@ impl DiffView {
         let block = Block::default()
             .title(" Select Branch ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme.accent))
-            .style(Style::default().bg(theme.background));
+            .border_style(Style::default().fg(*theme.accent))
+            .style(Style::default().bg(*theme.background));
 
         let inner = block.inner(dialog_area);
         frame.render_widget(block, dialog_area);
@@ -408,10 +408,10 @@ impl DiffView {
 
                 let style = if is_selected {
                     Style::default()
-                        .fg(theme.accent)
+                        .fg(*theme.accent)
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(theme.text)
+                    Style::default().fg(*theme.text)
                 };
 
                 let prefix = if is_selected { "> " } else { "  " };
@@ -420,7 +420,7 @@ impl DiffView {
                 ListItem::new(Line::from(vec![
                     Span::styled(prefix, style),
                     Span::styled(branch, style),
-                    Span::styled(suffix, Style::default().fg(theme.dimmed)),
+                    Span::styled(suffix, Style::default().fg(*theme.dimmed)),
                 ]))
             })
             .collect();
@@ -446,13 +446,13 @@ impl DiffView {
         frame.render_widget(Clear, dialog_area);
 
         let block = Block::default()
-            .style(Style::default().bg(theme.background))
+            .style(Style::default().bg(*theme.background))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme.border))
+            .border_style(Style::default().fg(*theme.border))
             .title(" Diff View Help ")
             .title_style(
                 Style::default()
-                    .fg(theme.accent)
+                    .fg(*theme.accent)
                     .add_modifier(Modifier::BOLD),
             );
 
@@ -490,13 +490,13 @@ impl DiffView {
             lines.push(Line::from(Span::styled(
                 section,
                 Style::default()
-                    .fg(theme.accent)
+                    .fg(*theme.accent)
                     .add_modifier(Modifier::BOLD),
             )));
             for (key, desc) in keys {
                 lines.push(Line::from(vec![
                     Span::styled(format!("  {:14}", key), Style::default().fg(Color::Yellow)),
-                    Span::styled(desc, Style::default().fg(theme.text)),
+                    Span::styled(desc, Style::default().fg(*theme.text)),
                 ]));
             }
             lines.push(Line::from(""));
