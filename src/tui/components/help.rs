@@ -94,7 +94,9 @@ impl HelpOverlay {
                 " Keyboard Shortcuts ",
                 Style::default().fg(*theme.title).bold(),
             ))
-            .title_bottom(Line::styled(version, Style::default().fg(*theme.dimmed)).right_aligned());
+            .title_bottom(
+                Line::styled(version, Style::default().fg(*theme.dimmed)).right_aligned(),
+            );
 
         let inner = block.inner(dialog_area);
         frame.render_widget(block, dialog_area);

@@ -88,7 +88,9 @@ impl DiffView {
         let header = Line::from(vec![
             Span::styled(
                 format!("  {} ", repo_name),
-                Style::default().fg(*theme.text).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(*theme.text)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled("vs ", Style::default().fg(*theme.dimmed)),
             Span::styled(&self.base_branch, Style::default().fg(*theme.accent)),

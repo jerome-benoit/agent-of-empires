@@ -155,7 +155,10 @@ impl CustomInstructionDialog {
         };
 
         let cancel_style = if self.focused_zone == 1 && self.focused_button == 1 {
-            Style::default().fg(*theme.background).bg(*theme.error).bold()
+            Style::default()
+                .fg(*theme.background)
+                .bg(*theme.error)
+                .bold()
         } else {
             Style::default().fg(*theme.text)
         };

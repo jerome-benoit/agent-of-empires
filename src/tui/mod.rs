@@ -10,7 +10,7 @@ mod home;
 pub mod settings;
 mod status_poller;
 mod styles;
-mod themes;
+pub mod themes;
 
 pub use app::*;
 
