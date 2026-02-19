@@ -34,8 +34,11 @@ pub struct Theme {
 
     pub diff_add: Color,
     pub diff_delete: Color,
+    pub diff_modified: Color,
     pub diff_context: Color,
     pub diff_header: Color,
+
+    pub help_key: Color,
 
     pub branch: Color,
     pub sandbox: Color,
@@ -75,8 +78,11 @@ impl Theme {
 
             diff_add: Color::Rgb(0, 255, 0),
             diff_delete: Color::Rgb(255, 0, 0),
+            diff_modified: Color::Rgb(255, 255, 0),
             diff_context: Color::Rgb(128, 128, 128),
             diff_header: Color::Rgb(0, 255, 255),
+
+            help_key: Color::Rgb(255, 255, 0),
 
             branch: Color::Rgb(0, 255, 255),
             sandbox: Color::Rgb(255, 0, 255),

@@ -154,7 +154,7 @@ impl DiffView {
 
                 let status_color = match file.status {
                     FileStatus::Added => theme.diff_add,
-                    FileStatus::Modified => theme.waiting,
+                    FileStatus::Modified => theme.diff_modified,
                     FileStatus::Deleted => theme.diff_delete,
                     FileStatus::Renamed => theme.diff_header,
                     FileStatus::Copied => theme.diff_header,
@@ -501,7 +501,7 @@ impl DiffView {
             )));
             for (key, desc) in keys {
                 lines.push(Line::from(vec![
-                    Span::styled(format!("  {:14}", key), Style::default().fg(theme.hint)),
+                    Span::styled(format!("  {:14}", key), Style::default().fg(theme.help_key)),
                     Span::styled(desc, Style::default().fg(theme.text)),
                 ]));
             }
