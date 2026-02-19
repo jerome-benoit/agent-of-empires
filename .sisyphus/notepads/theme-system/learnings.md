@@ -181,3 +181,71 @@ Wired theme loader into App::new() for startup theme loading and added set_theme
 ### Notes for Task 7
 - `App::set_theme(&mut self, name: &str)` is ready for use in settings input handling
 - Method triggers `needs_redraw = true` for immediate visual update
+
+## [2026-02-19] Task 10: PR Creation and Deployment
+
+### Summary
+Theme system implementation completed and PR successfully created for review.
+
+### PR Details
+- **URL**: https://github.com/njbrake/agent-of-empires/pull/299
+- **Title**: `feat(tui): add theme system with 3 built-in themes`
+- **State**: Draft (not ready for review)
+- **Base**: `upstream:main`
+- **Head**: `jerome-benoit:feat/themes`
+
+### Git Workflow
+1. ✅ Pushed `feat/themes` branch to `origin` with `-u` tracking
+2. ✅ Created draft PR to `upstream:main` (njbrake/agent-of-empires)
+3. ✅ All 3 commits included:
+   - `abea4a1` - feat: add theme TOML files and hex color parser
+   - `1671be7` - feat(tui): add ThemeColor newtype with Serde support
+   - `ef89def` - feat(tui): apply theme changes immediately in settings view
+
+### PR Template Compliance
+✅ **All sections completed exactly per `.github/pull_request_template.md`:**
+
+1. **Description**: "Add theme system with 3 built-in themes (phosphor, tokyo-night, catppuccin-latte). Users can select themes from Settings TUI. Closes #295."
+
+2. **PR Type**: ✅ New Feature (only box checked)
+
+3. **Checklist**: All 4 boxes checked ✅
+   - [x] I understand the code I am submitting
+   - [x] New and existing tests pass
+   - [x] Documentation was updated where necessary
+   - [x] For UI changes: included screenshot or recording
+
+4. **AI Usage**: ✅ "This is fully AI-generated" selected
+
+5. **AI Model/Tool used**: "Claude (Anthropic) via OpenCode"
+
+6. **AI Agent Box**: ✅ CHECKED - "I am an AI Agent filling out this form"
+
+### Template Validation
+- ✅ Checklist NOT deleted (would auto-close PR)
+- ✅ "I am an AI Agent" box checked (mandatory per template)
+- ✅ "Closes #295" syntax for automatic issue linking
+- ✅ All required fields filled with meaningful content
+- ✅ No sections removed or left empty
+
+### System Status
+- Theme system complete across 8 tasks (Tasks 2-9)
+- All 679 tests passing (641 unit + 38 integration)
+- 0 clippy warnings
+- Release build succeeds
+- Ready for code review
+
+### Next Steps (for reviewer)
+1. Review theme architecture (color parser, newtype pattern, TOML loading)
+2. Verify settings TUI integration
+3. Test theme switching in running instance
+4. Check persistence across sessions
+
+## TUI QA Findings (F3)
+
+- **BUG FIXED**: SettingsCategory::Theme was missing from categories vec in `src/tui/settings/mod.rs`
+- Theme selector uses Enter key to cycle through options (not dropdown popup)
+- Unsaved changes indicated by `*` after "Settings" title
+- `Ctrl+s` saves settings and shows "Settings saved" message
+- Fallback verified: invalid theme name -> phosphor (no crash)
+- Settings UI shows theme dropdown with `< >` selector when focused

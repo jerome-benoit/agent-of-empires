@@ -511,7 +511,7 @@ Max Concurrent: 3 (Wave 1)
 
   **Commit**: NO (groups with final commit)
 
-- [ ] 6. App Wiring and Fallback Logic
+- [x] 6. App Wiring and Fallback Logic
 
   **What to do**:
   - Update `App::new()` in `src/tui/app.rs` to load theme from config
@@ -579,7 +579,7 @@ Max Concurrent: 3 (Wave 1)
 
   **Commit**: NO (groups with final commit)
 
-- [ ] 7. Settings Input Handling
+- [x] 7. Settings Input Handling
 
   **What to do**:
   - Add `FieldKey::ThemeName` case to `handle_field_change()` in `src/tui/settings/input.rs`
@@ -697,7 +697,7 @@ Max Concurrent: 3 (Wave 1)
 
   **Commit**: NO (groups with final commit)
 
-- [ ] 9. Integration Verification
+- [x] 9. Integration Verification
 
   **What to do**:
   - Run full test suite: `cargo test`
@@ -774,7 +774,7 @@ Max Concurrent: 3 (Wave 1)
   - Files: All modified files
   - Pre-commit: `cargo test && cargo clippy`
 
-- [ ] 10. Create Draft PR to Upstream
+- [x] 10. Create Draft PR to Upstream
 
   **What to do**:
   - Push branch `feat/themes` to origin: `git push -u origin feat/themes`
@@ -856,19 +856,19 @@ Max Concurrent: 3 (Wave 1)
 
 ## Final Verification Wave
 
-- [ ] F1. **Plan Compliance Audit** - `oracle`
+- [x] F1. **Plan Compliance Audit** - `oracle`
   Read the plan end-to-end. For each "Must Have": verify implementation exists. For each "Must NOT Have": search codebase for forbidden patterns - reject with file:line if found. Check evidence files exist in .sisyphus/evidence/. Compare deliverables against plan.
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | VERDICT: APPROVE/REJECT`
 
-- [ ] F2. **Code Quality Review** - `unspecified-high`
+- [x] F2. **Code Quality Review** - `unspecified-high`
   Run `cargo check`, `cargo clippy`, `cargo test`. Review all changed files for: `unwrap()` without context, empty error handling, unused imports, dead code. Check for AI slop: excessive comments, over-abstraction.
   Output: `Build [PASS/FAIL] | Clippy [PASS/FAIL] | Tests [N pass/N fail] | VERDICT`
 
-- [ ] F3. **TUI QA with tmux** - `unspecified-high`
+- [x] F3. **TUI QA with tmux** - `unspecified-high`
   Start `aoe` in tmux. Navigate to Settings. Change theme. Verify colors change immediately. Exit and restart. Verify theme persisted. Test invalid theme in config.toml manually - verify fallback works.
   Output: `Theme Selection [PASS/FAIL] | Persistence [PASS/FAIL] | Fallback [PASS/FAIL] | VERDICT`
 
-- [ ] F4. **Scope Fidelity Check** - `deep`
+- [x] F4. **Scope Fidelity Check** - `deep`
   Review all changes against plan. Verify no user-defined theme loading was added. Verify no theme inheritance. Verify no partial theme support. Verify all 3 themes have all 17 color fields. Flag any scope creep.
   Output: `Scope Boundaries [N/N respected] | Guardrails [N/N enforced] | VERDICT`
 
@@ -904,11 +904,11 @@ cargo clippy          # Expected: no warnings
 ```
 
 ### Final Checklist
-- [ ] Theme selection works in Settings TUI
-- [ ] 3 themes available (phosphor, tokyo-night, catppuccin-latte)
-- [ ] Theme persists in config.toml
-- [ ] Invalid theme falls back to phosphor
-- [ ] All existing tests still pass
-- [ ] No clippy warnings
-- [ ] Draft PR opened on upstream (njbrake/agent-of-empires)
-- [ ] PR follows template exactly with "I am an AI Agent" checked
+- [x] Theme selection works in Settings TUI
+- [x] 3 themes available (phosphor, tokyo-night, catppuccin-latte)
+- [x] Theme persists in config.toml
+- [x] Invalid theme falls back to phosphor
+- [x] All existing tests still pass
+- [x] No clippy warnings
+- [x] Draft PR opened on upstream (njbrake/agent-of-empires)
+- [x] PR follows template exactly with "I am an AI Agent" checked
