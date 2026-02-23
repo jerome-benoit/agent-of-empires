@@ -7,7 +7,7 @@ use crate::session::{
     TmuxMouseMode, TmuxStatusBarMode,
 };
 use crate::sound::{validate_sound_exists, SoundMode};
-use crate::tui::themes::loader::AVAILABLE_THEMES;
+use crate::tui::styles::AVAILABLE_THEMES;
 
 use super::SettingsScope;
 

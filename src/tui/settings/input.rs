@@ -16,30 +16,11 @@ pub enum SettingsAction {
     Close,
     /// Close was cancelled due to unsaved changes
     UnsavedChangesWarning,
+    /// Live-preview a theme change (theme name)
+    PreviewTheme(String),
 }
 
 impl SettingsView {
-    /// Handle field changes that require immediate application (beyond config persistence)
-    pub fn handle_field_change(&mut self, field_index: usize) {
-        if field_index >= self.fields.len() {
-            return;
-        }
-
-        let field = &self.fields[field_index];
-        if field.key == FieldKey::ThemeName {
-            if let FieldValue::Select { selected, options } = &field.value {
-                if let Some(theme_name) = options.get(*selected) {
-                    self.pending_theme_change = Some(theme_name.clone());
-                }
-            }
-        }
-    }
-
-    /// Take and return any pending theme change for immediate application
-    pub fn take_pending_theme_change(&mut self) -> Option<String> {
-        self.pending_theme_change.take()
-    }
-
     pub fn handle_key(&mut self, key: KeyEvent) -> SettingsAction {
         // Clear transient messages on any key
         self.success_message = None;
@@ -53,7 +34,6 @@ impl SettingsView {
                         *v = value;
                     }
                     self.apply_field_to_config(self.selected_field);
-                    self.handle_field_change(self.selected_field);
                     self.custom_instruction_dialog = None;
                     return SettingsAction::Continue;
                 }
@@ -181,7 +161,6 @@ impl SettingsView {
                     if let FieldValue::Bool(ref mut value) = field.value {
                         *value = !*value;
                         self.apply_field_to_config(self.selected_field);
-                        self.handle_field_change(self.selected_field);
                     }
                 }
                 SettingsAction::Continue
@@ -196,7 +175,6 @@ impl SettingsView {
                             let new_value = !value;
                             self.fields[self.selected_field].value = FieldValue::Bool(new_value);
                             self.apply_field_to_config(self.selected_field);
-                            self.handle_field_change(self.selected_field);
                         }
                         FieldValue::Text(value) => {
                             self.editing_input = Some(Input::new(value.clone()));
@@ -215,12 +193,22 @@ impl SettingsView {
                         }
                         FieldValue::Select { selected, options } => {
                             let new_selected = (*selected + 1) % options.len();
+                            let new_options = options.clone();
                             self.fields[self.selected_field].value = FieldValue::Select {
                                 selected: new_selected,
-                                options: options.clone(),
+                                options: new_options,
                             };
                             self.apply_field_to_config(self.selected_field);
-                            self.handle_field_change(self.selected_field);
+
+                            if self.fields[self.selected_field].key == FieldKey::ThemeName {
+                                if let FieldValue::Select { selected, options } =
+                                    &self.fields[self.selected_field].value
+                                {
+                                    if let Some(name) = options.get(*selected) {
+                                        return SettingsAction::PreviewTheme(name.clone());
+                                    }
+                                }
+                            }
                         }
                         FieldValue::List(_) => {
                             // Expand list for editing
@@ -240,8 +228,21 @@ impl SettingsView {
                     && self.focus == SettingsFocus::Fields
                     && !self.fields.is_empty()
                 {
+                    let was_theme = self.fields[self.selected_field].key == FieldKey::ThemeName;
                     self.clear_profile_override(self.selected_field);
                     self.rebuild_fields();
+
+                    if was_theme {
+                        if let Some(field) =
+                            self.fields.iter().find(|f| f.key == FieldKey::ThemeName)
+                        {
+                            if let FieldValue::Select { selected, options } = &field.value {
+                                if let Some(name) = options.get(*selected) {
+                                    return SettingsAction::PreviewTheme(name.clone());
+                                }
+                            }
+                        }
+                    }
                 }
                 SettingsAction::Continue
             }
@@ -297,7 +298,6 @@ impl SettingsView {
                     }
 
                     self.apply_field_to_config(self.selected_field);
-                    self.handle_field_change(self.selected_field);
                     self.error_message = None;
                 }
             }
@@ -361,7 +361,6 @@ impl SettingsView {
                     s.selected_index = new_selected_idx;
                 }
                 self.apply_field_to_config(self.selected_field);
-                self.handle_field_change(self.selected_field);
             }
             KeyCode::Enter => {
                 // Edit selected item
@@ -410,7 +409,6 @@ impl SettingsView {
                             }
                         }
                         self.apply_field_to_config(self.selected_field);
-                        self.handle_field_change(self.selected_field);
                     }
                 }
             }

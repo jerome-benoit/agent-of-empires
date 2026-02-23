@@ -41,12 +41,12 @@ All settings below can also be edited from the TUI settings screen (press `s` or
 
 ```toml
 [theme]
-name = "phosphor"   # phosphor, tokyo-night, tokyo-night-storm, catppuccin-latte
+name = "phosphor"   # phosphor, tokyo-night-storm, catppuccin-latte
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `name` | `"phosphor"` | TUI color theme. Available: `phosphor` (default green), `tokyo-night` (dark blue/purple), `tokyo-night-storm` (darker variant), `catppuccin-latte` (light pastel). |
+| `name` | `"phosphor"` | TUI color theme. Available: `phosphor` (default green), `tokyo-night-storm` (dark blue/purple), `catppuccin-latte` (light pastel). |
 
 ## Session
 

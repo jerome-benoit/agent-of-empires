@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::home::{HomeView, TerminalMode};
+use super::styles::load_theme;
 use super::styles::Theme;
-use super::themes::loader::load_theme;
 use crate::session::{get_update_settings, load_config, save_config, Storage};
 use crate::tmux::AvailableTools;
 use crate::update::{check_for_update, UpdateInfo};
