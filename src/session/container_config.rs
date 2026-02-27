@@ -635,9 +635,22 @@ pub(crate) fn build_container_config(
         })
         .collect();
 
+    // Deduplicate volumes by container_path (last writer wins, so extra_volumes
+    // from user config override automatic mounts).
+    let mut seen = std::collections::HashSet::new();
+    let mut deduped = Vec::with_capacity(volumes.len());
+    for vol in volumes.into_iter().rev() {
+        if seen.insert(vol.container_path.clone()) {
+            deduped.push(vol);
+        } else {
+            tracing::debug!("Dropping duplicate mount for {}", vol.container_path);
+        }
+    }
+    deduped.reverse();
+
     Ok(ContainerConfig {
         working_dir: workspace_path,
-        volumes,
+        volumes: deduped,
         anonymous_volumes,
         environment,
         cpu_limit: sandbox_config.cpu_limit,

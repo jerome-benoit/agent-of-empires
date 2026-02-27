@@ -70,7 +70,18 @@ impl NewSessionDialog {
             constraints.push(Constraint::Length(inherited_height)); // Inherited settings
         }
         constraints.push(Constraint::Length(2)); // Group (always, at the bottom)
-        constraints.push(Constraint::Min(1)); // Hints/errors
+
+        // For errors, calculate how many lines we need based on the text length.
+        // Inner width = dialog_width - 2 (border) - 2 (margin) = 76
+        let error_lines: u16 = if let Some(error) = &self.error_message {
+            let inner_width = (dialog_width - 4) as usize;
+            let error_text = format!("✗ Error: {}", error);
+            let needed = (error_text.len() as u16).div_ceil(inner_width as u16);
+            needed.clamp(2, 6)
+        } else {
+            1
+        };
+        constraints.push(Constraint::Min(error_lines)); // Hints/errors
 
         // Compute dialog height from actual constraints
         // border (2) + margin (2) + sum of field heights + hint line (2)
