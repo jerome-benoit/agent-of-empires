@@ -185,7 +185,7 @@ impl Theme {
         }
     }
 
-    /// Dracula theme - the most popular dark theme (23k+ GitHub stars)
+    /// Dracula theme
     /// Official palette: https://draculatheme.com/spec
     pub fn dracula() -> Self {
         Self {
