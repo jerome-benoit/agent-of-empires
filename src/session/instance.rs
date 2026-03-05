@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -99,6 +99,10 @@ pub struct Instance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_info: Option<TerminalInfo>,
 
+    // Agent session ID for conversation persistence
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session_id: Option<String>,
+
     // Runtime state (not serialized)
     #[serde(skip)]
     pub last_error_check: Option<std::time::Instant>,
@@ -106,6 +110,66 @@ pub struct Instance {
     pub last_start_time: Option<std::time::Instant>,
     #[serde(skip)]
     pub last_error: Option<String>,
+}
+
+/// Generate a new UUID for Claude Code session
+fn generate_claude_session_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
+/// Capture session ID from OpenCode CLI
+fn capture_opencode_session_id() -> Result<String> {
+    let output = std::process::Command::new("opencode")
+        .args(["session", "list", "--format", "json"])
+        .output()
+        .context("Failed to execute 'opencode session list'")?;
+
+    if !output.status.success() {
+        anyhow::bail!("OpenCode session list command failed");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let sessions: Vec<serde_json::Value> =
+        serde_json::from_str(&stdout).context("Failed to parse OpenCode session list JSON")?;
+
+    sessions
+        .first()
+        .and_then(|s| s["id"].as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("No OpenCode sessions found"))
+}
+
+/// Capture session ID from Codex filesystem
+fn capture_codex_session_id(_working_dir: &str) -> Result<String> {
+    let codex_dir = dirs::home_dir()
+        .context("Cannot determine home directory")?
+        .join(".codex")
+        .join("sessions");
+
+    if !codex_dir.exists() {
+        anyhow::bail!("Codex sessions directory not found");
+    }
+
+    // Find most recent session matching working directory
+    let entries: Vec<_> = std::fs::read_dir(&codex_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+
+    entries
+        .first()
+        .and_then(|e| e.file_name().into_string().ok())
+        .ok_or_else(|| anyhow::anyhow!("No Codex sessions found"))
+}
+
+/// Build resume flags for agent command
+fn build_resume_flags(tool: &str, session_id: &str) -> String {
+    match tool {
+        "claude" => format!("--session-id {}", session_id),
+        "opencode" => format!("--session {}", session_id),
+        "codex" => format!("resume {}", session_id),
+        _ => String::new(),
+    }
 }
 
 impl Instance {
@@ -125,6 +189,7 @@ impl Instance {
             worktree_info: None,
             sandbox_info: None,
             terminal_info: None,
+            agent_session_id: None,
             last_error_check: None,
             last_start_time: None,
             last_error: None,
@@ -947,5 +1012,99 @@ mod tests {
             created_at: None,
         });
         assert!(!inst.has_terminal());
+    }
+
+    // Tests for agent_session_id field
+    #[test]
+    fn test_agent_session_id_none_by_default() {
+        let inst = Instance::new("test", "/tmp/test");
+        assert!(inst.agent_session_id.is_none());
+    }
+
+    #[test]
+    fn test_agent_session_id_serialization() {
+        let mut inst = Instance::new("test", "/tmp/test");
+        inst.agent_session_id = Some("session-123".to_string());
+
+        let json = serde_json::to_string(&inst).unwrap();
+        let deserialized: Instance = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(
+            deserialized.agent_session_id,
+            Some("session-123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_agent_session_id_skips_none() {
+        let inst = Instance::new("test", "/tmp/test");
+        let json = serde_json::to_string(&inst).unwrap();
+
+        // agent_session_id should not appear in JSON when None
+        assert!(!json.contains("agent_session_id"));
+    }
+
+    #[test]
+    fn test_agent_session_id_defaults_to_none() {
+        let json = r#"{"id":"test123","title":"Test","project_path":"/tmp/test","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z"}"#;
+        let inst: Instance = serde_json::from_str(json).unwrap();
+
+        assert!(inst.agent_session_id.is_none());
+    }
+
+    // Tests for resume flag construction
+    #[test]
+    fn test_build_claude_resume_flags() {
+        let session_id = "abc123-def456";
+        let flags = build_resume_flags("claude", session_id);
+        assert_eq!(flags, "--session-id abc123-def456");
+    }
+
+    #[test]
+    fn test_build_opencode_resume_flags() {
+        let session_id = "session-789";
+        let flags = build_resume_flags("opencode", session_id);
+        assert_eq!(flags, "--session session-789");
+    }
+
+    #[test]
+    fn test_build_codex_resume_flags() {
+        let session_id = "codex-session-xyz";
+        let flags = build_resume_flags("codex", session_id);
+        assert_eq!(flags, "resume codex-session-xyz");
+    }
+
+    // Tests for Claude session ID generation
+    #[test]
+    fn test_generate_claude_session_id() {
+        let id = generate_claude_session_id();
+
+        // Should be a valid UUID format
+        assert!(uuid::Uuid::parse_str(&id).is_ok());
+    }
+
+    #[test]
+    fn test_generate_claude_session_id_uniqueness() {
+        let ids: Vec<String> = (0..100).map(|_| generate_claude_session_id()).collect();
+        let unique_ids: std::collections::HashSet<_> = ids.iter().collect();
+
+        assert_eq!(ids.len(), unique_ids.len());
+    }
+
+    // Test that instance with agent_session_id can be serialized and deserialized
+    #[test]
+    fn test_instance_with_agent_session_id_roundtrip() {
+        let mut inst = Instance::new("Test", "/home/user/project");
+        inst.tool = "claude".to_string();
+        inst.agent_session_id = Some("session-abc-123".to_string());
+
+        let json = serde_json::to_string(&inst).unwrap();
+        let deserialized: Instance = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(inst.id, deserialized.id);
+        assert_eq!(inst.title, deserialized.title);
+        assert_eq!(inst.project_path, deserialized.project_path);
+        assert_eq!(inst.tool, deserialized.tool);
+        assert_eq!(inst.agent_session_id, deserialized.agent_session_id);
     }
 }
