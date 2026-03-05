@@ -208,6 +208,32 @@ impl Instance {
         self.yolo_mode
     }
 
+    /// Generate or capture session ID based on agent type
+    pub fn get_or_create_session_id(&mut self) -> Option<String> {
+        // Return existing session ID if already set
+        if self.agent_session_id.is_some() {
+            return self.agent_session_id.clone();
+        }
+
+        let session_id = match self.tool.as_str() {
+            "claude" => Some(generate_claude_session_id()),
+            "opencode" => capture_opencode_session_id()
+                .map_err(|e| tracing::debug!("Failed to capture OpenCode session ID: {}", e))
+                .ok(),
+            "codex" => capture_codex_session_id(&self.project_path)
+                .map_err(|e| tracing::debug!("Failed to capture Codex session ID: {}", e))
+                .ok(),
+            _ => None,
+        };
+
+        if let Some(ref id) = session_id {
+            tracing::debug!("Session ID for {}: {}", self.tool, id);
+            self.agent_session_id = session_id.clone();
+        }
+
+        session_id
+    }
+
     pub fn get_tool_command(&self) -> &str {
         if self.command.is_empty() {
             crate::agents::get_agent(&self.tool)
@@ -413,6 +439,8 @@ impl Instance {
                 }
             }
 
+            let session_id = self.get_or_create_session_id();
+
             let sandbox = self.sandbox_info.as_ref().unwrap();
             let agent = crate::agents::get_agent(&self.tool);
             let mut tool_cmd = if self.is_yolo_mode() {
@@ -436,6 +464,14 @@ impl Instance {
                         let flag = flag_template.replace("{}", &escaped);
                         tool_cmd = format!("{} {}", tool_cmd, flag);
                     }
+                }
+            }
+
+            if let Some(session_id) = session_id {
+                let resume_flags = build_resume_flags(&self.tool, &session_id);
+                if !resume_flags.is_empty() {
+                    tool_cmd = format!("{} {}", tool_cmd, resume_flags);
+                    tracing::debug!("Added resume flags to sandboxed command: {}", resume_flags);
                 }
             }
 
@@ -477,6 +513,16 @@ impl Instance {
                                 }
                             }
                         }
+                        if let Some(session_id) = self.get_or_create_session_id() {
+                            let resume_flags = build_resume_flags(&self.tool, &session_id);
+                            if !resume_flags.is_empty() {
+                                cmd = format!("{} {}", cmd, resume_flags);
+                                tracing::debug!(
+                                    "Added resume flags to host agent command: {}",
+                                    resume_flags
+                                );
+                            }
+                        }
                         wrap_command_ignore_suspend(&cmd)
                     })
             } else {
@@ -494,12 +540,37 @@ impl Instance {
                         }
                     }
                 }
+                if let Some(session_id) = self.get_or_create_session_id() {
+                    let resume_flags = build_resume_flags(&self.tool, &session_id);
+                    if !resume_flags.is_empty() {
+                        cmd = format!("{} {}", cmd, resume_flags);
+                        tracing::debug!(
+                            "Added resume flags to host custom command: {}",
+                            resume_flags
+                        );
+                    }
+                }
                 Some(wrap_command_ignore_suspend(&cmd))
             }
         };
 
         tracing::debug!("container cmd: {}", cmd.as_ref().map_or("none", |v| v));
         session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
+
+        if self.agent_session_id.is_some() {
+            if let Ok(storage) = super::storage::Storage::new("") {
+                if let Ok(mut instances) = storage.load() {
+                    if let Some(inst) = instances.iter_mut().find(|i| i.id == self.id) {
+                        inst.agent_session_id = self.agent_session_id.clone();
+                    }
+                    if let Err(e) = storage.save(&instances) {
+                        tracing::warn!("Failed to persist session ID: {}", e);
+                    } else {
+                        tracing::debug!("Session ID persisted successfully");
+                    }
+                }
+            }
+        }
 
         // Apply all configured tmux options (status bar, mouse, etc.)
         self.apply_tmux_options();
