@@ -1,9 +1,14 @@
 //! Session instance definition and operations
 
 use std::path::Path;
+use std::process::Stdio;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use nix::sys::signal::Signal;
+use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -66,6 +71,15 @@ pub struct SandboxInfo {
     pub custom_instruction: Option<String>,
 }
 
+/// Deserializer for agent_session_id that converts empty and whitespace-only strings to None
+fn deserialize_session_id<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt: Option<String> = Option::deserialize(deserializer)?;
+    Ok(opt.filter(|s| !s.trim().is_empty()))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instance {
     pub id: String,
@@ -100,7 +114,11 @@ pub struct Instance {
     pub terminal_info: Option<TerminalInfo>,
 
     // Agent session ID for conversation persistence
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_session_id"
+    )]
     pub agent_session_id: Option<String>,
 
     // Runtime state (not serialized)
@@ -117,12 +135,31 @@ fn generate_claude_session_id() -> String {
     Uuid::new_v4().to_string()
 }
 
-/// Capture session ID from OpenCode CLI
+/// Capture session ID from OpenCode CLI with 5-second timeout
 fn capture_opencode_session_id() -> Result<String> {
-    let output = std::process::Command::new("opencode")
+    let child = std::process::Command::new("opencode")
         .args(["session", "list", "--format", "json"])
-        .output()
-        .context("Failed to execute 'opencode session list'")?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to spawn 'opencode session list'")?;
+
+    let child_id = child.id();
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+
+    let output = match rx.recv_timeout(Duration::from_secs(5)) {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => return Err(anyhow::anyhow!("Failed to execute opencode: {}", e)),
+        Err(_) => {
+            tracing::debug!("OpenCode session list timed out after 5 seconds");
+            let _ = nix::sys::signal::kill(Pid::from_raw(child_id as i32), Signal::SIGKILL);
+            return Err(anyhow::anyhow!("OpenCode session list timed out"));
+        }
+    };
 
     if !output.status.success() {
         anyhow::bail!("OpenCode session list command failed");
@@ -1195,19 +1232,16 @@ mod tests {
         assert_eq!(inst.tool, "opencode");
     }
 
-    // Test: empty string session ID treated as None
+    // Test: empty string session ID treated as None (this test is now covered by test_empty_string_deserializes_to_none)
+    // Kept for backwards compatibility check that the deserializer works correctly
     #[test]
     fn test_empty_string_session_id_treated_as_none() {
         // When deserializing, empty string should be treated as None
         let json = r#"{"id":"test123","title":"Test","project_path":"/tmp/test","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z","agent_session_id":""}"#;
         let inst: Instance = serde_json::from_str(json).unwrap();
 
-        // Empty string should be stored as-is, but semantically treated as None
-        assert_eq!(inst.agent_session_id, Some("".to_string()));
-
-        // When generating resume flags, empty string produces no valid flags
-        let flags = build_resume_flags("claude", "");
-        assert_eq!(flags, "--session-id ");
+        // Empty string should deserialize to None, not Some("")
+        assert_eq!(inst.agent_session_id, None);
     }
 
     // Test: capture failure doesn't block startup
@@ -1262,5 +1296,26 @@ mod tests {
         let mut inst = inst;
         inst.agent_session_id = Some("new-session-456".to_string());
         assert_eq!(inst.agent_session_id, Some("new-session-456".to_string()));
+    }
+
+    #[test]
+    fn test_empty_string_deserializes_to_none() {
+        let json = r#"{"id":"test123","title":"Test","project_path":"/tmp/test","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z","agent_session_id":""}"#;
+        let inst: Instance = serde_json::from_str(json).unwrap();
+        assert!(inst.agent_session_id.is_none());
+    }
+
+    #[test]
+    fn test_whitespace_string_deserializes_to_none() {
+        let json = r#"{"id":"test123","title":"Test","project_path":"/tmp/test","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z","agent_session_id":"   "}"#;
+        let inst: Instance = serde_json::from_str(json).unwrap();
+        assert!(inst.agent_session_id.is_none());
+    }
+
+    #[test]
+    fn test_valid_session_id_preserved() {
+        let json = r#"{"id":"test123","title":"Test","project_path":"/tmp/test","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z","agent_session_id":"abc-123"}"#;
+        let inst: Instance = serde_json::from_str(json).unwrap();
+        assert_eq!(inst.agent_session_id, Some("abc-123".to_string()));
     }
 }
