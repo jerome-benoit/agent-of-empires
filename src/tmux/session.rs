@@ -56,6 +56,19 @@ impl Session {
             return Ok(());
         }
 
+        // Clear stale env vars from any previous session with this name
+        if let Err(e) =
+            crate::tmux::env::remove_hidden_env(&self.name, crate::tmux::env::AOE_INSTANCE_ID_KEY)
+        {
+            tracing::warn!("Failed to clear stale instance ID env var: {}", e);
+        }
+        if let Err(e) = crate::tmux::env::remove_hidden_env(
+            &self.name,
+            crate::tmux::env::AOE_CAPTURED_SESSION_KEY,
+        ) {
+            tracing::warn!("Failed to clear stale captured session env var: {}", e);
+        }
+
         let args = build_create_args(&self.name, working_dir, command, size);
         let output = Command::new("tmux").args(&args).output()?;
 

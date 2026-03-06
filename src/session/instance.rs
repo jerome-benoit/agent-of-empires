@@ -522,11 +522,22 @@ fn persist_deferred_session_id(profile: &str, instance_id: &str, session_id: &st
         }
     };
     if let Some(inst) = instances.iter_mut().find(|i| i.id == instance_id) {
+        let tmux_name = crate::tmux::Session::generate_name(instance_id, &inst.title);
         inst.agent_session_id = Some(session_id.to_string());
         if let Err(e) = storage.save(&instances) {
             tracing::debug!("Deferred persist: failed to save: {}", e);
         } else {
             tracing::debug!("Deferred persist: session ID saved for {}", instance_id);
+            if let Err(e) = crate::tmux::env::set_hidden_env(
+                &tmux_name,
+                crate::tmux::env::AOE_CAPTURED_SESSION_KEY,
+                session_id,
+            ) {
+                tracing::warn!(
+                    "Deferred persist: failed to write captured session ID to tmux env: {}",
+                    e
+                );
+            }
         }
     }
 }
@@ -976,6 +987,20 @@ impl Instance {
                         );
                     } else {
                         tracing::debug!("Session ID persisted successfully");
+                        if let Some(ref sid) = self.agent_session_id {
+                            let tmux_name =
+                                crate::tmux::Session::generate_name(&self.id, &self.title);
+                            if let Err(e) = crate::tmux::env::set_hidden_env(
+                                &tmux_name,
+                                crate::tmux::env::AOE_CAPTURED_SESSION_KEY,
+                                sid,
+                            ) {
+                                tracing::warn!(
+                                    "Failed to write captured session ID to tmux env: {}",
+                                    e
+                                );
+                            }
+                        }
                     }
                 }
                 Err(e) => {
