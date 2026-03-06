@@ -942,7 +942,7 @@ impl Instance {
         Ok(())
     }
 
-    /// Persist the agent session ID to storage so it survives TUI restarts.
+    /// Persist the agent session ID to storage so it survives across sessions.
     fn persist_session_id(&self, profile: &str) {
         if self.agent_session_id.is_none() {
             return;
