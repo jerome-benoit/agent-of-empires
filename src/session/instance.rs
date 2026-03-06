@@ -197,19 +197,9 @@ fn capture_opencode_session_id() -> Result<String> {
 
 /// Capture session ID from Codex filesystem.
 ///
-/// Scans the `~/.codex/sessions` directory to find an existing Codex session directory.
-/// Returns the name of the first session directory found. This is used to resume an existing
-/// Codex session. The `_working_dir` parameter is accepted for future use (e.g., matching
-/// sessions by working directory) but is currently unused.
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - The home directory cannot be determined
-/// - The `~/.codex/sessions` directory does not exist
-/// - Reading the sessions directory fails
-/// - No session directories are found
-fn capture_codex_session_id(_working_dir: &str) -> Result<String> {
+/// Scans the `~/.codex/sessions` directory and returns the name of the first session
+/// directory found. This is used to resume an existing Codex session.
+fn capture_codex_session_id() -> Result<String> {
     let codex_dir = dirs::home_dir()
         .context("Cannot determine home directory")?
         .join(".codex")
@@ -219,7 +209,7 @@ fn capture_codex_session_id(_working_dir: &str) -> Result<String> {
         anyhow::bail!("Codex sessions directory not found");
     }
 
-    // Find most recent session matching working directory
+    // Find first available session directory
     let entries: Vec<_> = std::fs::read_dir(&codex_dir)?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_dir())
@@ -243,6 +233,20 @@ fn build_resume_flags(tool: &str, session_id: &str) -> String {
         "opencode" => format!("--session {}", session_id),
         "codex" => format!("resume {}", session_id),
         _ => String::new(),
+    }
+}
+
+fn append_resume_flags(tool: &str, session_id: Option<&str>, cmd: &mut String, context: &str) {
+    if let Some(session_id) = session_id {
+        let resume_flags = build_resume_flags(tool, session_id);
+        if !resume_flags.is_empty() {
+            *cmd = format!("{} {}", cmd, resume_flags);
+            tracing::debug!(
+                "Added resume flags to {} command: {}",
+                context,
+                resume_flags
+            );
+        }
     }
 }
 
@@ -305,7 +309,7 @@ impl Instance {
             "opencode" => capture_opencode_session_id()
                 .map_err(|e| tracing::debug!("Failed to capture OpenCode session ID: {}", e))
                 .ok(),
-            "codex" => capture_codex_session_id(&self.project_path)
+            "codex" => capture_codex_session_id()
                 .map_err(|e| tracing::debug!("Failed to capture Codex session ID: {}", e))
                 .ok(),
             _ => None,
@@ -478,15 +482,16 @@ impl Instance {
             return Ok(());
         }
 
+        let profile = super::config::Config::load()
+            .map(|c| c.default_profile)
+            .unwrap_or_else(|_| "default".to_string());
+
         // Resolve on_launch hooks from the full config chain (global > profile > repo).
         // Repo hooks go through trust verification; global/profile hooks are implicitly trusted.
         let on_launch_hooks = if skip_on_launch {
             None
         } else {
             // Start with global+profile hooks as the base
-            let profile = super::config::Config::load()
-                .map(|c| c.default_profile)
-                .unwrap_or_else(|_| "default".to_string());
             let mut resolved_on_launch = super::profile_config::resolve_config(&profile)
                 .map(|c| c.hooks.on_launch)
                 .unwrap_or_default();
@@ -552,13 +557,12 @@ impl Instance {
                 }
             }
 
-            if let Some(session_id) = session_id {
-                let resume_flags = build_resume_flags(&self.tool, &session_id);
-                if !resume_flags.is_empty() {
-                    tool_cmd = format!("{} {}", tool_cmd, resume_flags);
-                    tracing::debug!("Added resume flags to sandboxed command: {}", resume_flags);
-                }
-            }
+            append_resume_flags(
+                &self.tool,
+                session_id.as_deref(),
+                &mut tool_cmd,
+                "sandboxed",
+            );
 
             let env_args = build_docker_env_args(sandbox);
             let env_part = if env_args.is_empty() {
@@ -598,16 +602,13 @@ impl Instance {
                                 }
                             }
                         }
-                        if let Some(session_id) = self.acquire_session_id() {
-                            let resume_flags = build_resume_flags(&self.tool, &session_id);
-                            if !resume_flags.is_empty() {
-                                cmd = format!("{} {}", cmd, resume_flags);
-                                tracing::debug!(
-                                    "Added resume flags to host agent command: {}",
-                                    resume_flags
-                                );
-                            }
-                        }
+                        let session_id = self.acquire_session_id();
+                        append_resume_flags(
+                            &self.tool,
+                            session_id.as_deref(),
+                            &mut cmd,
+                            "host agent",
+                        );
                         wrap_command_ignore_suspend(&cmd)
                     })
             } else {
@@ -625,16 +626,8 @@ impl Instance {
                         }
                     }
                 }
-                if let Some(session_id) = self.acquire_session_id() {
-                    let resume_flags = build_resume_flags(&self.tool, &session_id);
-                    if !resume_flags.is_empty() {
-                        cmd = format!("{} {}", cmd, resume_flags);
-                        tracing::debug!(
-                            "Added resume flags to host custom command: {}",
-                            resume_flags
-                        );
-                    }
-                }
+                let session_id = self.acquire_session_id();
+                append_resume_flags(&self.tool, session_id.as_deref(), &mut cmd, "host custom");
                 Some(wrap_command_ignore_suspend(&cmd))
             }
         };
@@ -642,32 +635,7 @@ impl Instance {
         tracing::debug!("container cmd: {}", cmd.as_ref().map_or("none", |v| v));
         session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
 
-        if self.agent_session_id.is_some() {
-            match super::storage::Storage::new("") {
-                Ok(storage) => match storage.load() {
-                    Ok(mut instances) => {
-                        if let Some(inst) = instances.iter_mut().find(|i| i.id == self.id) {
-                            inst.agent_session_id = self.agent_session_id.clone();
-                        }
-                        if let Err(e) = storage.save(&instances) {
-                            tracing::debug!(
-                                "Failed to save instances for session ID persistence: {}",
-                                e
-                            );
-                        } else {
-                            tracing::debug!("Session ID persisted successfully");
-                        }
-                    }
-                    Err(e) => tracing::debug!(
-                        "Failed to load instances for session ID persistence: {}",
-                        e
-                    ),
-                },
-                Err(e) => {
-                    tracing::debug!("Failed to create storage for session ID persistence: {}", e)
-                }
-            }
-        }
+        self.persist_session_id(&profile);
 
         // Apply all configured tmux options (status bar, mouse, etc.)
         self.apply_tmux_options();
@@ -676,6 +644,36 @@ impl Instance {
         self.last_start_time = Some(std::time::Instant::now());
 
         Ok(())
+    }
+
+    /// Persist the agent session ID to storage so it survives TUI restarts.
+    fn persist_session_id(&self, profile: &str) {
+        if self.agent_session_id.is_none() {
+            return;
+        }
+        match super::storage::Storage::new(profile) {
+            Ok(storage) => match storage.load() {
+                Ok(mut instances) => {
+                    if let Some(inst) = instances.iter_mut().find(|i| i.id == self.id) {
+                        inst.agent_session_id = self.agent_session_id.clone();
+                    }
+                    if let Err(e) = storage.save(&instances) {
+                        tracing::debug!(
+                            "Failed to save instances for session ID persistence: {}",
+                            e
+                        );
+                    } else {
+                        tracing::debug!("Session ID persisted successfully");
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("Failed to load instances for session ID persistence: {}", e)
+                }
+            },
+            Err(e) => {
+                tracing::debug!("Failed to create storage for session ID persistence: {}", e)
+            }
+        }
     }
 
     fn apply_tmux_options(&self) {
@@ -1379,6 +1377,26 @@ mod tests {
         assert_eq!(inst.agent_session_id, Some("abc-123".to_string()));
     }
 
+    #[test]
+    fn test_build_unknown_tool_resume_flags() {
+        let flags = build_resume_flags("mistral", "session-123");
+        assert!(flags.is_empty());
+    }
+
+    #[test]
+    fn test_acquire_session_id_idempotence() {
+        let mut inst = Instance::new("Test", "/tmp/test");
+        inst.tool = "claude".to_string();
+
+        let first = inst.acquire_session_id();
+        let second = inst.acquire_session_id();
+
+        assert!(first.is_some());
+        assert_eq!(first, second);
+    }
+
+    // Tests the timeout+SIGKILL pattern, not the actual capture_opencode_session_id
+    // function, since that requires the opencode binary to be installed.
     #[test]
     fn test_opencode_timeout_returns_error() {
         let result = slow_command_with_timeout();
