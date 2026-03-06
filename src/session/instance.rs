@@ -568,7 +568,7 @@ impl Instance {
                     .exec(&[
                         "sh",
                         "-c",
-                        "find /root/.codex/sessions/ -name '*.jsonl' -printf '%T@ %p\\n' | sort -rn | head -1",
+                        "SESS_DIR=\"${CODEX_HOME:-$HOME/.codex}/sessions\"; find \"$SESS_DIR\" -name '*.jsonl' -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -1",
                     ])
                     .map_err(|e| tracing::debug!("Container exec failed for codex: {}", e))
                     .ok()?;
@@ -590,6 +590,7 @@ impl Instance {
             _ => None,
         }
     }
+
     fn has_custom_command(&self) -> bool {
         if !self.extra_args.is_empty() {
             return true;
@@ -1171,6 +1172,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn test_new_instance() {
@@ -1799,10 +1801,11 @@ mod tests {
 
     #[test]
     fn test_opencode_directory_matching() {
+        // Use numeric epoch timestamps (milliseconds) matching OpenCode's Date.now() format.
         let sessions_json = serde_json::json!([
-            {"id": "wrong-session", "directory": "/home/user/other-project", "updated": "2025-01-01T00:00:00Z"},
-            {"id": "correct-session", "directory": "/tmp/my-project", "updated": "2025-01-02T00:00:00Z"},
-            {"id": "older-match", "directory": "/tmp/my-project", "updated": "2025-01-01T00:00:00Z"},
+            {"id": "wrong-session", "directory": "/home/user/other-project", "updated": 1735689600000_u64},
+            {"id": "correct-session", "directory": "/tmp/my-project", "updated": 1735776000000_u64},
+            {"id": "older-match", "directory": "/tmp/my-project", "updated": 1735689600000_u64},
         ]);
         let sessions: Vec<serde_json::Value> = serde_json::from_value(sessions_json).unwrap();
 
@@ -1826,10 +1829,13 @@ mod tests {
             })
             .collect();
 
+        // Sort by numeric epoch (most recent first), matching production code.
         matching.sort_by(|a, b| {
-            let a_time = a.get("updated").and_then(|v| v.as_str()).unwrap_or("");
-            let b_time = b.get("updated").and_then(|v| v.as_str()).unwrap_or("");
-            b_time.cmp(a_time)
+            let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            b_time
+                .partial_cmp(&a_time)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let session = matching.first().copied().or_else(|| sessions.first());
@@ -1871,6 +1877,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_codex_respects_codex_home_env() {
         let tmp = tempfile::tempdir().unwrap();
         let sessions_dir = tmp.path().join("sessions");
