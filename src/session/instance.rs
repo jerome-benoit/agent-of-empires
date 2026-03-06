@@ -22,6 +22,9 @@ const OPENCODE_MAX_RETRY_ATTEMPTS: u32 = 3;
 const OPENCODE_RETRY_DELAY: Duration = Duration::from_secs(2);
 const OPENCODE_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const OPENCODE_CAPTURE_DEADLINE: Duration = Duration::from_secs(15);
+const DEFERRED_CAPTURE_INITIAL_DELAY: Duration = Duration::from_secs(5);
+const DEFERRED_CAPTURE_MAX_ATTEMPTS: u32 = 6;
+const DEFERRED_CAPTURE_RETRY_DELAY: Duration = Duration::from_secs(5);
 
 fn default_true() -> bool {
     true
@@ -426,6 +429,108 @@ fn append_resume_flags(
     }
 }
 
+fn capture_from_host(tool: &str, project_path: &str) -> Option<String> {
+    match tool {
+        "opencode" => capture_opencode_session_id(project_path)
+            .map_err(|e| tracing::debug!("Deferred host capture (opencode): {}", e))
+            .ok(),
+        "codex" => capture_codex_session_id(project_path)
+            .map_err(|e| tracing::debug!("Deferred host capture (codex): {}", e))
+            .ok(),
+        _ => None,
+    }
+}
+
+fn capture_from_container(instance_id: &str, tool: &str) -> Option<String> {
+    let container = DockerContainer::from_session_id(instance_id);
+    if !container.is_running().unwrap_or(false) {
+        tracing::debug!(
+            "Container not running for deferred capture: {}",
+            instance_id
+        );
+        return None;
+    }
+
+    match tool {
+        "opencode" => {
+            let output = container
+                .exec(&["opencode", "session", "list", "--format", "json"])
+                .map_err(|e| tracing::debug!("Deferred container exec (opencode): {}", e))
+                .ok()?;
+
+            if !output.status.success() {
+                return None;
+            }
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let sessions: Vec<serde_json::Value> = serde_json::from_str(&stdout)
+                .map_err(|e| tracing::debug!("Deferred container JSON parse: {}", e))
+                .ok()?;
+
+            let mut sorted = sessions;
+            sorted.sort_by(|a, b| {
+                let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                b_time
+                    .partial_cmp(&a_time)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            sorted
+                .first()
+                .and_then(|s| s["id"].as_str())
+                .map(|s| s.to_string())
+        }
+        "codex" => {
+            let output = container
+                .exec(&[
+                    "sh",
+                    "-c",
+                    "SESS_DIR=\"${CODEX_HOME:-$HOME/.codex}/sessions\"; find \"$SESS_DIR\" -name '*.jsonl' -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -1",
+                ])
+                .map_err(|e| tracing::debug!("Deferred container exec (codex): {}", e))
+                .ok()?;
+
+            if !output.status.success() {
+                return None;
+            }
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout
+                .lines()
+                .next()
+                .and_then(|line| line.split_once(' '))
+                .and_then(|(_, path)| extract_codex_uuid_from_filename(std::path::Path::new(path)))
+        }
+        _ => None,
+    }
+}
+
+fn persist_deferred_session_id(profile: &str, instance_id: &str, session_id: &str) {
+    let storage = match super::storage::Storage::new(profile) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::debug!("Deferred persist: failed to create storage: {}", e);
+            return;
+        }
+    };
+    let mut instances = match storage.load() {
+        Ok(i) => i,
+        Err(e) => {
+            tracing::debug!("Deferred persist: failed to load instances: {}", e);
+            return;
+        }
+    };
+    if let Some(inst) = instances.iter_mut().find(|i| i.id == instance_id) {
+        inst.agent_session_id = Some(session_id.to_string());
+        if let Err(e) = storage.save(&instances) {
+            tracing::debug!("Deferred persist: failed to save: {}", e);
+        } else {
+            tracing::debug!("Deferred persist: session ID saved for {}", instance_id);
+        }
+    }
+}
+
 impl Instance {
     pub fn new(title: &str, project_path: &str) -> Self {
         Self {
@@ -463,43 +568,24 @@ impl Instance {
         self.yolo_mode
     }
 
-    /// Generate or capture session ID based on agent type.
+    /// Acquire a pre-launch session ID for the agent.
     ///
-    /// Idempotent method that acquires a session ID for the configured agent tool.
-    /// If a session ID has already been obtained, it is returned immediately. Otherwise:
-    /// - For Claude: generates a new UUID
-    /// - For OpenCode: attempts to capture an existing session ID via CLI
-    /// - For Codex: attempts to find an existing session in the filesystem
-    /// - For other tools: returns None
-    ///
-    /// Any errors during capture (e.g., CLI timeout, missing sessions directory) are logged
-    /// at debug level and treated as if no session ID was found. The session ID is cached
-    /// in `self.agent_session_id` for future calls.
-    ///
-    /// Returns `(session_id, is_existing)` where `is_existing` indicates whether
-    /// the session was previously persisted (relevant for Claude's flag selection).
+    /// Returns `(session_id, is_existing)`. If a persisted ID exists, returns it
+    /// with `is_existing = true`. Otherwise, only Claude gets a new UUID here
+    /// (it requires `--session-id <uuid>` at launch). OpenCode/Codex create their
+    /// own sessions on startup; their IDs are captured post-launch by
+    /// `deferred_capture_session_id()`.
     pub fn acquire_session_id(&mut self) -> (Option<String>, bool) {
         if self.agent_session_id.is_some() {
             return (self.agent_session_id.clone(), true);
         }
 
+        // For OpenCode/Codex on first launch (no persisted ID), skip capture.
+        // These agents create their own sessions; the ID is captured post-launch
+        // via deferred_capture_session_id() and persisted for future relaunches.
+        // Only Claude needs a pre-launch ID (--session-id <uuid> creates a new session).
         let session_id = match self.tool.as_str() {
             "claude" => Some(generate_claude_session_id()),
-            "opencode" | "codex" if self.is_sandboxed() => {
-                self.acquire_session_id_from_container().or_else(|| {
-                    tracing::debug!(
-                        "Container capture failed for {}, falling back to host",
-                        self.tool
-                    );
-                    self.acquire_session_id_from_host()
-                })
-            }
-            "opencode" => capture_opencode_session_id(&self.project_path)
-                .map_err(|e| tracing::debug!("Failed to capture OpenCode session ID: {}", e))
-                .ok(),
-            "codex" => capture_codex_session_id(&self.project_path)
-                .map_err(|e| tracing::debug!("Failed to capture Codex session ID: {}", e))
-                .ok(),
             _ => None,
         };
 
@@ -509,86 +595,6 @@ impl Instance {
         }
 
         (session_id, false)
-    }
-
-    fn acquire_session_id_from_host(&self) -> Option<String> {
-        match self.tool.as_str() {
-            "opencode" => capture_opencode_session_id(&self.project_path)
-                .map_err(|e| tracing::debug!("Failed to capture OpenCode session ID: {}", e))
-                .ok(),
-            "codex" => capture_codex_session_id(&self.project_path)
-                .map_err(|e| tracing::debug!("Failed to capture Codex session ID: {}", e))
-                .ok(),
-            _ => None,
-        }
-    }
-
-    fn acquire_session_id_from_container(&self) -> Option<String> {
-        let container = DockerContainer::from_session_id(&self.id);
-        if !container.is_running().unwrap_or(false) {
-            tracing::debug!("Container not running for session {}", self.id);
-            return None;
-        }
-
-        match self.tool.as_str() {
-            "opencode" => {
-                let output = container
-                    .exec(&["opencode", "session", "list", "--format", "json"])
-                    .map_err(|e| tracing::debug!("Container exec failed for opencode: {}", e))
-                    .ok()?;
-
-                if !output.status.success() {
-                    tracing::debug!("opencode session list failed inside container");
-                    return None;
-                }
-
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let sessions: Vec<serde_json::Value> = serde_json::from_str(&stdout)
-                    .map_err(|e| tracing::debug!("Failed to parse container opencode JSON: {}", e))
-                    .ok()?;
-
-                // In container context, just pick the most recently updated session.
-                // OpenCode stores `updated` as a numeric epoch (Date.now() milliseconds).
-                let mut sorted = sessions;
-                sorted.sort_by(|a, b| {
-                    let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    b_time
-                        .partial_cmp(&a_time)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-
-                sorted
-                    .first()
-                    .and_then(|s| s["id"].as_str())
-                    .map(|s| s.to_string())
-            }
-            "codex" => {
-                let output = container
-                    .exec(&[
-                        "sh",
-                        "-c",
-                        "SESS_DIR=\"${CODEX_HOME:-$HOME/.codex}/sessions\"; find \"$SESS_DIR\" -name '*.jsonl' -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -1",
-                    ])
-                    .map_err(|e| tracing::debug!("Container exec failed for codex: {}", e))
-                    .ok()?;
-
-                if !output.status.success() {
-                    tracing::debug!("find codex sessions failed inside container");
-                    return None;
-                }
-
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                stdout
-                    .lines()
-                    .next()
-                    .and_then(|line| line.split_once(' '))
-                    .and_then(|(_, path)| {
-                        extract_codex_uuid_from_filename(std::path::Path::new(path))
-                    })
-            }
-            _ => None,
-        }
     }
 
     fn has_custom_command(&self) -> bool {
@@ -933,6 +939,7 @@ impl Instance {
         session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
 
         self.persist_session_id(&profile);
+        self.deferred_capture_session_id(&profile);
 
         // Apply all configured tmux options (status bar, mouse, etc.)
         self.apply_tmux_options();
@@ -971,6 +978,69 @@ impl Instance {
                 tracing::debug!("Failed to create storage for session ID persistence: {}", e)
             }
         }
+    }
+
+    /// Spawn a background thread to capture the session ID after the agent starts.
+    ///
+    /// OpenCode and Codex create their own sessions on launch, so the ID cannot be
+    /// known in advance. This method polls the agent's CLI or filesystem until a
+    /// session appears, then persists it so that future relaunches resume the same
+    /// conversation.
+    fn deferred_capture_session_id(&self, profile: &str) {
+        if self.agent_session_id.is_some() {
+            return;
+        }
+        if !matches!(self.tool.as_str(), "opencode" | "codex") {
+            return;
+        }
+
+        let instance_id = self.id.clone();
+        let tool = self.tool.clone();
+        let project_path = self.project_path.clone();
+        let profile = profile.to_string();
+        let is_sandboxed = self.is_sandboxed();
+
+        std::thread::Builder::new()
+            .name(format!("deferred-capture-{}", instance_id))
+            .spawn(move || {
+                std::thread::sleep(DEFERRED_CAPTURE_INITIAL_DELAY);
+
+                for attempt in 1..=DEFERRED_CAPTURE_MAX_ATTEMPTS {
+                    let captured = if is_sandboxed {
+                        capture_from_container(&instance_id, &tool)
+                    } else {
+                        capture_from_host(&tool, &project_path)
+                    };
+
+                    if let Some(ref session_id) = captured {
+                        tracing::debug!(
+                            "Deferred capture succeeded for {} (attempt {}): {}",
+                            instance_id,
+                            attempt,
+                            session_id
+                        );
+                        persist_deferred_session_id(&profile, &instance_id, session_id);
+                        return;
+                    }
+
+                    if attempt < DEFERRED_CAPTURE_MAX_ATTEMPTS {
+                        tracing::debug!(
+                            "Deferred capture attempt {}/{} found nothing for {}, retrying",
+                            attempt,
+                            DEFERRED_CAPTURE_MAX_ATTEMPTS,
+                            instance_id
+                        );
+                        std::thread::sleep(DEFERRED_CAPTURE_RETRY_DELAY);
+                    }
+                }
+
+                tracing::debug!(
+                    "Deferred capture exhausted all {} attempts for {}",
+                    DEFERRED_CAPTURE_MAX_ATTEMPTS,
+                    instance_id
+                );
+            })
+            .ok();
     }
 
     fn apply_tmux_options(&self) {
@@ -1628,10 +1698,20 @@ mod tests {
         assert_eq!(inst.agent_session_id, None);
     }
 
-    // Test: capture failure doesn't block startup
     #[test]
-    fn test_capture_failure_doesnt_block_startup() {
-        // Test that acquire_session_id handles errors gracefully
+    fn test_opencode_acquire_returns_none_for_deferred_capture() {
+        let mut inst = Instance::new("Test", "/tmp/test");
+        inst.tool = "opencode".to_string();
+
+        let (session_id, is_existing) = inst.acquire_session_id();
+
+        assert!(session_id.is_none());
+        assert!(!is_existing);
+        assert!(inst.agent_session_id.is_none());
+    }
+
+    #[test]
+    fn test_codex_acquire_returns_none_for_deferred_capture() {
         let mut inst = Instance::new("Test", "/nonexistent/path");
         inst.tool = "codex".to_string();
 
@@ -1640,6 +1720,30 @@ mod tests {
         assert!(session_id.is_none());
         assert!(!is_existing);
         assert!(inst.agent_session_id.is_none());
+    }
+
+    #[test]
+    fn test_persisted_opencode_session_id_reused() {
+        let mut inst = Instance::new("Test", "/tmp/test");
+        inst.tool = "opencode".to_string();
+        inst.agent_session_id = Some("oc-session-42".to_string());
+
+        let (session_id, is_existing) = inst.acquire_session_id();
+
+        assert_eq!(session_id, Some("oc-session-42".to_string()));
+        assert!(is_existing);
+    }
+
+    #[test]
+    fn test_persisted_codex_session_id_reused() {
+        let mut inst = Instance::new("Test", "/tmp/test");
+        inst.tool = "codex".to_string();
+        inst.agent_session_id = Some("codex-sess-99".to_string());
+
+        let (session_id, is_existing) = inst.acquire_session_id();
+
+        assert_eq!(session_id, Some("codex-sess-99".to_string()));
+        assert!(is_existing);
     }
 
     // Test: resume with invalid session ID
