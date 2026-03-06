@@ -1,5 +1,6 @@
 //! Session instance definition and operations
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::mpsc;
@@ -151,6 +152,46 @@ fn generate_claude_session_id() -> String {
     Uuid::new_v4().to_string()
 }
 
+/// Build a set of session IDs already claimed by other AoE instances.
+///
+/// Lists all tmux sessions with the AoE prefix, reads each one's hidden env vars
+/// to find its instance ID and captured session ID, and collects all captured IDs
+/// from instances other than `current_instance_id`.
+fn build_exclusion_set(current_instance_id: &str) -> HashSet<String> {
+    let output = match std::process::Command::new("tmux")
+        .args(["list-sessions", "-F", "#{session_name}"])
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return HashSet::new(),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut excluded = HashSet::new();
+
+    for session_name in stdout.lines() {
+        if !session_name.starts_with(crate::tmux::SESSION_PREFIX) {
+            continue;
+        }
+
+        let owner =
+            crate::tmux::env::get_hidden_env(session_name, crate::tmux::env::AOE_INSTANCE_ID_KEY);
+
+        if owner.as_deref() == Some(current_instance_id) {
+            continue;
+        }
+
+        if let Some(captured) = crate::tmux::env::get_hidden_env(
+            session_name,
+            crate::tmux::env::AOE_CAPTURED_SESSION_KEY,
+        ) {
+            excluded.insert(captured);
+        }
+    }
+
+    excluded
+}
+
 /// Capture session ID from OpenCode CLI with retry logic.
 ///
 /// Attempts up to 3 times to capture an OpenCode session ID, with 2-second delays between
@@ -168,7 +209,11 @@ fn generate_claude_session_id() -> String {
 /// - The command exits with a non-zero status code
 /// - The JSON output cannot be parsed
 /// - No sessions are found in the response
-fn capture_opencode_session_id(project_path: &str) -> Result<String> {
+fn capture_opencode_session_id(
+    project_path: &str,
+    exclusion: &HashSet<String>,
+    launch_time_ms: f64,
+) -> Result<String> {
     let deadline = std::time::Instant::now() + OPENCODE_CAPTURE_DEADLINE;
     let mut last_err = None;
 
@@ -184,7 +229,7 @@ fn capture_opencode_session_id(project_path: &str) -> Result<String> {
             );
         }
 
-        match try_capture_opencode_session_id(project_path) {
+        match try_capture_opencode_session_id(project_path, exclusion, launch_time_ms) {
             Ok(id) => return Ok(id),
             Err(e) => {
                 tracing::debug!(
@@ -204,7 +249,11 @@ fn capture_opencode_session_id(project_path: &str) -> Result<String> {
 ///
 /// Spawns `opencode session list --format json` with a 5-second timeout, parses the JSON,
 /// and selects the best matching session based on project directory and update time.
-fn try_capture_opencode_session_id(project_path: &str) -> Result<String> {
+fn try_capture_opencode_session_id(
+    project_path: &str,
+    exclusion: &HashSet<String>,
+    launch_time_ms: f64,
+) -> Result<String> {
     let child = std::process::Command::new("opencode")
         .args(["session", "list", "--format", "json"])
         .stdout(Stdio::piped())
@@ -267,6 +316,17 @@ fn try_capture_opencode_session_id(project_path: &str) -> Result<String> {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    // Filter out sessions older than launch (stale from a previous run)
+    matching.retain(|s| s.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0) >= launch_time_ms);
+
+    // Filter out sessions already claimed by other AoE instances
+    matching.retain(|s| {
+        s.get("id")
+            .and_then(|v| v.as_str())
+            .map(|id| !exclusion.contains(id))
+            .unwrap_or(true)
+    });
+
     // Use directory match if found, otherwise fall back to first session
     let session = matching.first().copied().or_else(|| sessions.first());
 
@@ -282,7 +342,7 @@ fn try_capture_opencode_session_id(project_path: &str) -> Result<String> {
 /// for `.jsonl` rollout files and extracts the UUID from the most recent one.
 /// Codex filenames follow the pattern `rollout-<timestamp>-<uuid>.jsonl`.
 /// Respects `CODEX_HOME` env var, falling back to `~/.codex`.
-fn capture_codex_session_id(project_path: &str) -> Result<String> {
+fn capture_codex_session_id(project_path: &str, exclusion: &HashSet<String>) -> Result<String> {
     let codex_home = match std::env::var("CODEX_HOME") {
         Ok(val) => std::path::PathBuf::from(val),
         Err(_) => dirs::home_dir()
@@ -306,6 +366,14 @@ fn capture_codex_session_id(project_path: &str) -> Result<String> {
     }
 
     session_entries.sort_by(|a, b| b.1.cmp(&a.1));
+
+    session_entries.retain(|(path, _)| {
+        !exclusion.contains(
+            extract_codex_uuid_from_filename(path)
+                .as_deref()
+                .unwrap_or(""),
+        )
+    });
 
     let canonical_project = std::fs::canonicalize(project_path)
         .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
@@ -429,19 +497,28 @@ fn append_resume_flags(
     }
 }
 
-fn capture_from_host(tool: &str, project_path: &str) -> Option<String> {
+fn capture_from_host(
+    tool: &str,
+    project_path: &str,
+    exclusion: &HashSet<String>,
+    launch_time_ms: f64,
+) -> Option<String> {
     match tool {
-        "opencode" => capture_opencode_session_id(project_path)
+        "opencode" => capture_opencode_session_id(project_path, exclusion, launch_time_ms)
             .map_err(|e| tracing::debug!("Deferred host capture (opencode): {}", e))
             .ok(),
-        "codex" => capture_codex_session_id(project_path)
+        "codex" => capture_codex_session_id(project_path, exclusion)
             .map_err(|e| tracing::debug!("Deferred host capture (codex): {}", e))
             .ok(),
         _ => None,
     }
 }
 
-fn capture_from_container(instance_id: &str, tool: &str) -> Option<String> {
+fn capture_from_container(
+    instance_id: &str,
+    tool: &str,
+    exclusion: &HashSet<String>,
+) -> Option<String> {
     let container = DockerContainer::from_session_id(instance_id);
     if !container.is_running().unwrap_or(false) {
         tracing::debug!(
@@ -476,6 +553,13 @@ fn capture_from_container(instance_id: &str, tool: &str) -> Option<String> {
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
+            sorted.retain(|s| {
+                s.get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|id| !exclusion.contains(id))
+                    .unwrap_or(true)
+            });
+
             sorted
                 .first()
                 .and_then(|s| s["id"].as_str())
@@ -496,11 +580,13 @@ fn capture_from_container(instance_id: &str, tool: &str) -> Option<String> {
             }
 
             let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout
+            let uuid = stdout
                 .lines()
                 .next()
                 .and_then(|line| line.split_once(' '))
-                .and_then(|(_, path)| extract_codex_uuid_from_filename(std::path::Path::new(path)))
+                .and_then(|(_, path)| extract_codex_uuid_from_filename(std::path::Path::new(path)));
+
+            uuid.filter(|id| !exclusion.contains(id))
         }
         _ => None,
     }
@@ -1036,13 +1122,20 @@ impl Instance {
         std::thread::Builder::new()
             .name(format!("deferred-capture-{}", instance_id))
             .spawn(move || {
+                let launch_time_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as f64)
+                    .unwrap_or(0.0);
+
                 std::thread::sleep(DEFERRED_CAPTURE_INITIAL_DELAY);
 
                 for attempt in 1..=DEFERRED_CAPTURE_MAX_ATTEMPTS {
+                    let exclusion = build_exclusion_set(&instance_id);
+
                     let captured = if is_sandboxed {
-                        capture_from_container(&instance_id, &tool)
+                        capture_from_container(&instance_id, &tool, &exclusion)
                     } else {
-                        capture_from_host(&tool, &project_path)
+                        capture_from_host(&tool, &project_path, &exclusion, launch_time_ms)
                     };
 
                     if let Some(ref session_id) = captured {
@@ -2030,7 +2123,7 @@ mod tests {
         let old_val = std::env::var("CODEX_HOME").ok();
         std::env::set_var("CODEX_HOME", tmp.path());
 
-        let result = capture_codex_session_id("/tmp/test");
+        let result = capture_codex_session_id("/tmp/test", &HashSet::new());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), uuid);
 
