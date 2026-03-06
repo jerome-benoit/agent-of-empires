@@ -1,16 +1,20 @@
 //! Adaptive polling interval and command channel for session monitoring
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
+use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-#[allow(dead_code)]
+/// Global count of active poller threads for budget enforcement
+static ACTIVE_POLLER_COUNT: AtomicU32 = AtomicU32::new(0);
+
+/// Maximum number of concurrent poller threads allowed
+const MAX_POLLER_THREADS: u32 = 20;
+
 const POLL_INITIAL_INTERVAL: Duration = Duration::from_secs(2);
-#[allow(dead_code)]
 const POLL_MAX_INTERVAL: Duration = Duration::from_secs(60);
-#[allow(dead_code)]
 const POLL_BACKOFF_FACTOR: f64 = 1.5;
-#[allow(dead_code)]
 const POLL_STABLE_THRESHOLD: u32 = 3;
 
 /// Manages adaptive polling intervals that back off when no changes are detected
@@ -82,7 +86,6 @@ pub enum PollCommand {
 /// Manages polling thread lifecycle and communication
 pub struct SessionPoller {
     cmd_tx: mpsc::Sender<PollCommand>,
-    #[allow(dead_code)]
     cmd_rx: Option<mpsc::Receiver<PollCommand>>,
     handle: Option<JoinHandle<()>>,
 }
@@ -95,6 +98,85 @@ impl SessionPoller {
             cmd_tx: tx,
             cmd_rx: Some(rx),
             handle: None,
+        }
+    }
+
+    /// Start the polling thread with the given callbacks
+    pub fn start(
+        &mut self,
+        instance_id: String,
+        poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static>,
+        on_change: Box<dyn Fn(&str) + Send + 'static>,
+        initial_known: Option<String>,
+    ) {
+        let cmd_rx = match self.cmd_rx.take() {
+            Some(rx) => rx,
+            None => {
+                tracing::warn!(
+                    "Poller for {} already started, ignoring duplicate start",
+                    instance_id
+                );
+                return;
+            }
+        };
+
+        let count = ACTIVE_POLLER_COUNT.load(Ordering::SeqCst);
+        if count >= MAX_POLLER_THREADS {
+            tracing::warn!(
+                "Poller thread budget exhausted ({}/{}), skipping poller for {}",
+                count,
+                MAX_POLLER_THREADS,
+                instance_id
+            );
+            self.cmd_rx = Some(cmd_rx);
+            return;
+        }
+
+        ACTIVE_POLLER_COUNT.fetch_add(1, Ordering::SeqCst);
+
+        let handle = std::thread::Builder::new()
+            .name(format!("aoe-poller/{}", instance_id))
+            .stack_size(128 * 1024)
+            .spawn(move || {
+                let mut interval = AdaptiveInterval::new(
+                    POLL_INITIAL_INTERVAL,
+                    POLL_MAX_INTERVAL,
+                    POLL_BACKOFF_FACTOR,
+                    POLL_STABLE_THRESHOLD,
+                );
+                let mut last_known = initial_known;
+
+                loop {
+                    match cmd_rx.recv_timeout(interval.current()) {
+                        Ok(PollCommand::Stop) => break,
+                        Ok(PollCommand::PollNow) => { /* fall through to poll */ }
+                        Err(RecvTimeoutError::Timeout) => { /* fall through to poll */ }
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+
+                    if let Some(new_id) = poll_fn() {
+                        let changed = last_known.as_deref() != Some(&new_id);
+                        if changed {
+                            on_change(&new_id);
+                            last_known = Some(new_id);
+                            interval.record_change();
+                        } else {
+                            interval.record_no_change();
+                        }
+                    } else {
+                        interval.record_no_change();
+                    }
+                }
+
+                ACTIVE_POLLER_COUNT.fetch_sub(1, Ordering::SeqCst);
+            });
+
+        match handle {
+            Ok(h) => self.handle = Some(h),
+            Err(e) => {
+                tracing::warn!("Failed to spawn poller thread for {}: {}", instance_id, e);
+                ACTIVE_POLLER_COUNT.fetch_sub(1, Ordering::SeqCst);
+            }
         }
     }
 
@@ -298,5 +380,165 @@ mod tests {
             interval.record_no_change();
         }
         assert_eq!(interval.current(), Duration::from_secs(3));
+    }
+
+    #[test]
+    fn test_poller_detects_change() {
+        use std::sync::{Arc, Mutex};
+
+        let call_count = Arc::new(Mutex::new(0u32));
+        let call_count_clone = call_count.clone();
+
+        let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = Box::new(move || {
+            let mut count = call_count_clone.lock().unwrap();
+            *count += 1;
+            if *count <= 3 {
+                Some("id-1".to_string())
+            } else {
+                Some("id-2".to_string())
+            }
+        });
+
+        let changed_ids: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let changed_ids_clone = changed_ids.clone();
+
+        let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(move |id: &str| {
+            changed_ids_clone.lock().unwrap().push(id.to_string());
+        });
+
+        let mut poller = SessionPoller::new();
+        poller.start(
+            "test-change".to_string(),
+            poll_fn,
+            on_change,
+            Some("id-1".to_string()),
+        );
+
+        // Force polls via PollNow (the default interval is 2s, too slow for tests)
+        for _ in 0..5 {
+            poller.poll_now();
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        poller.stop();
+
+        let ids = changed_ids.lock().unwrap();
+        assert!(
+            ids.contains(&"id-2".to_string()),
+            "on_change should have been called with id-2, got: {:?}",
+            *ids
+        );
+        assert!(
+            !ids.contains(&"id-1".to_string()),
+            "on_change should NOT have been called with id-1 (initial known)"
+        );
+    }
+
+    #[test]
+    fn test_poll_now_triggers_poll() {
+        use std::sync::{Arc, Mutex};
+
+        let poll_count = Arc::new(Mutex::new(0u32));
+        let poll_count_clone = poll_count.clone();
+
+        let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = Box::new(move || {
+            let mut count = poll_count_clone.lock().unwrap();
+            *count += 1;
+            Some("stable-id".to_string())
+        });
+
+        let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(|_| {});
+
+        let mut poller = SessionPoller::new();
+        poller.start("test-pollnow".to_string(), poll_fn, on_change, None);
+
+        std::thread::sleep(Duration::from_millis(50));
+        poller.poll_now();
+        poller.poll_now();
+        std::thread::sleep(Duration::from_millis(200));
+
+        let count = *poll_count.lock().unwrap();
+        assert!(
+            count >= 2,
+            "poll_fn should have been called at least twice via PollNow, got: {}",
+            count
+        );
+
+        poller.stop();
+    }
+
+    #[test]
+    fn test_thread_budget_cap() {
+        let original = ACTIVE_POLLER_COUNT.load(Ordering::SeqCst);
+        ACTIVE_POLLER_COUNT.store(MAX_POLLER_THREADS, Ordering::SeqCst);
+
+        let mut poller = SessionPoller::new();
+        poller.start(
+            "test-budget".to_string(),
+            Box::new(|| Some("id".to_string())),
+            Box::new(|_| {}),
+            None,
+        );
+
+        assert!(
+            !poller.is_running(),
+            "poller should not have spawned when budget exhausted"
+        );
+        assert!(
+            poller.cmd_rx.is_some(),
+            "cmd_rx should be returned when budget exhausted"
+        );
+
+        ACTIVE_POLLER_COUNT.store(original, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn test_poller_is_running_after_start() {
+        let mut poller = SessionPoller::new();
+        poller.start(
+            "test-running".to_string(),
+            Box::new(|| {
+                std::thread::sleep(Duration::from_millis(10));
+                Some("id".to_string())
+            }),
+            Box::new(|_| {}),
+            None,
+        );
+
+        assert!(poller.is_running(), "poller should be running after start");
+        poller.stop();
+    }
+
+    #[test]
+    fn test_poller_cleanup_decrements_counter() {
+        use std::sync::{Arc, Mutex};
+
+        let entered = Arc::new(Mutex::new(false));
+        let entered_clone = entered.clone();
+
+        let mut poller = SessionPoller::new();
+        poller.start(
+            "test-cleanup".to_string(),
+            Box::new(move || {
+                *entered_clone.lock().unwrap() = true;
+                Some("id".to_string())
+            }),
+            Box::new(|_| {}),
+            None,
+        );
+
+        poller.poll_now();
+        std::thread::sleep(Duration::from_millis(50));
+
+        let count_before_stop = ACTIVE_POLLER_COUNT.load(Ordering::SeqCst);
+        poller.stop();
+        let count_after_stop = ACTIVE_POLLER_COUNT.load(Ordering::SeqCst);
+
+        assert!(
+            count_after_stop < count_before_stop,
+            "counter should decrement after stop (before_stop={}, after_stop={})",
+            count_before_stop,
+            count_after_stop
+        );
+        assert!(*entered.lock().unwrap(), "poll_fn should have been called");
     }
 }
