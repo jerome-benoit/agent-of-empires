@@ -37,6 +37,7 @@ pub enum Status {
     Waiting,
     #[default]
     Idle,
+    Unknown,
     Stopped,
     Error,
     Starting,
@@ -91,6 +92,8 @@ pub struct Instance {
     pub parent_session_id: Option<String>,
     #[serde(default)]
     pub command: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub extra_args: String,
     #[serde(default)]
     pub tool: String,
     #[serde(default)]
@@ -259,6 +262,7 @@ impl Instance {
             group_path: String::new(),
             parent_session_id: None,
             command: String::new(),
+            extra_args: String::new(),
             tool: "claude".to_string(),
             yolo_mode: false,
             status: Status::Idle,
@@ -321,6 +325,17 @@ impl Instance {
         }
 
         session_id
+    }
+    fn has_custom_command(&self) -> bool {
+        if !self.extra_args.is_empty() {
+            return true;
+        }
+        if self.command.is_empty() {
+            return false;
+        }
+        crate::agents::get_agent(&self.tool)
+            .map(|a| self.command != a.binary)
+            .unwrap_or(true)
     }
 
     pub fn get_tool_command(&self) -> &str {
@@ -409,9 +424,9 @@ impl Instance {
         // Get workspace path inside container (handles bare repo worktrees correctly)
         let container_workdir = self.container_workdir();
 
-        let cmd = format!(
-            "{} /bin/bash",
-            container.exec_command(Some(&format!("-w {} {}", container_workdir, env_part)))
+        let cmd = container.exec_command(
+            Some(&format!("-w {} {}", container_workdir, env_part)),
+            "/bin/bash",
         );
 
         let session = self.container_terminal_tmux_session()?;
@@ -533,19 +548,24 @@ impl Instance {
 
             let sandbox = self.sandbox_info.as_ref().unwrap();
             let agent = crate::agents::get_agent(&self.tool);
+            let base_cmd = if self.extra_args.is_empty() {
+                self.get_tool_command().to_string()
+            } else {
+                format!("{} {}", self.get_tool_command(), self.extra_args)
+            };
             let mut tool_cmd = if self.is_yolo_mode() {
                 if let Some(ref yolo) = agent.and_then(|a| a.yolo.as_ref()) {
                     match yolo {
                         crate::agents::YoloMode::CliFlag(flag) => {
-                            format!("{} {}", self.get_tool_command(), flag)
+                            format!("{} {}", base_cmd, flag)
                         }
-                        crate::agents::YoloMode::EnvVar(..) => self.get_tool_command().to_string(),
+                        crate::agents::YoloMode::EnvVar(..) => base_cmd,
                     }
                 } else {
-                    self.get_tool_command().to_string()
+                    base_cmd
                 }
             } else {
-                self.get_tool_command().to_string()
+                base_cmd
             };
             if let Some(ref instruction) = sandbox.custom_instruction {
                 if !instruction.is_empty() {
@@ -570,11 +590,9 @@ impl Instance {
             } else {
                 format!("{} ", env_args)
             };
-            Some(wrap_command_ignore_suspend(&format!(
-                "{} {}",
-                container.exec_command(Some(&env_part)),
-                tool_cmd
-            )))
+            Some(wrap_command_ignore_suspend(
+                &container.exec_command(Some(&env_part), &tool_cmd),
+            ))
         } else {
             // Run on_launch hooks on host for non-sandboxed sessions
             if let Some(ref hook_cmds) = on_launch_hooks {
@@ -590,6 +608,9 @@ impl Instance {
                     .filter(|a| a.supports_host_launch)
                     .map(|a| {
                         let mut cmd = a.binary.to_string();
+                        if !self.extra_args.is_empty() {
+                            cmd = format!("{} {}", cmd, self.extra_args);
+                        }
                         if self.is_yolo_mode() {
                             if let Some(ref yolo) = a.yolo {
                                 match yolo {
@@ -613,6 +634,9 @@ impl Instance {
                     })
             } else {
                 let mut cmd = self.command.clone();
+                if !self.extra_args.is_empty() {
+                    cmd = format!("{} {}", cmd, self.extra_args);
+                }
                 if self.is_yolo_mode() {
                     let agent = crate::agents::get_agent(&self.tool);
                     if let Some(ref yolo) = agent.and_then(|a| a.yolo.as_ref()) {
@@ -724,7 +748,7 @@ impl Instance {
     /// Get the container working directory for this instance.
     pub fn container_workdir(&self) -> String {
         container_config::compute_volume_paths(Path::new(&self.project_path), &self.project_path)
-            .map(|(_, _, wd)| wd)
+            .map(|(_, wd)| wd)
             .unwrap_or_else(|_| "/workspace".to_string())
     }
 
@@ -815,9 +839,27 @@ impl Instance {
         }
 
         // Detect status from pane content
-        self.status = match session.detect_status(&self.tool) {
+        let detected = match session.detect_status(&self.tool) {
             Ok(status) => status,
             Err(_) => Status::Idle,
+        };
+        tracing::trace!(
+            "status detection '{}' (tool={}, custom_cmd={}): {:?}",
+            self.title,
+            self.tool,
+            self.has_custom_command(),
+            detected
+        );
+        self.status = match detected {
+            Status::Idle if self.has_custom_command() => {
+                if session.is_pane_dead() {
+                    Status::Error
+                } else {
+                    Status::Unknown
+                }
+            }
+            Status::Idle if session.is_pane_dead() => Status::Error,
+            other => other,
         };
 
         // Clear stale error now that the session is healthy
@@ -847,8 +889,11 @@ fn generate_id() -> String {
 /// the actual command.
 ///
 /// Uses POSIX-standard `stty susp undef` which works on both Linux and macOS.
+/// Single quotes in `cmd` are escaped with the `'\''` technique to prevent
+/// breaking out of the outer `bash -c '...'` wrapper.
 fn wrap_command_ignore_suspend(cmd: &str) -> String {
-    format!("bash -c 'stty susp undef; exec {}'", cmd)
+    let escaped = cmd.replace('\'', "'\\''");
+    format!("bash -c 'stty susp undef; exec {}'", escaped)
 }
 
 #[cfg(test)]
@@ -1000,6 +1045,7 @@ mod tests {
             Status::Running,
             Status::Waiting,
             Status::Idle,
+            Status::Unknown,
             Status::Stopped,
             Status::Error,
             Status::Starting,
@@ -1431,5 +1477,44 @@ mod tests {
         };
 
         Ok("dummy".to_string())
+    }
+
+    #[test]
+    fn test_has_custom_command_empty() {
+        let inst = Instance::new("test", "/tmp/test");
+        assert!(!inst.has_custom_command());
+    }
+
+    #[test]
+    fn test_has_custom_command_same_as_agent_binary() {
+        let mut inst = Instance::new("test", "/tmp/test");
+        inst.tool = "claude".to_string();
+        inst.command = "claude".to_string();
+        assert!(!inst.has_custom_command());
+    }
+
+    #[test]
+    fn test_has_custom_command_override() {
+        let mut inst = Instance::new("test", "/tmp/test");
+        inst.tool = "claude".to_string();
+        inst.command = "my-wrapper".to_string();
+        assert!(inst.has_custom_command());
+    }
+
+    #[test]
+    fn test_has_custom_command_unknown_tool() {
+        let mut inst = Instance::new("test", "/tmp/test");
+        inst.tool = "unknown_agent".to_string();
+        inst.command = "some-binary".to_string();
+        assert!(inst.has_custom_command());
+    }
+
+    #[test]
+    fn test_status_unknown_serialization() {
+        let status = Status::Unknown;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"unknown\"");
+        let deserialized: Status = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, Status::Unknown);
     }
 }
