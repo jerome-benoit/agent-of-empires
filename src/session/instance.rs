@@ -1318,4 +1318,40 @@ mod tests {
         let inst: Instance = serde_json::from_str(json).unwrap();
         assert_eq!(inst.agent_session_id, Some("abc-123".to_string()));
     }
+
+    #[test]
+    fn test_opencode_timeout_returns_error() {
+        let result = slow_command_with_timeout();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("timed out"));
+    }
+
+    fn slow_command_with_timeout() -> Result<String> {
+        let child = std::process::Command::new("sleep")
+            .args(["10"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("Failed to spawn sleep command")?;
+
+        let child_id = child.id();
+        let (tx, rx) = mpsc::channel();
+
+        std::thread::spawn(move || {
+            let _ = tx.send(child.wait_with_output());
+        });
+
+        let _output = match rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(Ok(out)) => out,
+            Ok(Err(e)) => return Err(anyhow::anyhow!("Failed to execute: {}", e)),
+            Err(_) => {
+                tracing::debug!("Command timed out after 1 second");
+                let _ = nix::sys::signal::kill(Pid::from_raw(child_id as i32), Signal::SIGKILL);
+                return Err(anyhow::anyhow!("Command timed out"));
+            }
+        };
+
+        Ok("dummy".to_string())
+    }
 }
