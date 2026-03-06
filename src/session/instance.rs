@@ -284,7 +284,7 @@ impl Instance {
 
     /// Generate or capture session ID based on agent type.
     ///
-    /// Idempotent method that retrieves or creates a session ID for the configured agent tool.
+    /// Idempotent method that acquires a session ID for the configured agent tool.
     /// If a session ID has already been obtained, it is returned immediately. Otherwise:
     /// - For Claude: generates a new UUID
     /// - For OpenCode: attempts to capture an existing session ID via CLI
@@ -294,7 +294,7 @@ impl Instance {
     /// Any errors during capture (e.g., CLI timeout, missing sessions directory) are logged
     /// at debug level and treated as if no session ID was found. The session ID is cached
     /// in `self.agent_session_id` for future calls.
-    pub fn get_or_create_session_id(&mut self) -> Option<String> {
+    pub fn acquire_session_id(&mut self) -> Option<String> {
         // Return existing session ID if already set
         if self.agent_session_id.is_some() {
             return self.agent_session_id.clone();
@@ -524,7 +524,7 @@ impl Instance {
                 }
             }
 
-            let session_id = self.get_or_create_session_id();
+            let session_id = self.acquire_session_id();
 
             let sandbox = self.sandbox_info.as_ref().unwrap();
             let agent = crate::agents::get_agent(&self.tool);
@@ -598,7 +598,7 @@ impl Instance {
                                 }
                             }
                         }
-                        if let Some(session_id) = self.get_or_create_session_id() {
+                        if let Some(session_id) = self.acquire_session_id() {
                             let resume_flags = build_resume_flags(&self.tool, &session_id);
                             if !resume_flags.is_empty() {
                                 cmd = format!("{} {}", cmd, resume_flags);
@@ -625,7 +625,7 @@ impl Instance {
                         }
                     }
                 }
-                if let Some(session_id) = self.get_or_create_session_id() {
+                if let Some(session_id) = self.acquire_session_id() {
                     let resume_flags = build_resume_flags(&self.tool, &session_id);
                     if !resume_flags.is_empty() {
                         cmd = format!("{} {}", cmd, resume_flags);
@@ -643,16 +643,28 @@ impl Instance {
         session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
 
         if self.agent_session_id.is_some() {
-            if let Ok(storage) = super::storage::Storage::new("") {
-                if let Ok(mut instances) = storage.load() {
-                    if let Some(inst) = instances.iter_mut().find(|i| i.id == self.id) {
-                        inst.agent_session_id = self.agent_session_id.clone();
+            match super::storage::Storage::new("") {
+                Ok(storage) => match storage.load() {
+                    Ok(mut instances) => {
+                        if let Some(inst) = instances.iter_mut().find(|i| i.id == self.id) {
+                            inst.agent_session_id = self.agent_session_id.clone();
+                        }
+                        if let Err(e) = storage.save(&instances) {
+                            tracing::debug!(
+                                "Failed to save instances for session ID persistence: {}",
+                                e
+                            );
+                        } else {
+                            tracing::debug!("Session ID persisted successfully");
+                        }
                     }
-                    if let Err(e) = storage.save(&instances) {
-                        tracing::warn!("Failed to persist session ID: {}", e);
-                    } else {
-                        tracing::debug!("Session ID persisted successfully");
-                    }
+                    Err(e) => tracing::debug!(
+                        "Failed to load instances for session ID persistence: {}",
+                        e
+                    ),
+                },
+                Err(e) => {
+                    tracing::debug!("Failed to create storage for session ID persistence: {}", e)
                 }
             }
         }
@@ -1295,13 +1307,13 @@ mod tests {
     // Test: capture failure doesn't block startup
     #[test]
     fn test_capture_failure_doesnt_block_startup() {
-        // Test that get_or_create_session_id handles errors gracefully
+        // Test that acquire_session_id handles errors gracefully
         let mut inst = Instance::new("Test", "/nonexistent/path");
         inst.tool = "codex".to_string();
 
         // This should not panic even though the path doesn't exist
         // and capture_codex_session_id will fail
-        let session_id = inst.get_or_create_session_id();
+        let session_id = inst.acquire_session_id();
 
         // Should return None but not panic
         assert!(session_id.is_none());
@@ -1321,7 +1333,7 @@ mod tests {
         assert_eq!(flags, "--session-id invalid-session-id");
 
         // The method should return the existing invalid session ID
-        let session_id = inst.get_or_create_session_id();
+        let session_id = inst.acquire_session_id();
         assert_eq!(session_id, Some("invalid-session-id".to_string()));
     }
 
