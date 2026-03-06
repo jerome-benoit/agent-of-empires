@@ -143,22 +143,57 @@ fn generate_claude_session_id() -> String {
     Uuid::new_v4().to_string()
 }
 
-/// Capture session ID from OpenCode CLI with 5-second timeout.
+/// Capture session ID from OpenCode CLI with retry logic.
 ///
-/// Executes `opencode session list --format json` in a subprocess with a 5-second timeout.
-/// Parses the JSON output to extract the first session ID from the list. This is used to
-/// resume an existing OpenCode session instead of starting a new one.
+/// Attempts up to 3 times to capture an OpenCode session ID, with 2-second delays between
+/// retries. Each attempt executes `opencode session list --format json` with a 5-second
+/// timeout. When a `project_path` is provided, sessions are filtered to prefer those matching
+/// the project directory, sorted by most recently updated. Falls back to the first session
+/// if no directory match is found.
 ///
 /// # Errors
 ///
-/// Returns an error if:
+/// Returns an error if all attempts fail due to:
 /// - The `opencode` command cannot be spawned
 /// - The command execution fails before completing
 /// - The command times out after 5 seconds
 /// - The command exits with a non-zero status code
 /// - The JSON output cannot be parsed
 /// - No sessions are found in the response
-fn capture_opencode_session_id() -> Result<String> {
+fn capture_opencode_session_id(project_path: &str) -> Result<String> {
+    let max_attempts = 3;
+    let retry_delay = Duration::from_secs(2);
+
+    for attempt in 0..max_attempts {
+        if attempt > 0 {
+            std::thread::sleep(retry_delay);
+            tracing::debug!(
+                "Retrying OpenCode session capture (attempt {})",
+                attempt + 1
+            );
+        }
+
+        match try_capture_opencode_session_id(project_path) {
+            Ok(id) => return Ok(id),
+            Err(e) if attempt < max_attempts - 1 => {
+                tracing::debug!(
+                    "OpenCode session capture attempt {} failed: {}",
+                    attempt + 1,
+                    e
+                );
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!()
+}
+
+/// Single attempt to capture an OpenCode session ID.
+///
+/// Spawns `opencode session list --format json` with a 5-second timeout, parses the JSON,
+/// and selects the best matching session based on project directory and update time.
+fn try_capture_opencode_session_id(project_path: &str) -> Result<String> {
     let child = std::process::Command::new("opencode")
         .args(["session", "list", "--format", "json"])
         .stdout(Stdio::piped())
@@ -191,8 +226,37 @@ fn capture_opencode_session_id() -> Result<String> {
     let sessions: Vec<serde_json::Value> =
         serde_json::from_str(&stdout).context("Failed to parse OpenCode session list JSON")?;
 
-    sessions
-        .first()
+    // Try to match by project directory first
+    let canonical_path = std::fs::canonicalize(project_path)
+        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
+    let canonical_str = canonical_path.to_string_lossy();
+
+    let mut matching: Vec<&serde_json::Value> = sessions
+        .iter()
+        .filter(|s| {
+            s.get("directory")
+                .or_else(|| s.get("path"))
+                .and_then(|v| v.as_str())
+                .map(|dir| {
+                    let session_path = std::fs::canonicalize(dir)
+                        .unwrap_or_else(|_| std::path::PathBuf::from(dir));
+                    session_path.to_string_lossy() == canonical_str
+                })
+                .unwrap_or(false)
+        })
+        .collect();
+
+    // Sort by updated time (most recent first)
+    matching.sort_by(|a, b| {
+        let a_time = a.get("updated").and_then(|v| v.as_str()).unwrap_or("");
+        let b_time = b.get("updated").and_then(|v| v.as_str()).unwrap_or("");
+        b_time.cmp(a_time)
+    });
+
+    // Use directory match if found, otherwise fall back to first session
+    let session = matching.first().copied().or_else(|| sessions.first());
+
+    session
         .and_then(|s| s["id"].as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| anyhow::anyhow!("No OpenCode sessions found"))
@@ -200,39 +264,81 @@ fn capture_opencode_session_id() -> Result<String> {
 
 /// Capture session ID from Codex filesystem.
 ///
-/// Scans the `~/.codex/sessions` directory and returns the name of the first session
-/// directory found. This is used to resume an existing Codex session.
-fn capture_codex_session_id() -> Result<String> {
-    let codex_dir = dirs::home_dir()
-        .context("Cannot determine home directory")?
-        .join(".codex")
-        .join("sessions");
+/// Walks the Codex sessions directory (including date-partitioned `YYYY/MM/DD/` subdirectories)
+/// and returns the most recently modified session. Respects `CODEX_HOME` env var, falling back
+/// to `~/.codex`.
+fn capture_codex_session_id(_project_path: &str) -> Result<String> {
+    let codex_home = std::env::var("CODEX_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs::home_dir()
+                .expect("Cannot determine home directory")
+                .join(".codex")
+        });
+    let sessions_dir = codex_home.join("sessions");
 
-    if !codex_dir.exists() {
-        anyhow::bail!("Codex sessions directory not found");
+    if !sessions_dir.exists() {
+        anyhow::bail!(
+            "Codex sessions directory not found: {}",
+            sessions_dir.display()
+        );
     }
 
-    // Find first available session directory
-    let entries: Vec<_> = std::fs::read_dir(&codex_dir)?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .collect();
+    let mut session_entries: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
+    collect_codex_sessions(&sessions_dir, &mut session_entries)?;
 
-    entries
+    if session_entries.is_empty() {
+        anyhow::bail!("No Codex sessions found in {}", sessions_dir.display());
+    }
+
+    // Sort by modification time, most recent first
+    session_entries.sort_by(|a, b| b.1.cmp(&a.1));
+
+    session_entries
         .first()
-        .and_then(|e| e.file_name().into_string().ok())
+        .and_then(|(path, _)| path.file_name())
+        .and_then(|name| name.to_str())
+        .map(|s| s.to_string())
         .ok_or_else(|| anyhow::anyhow!("No Codex sessions found"))
+}
+
+/// Recursively collect Codex session directories, descending into date-partitioned dirs.
+///
+/// Directories whose names are all ASCII digits (e.g. `2025`, `03`, `06`) are treated as
+/// date components and recursed into. All other directories are treated as session entries.
+fn collect_codex_sessions(
+    dir: &std::path::Path,
+    entries: &mut Vec<(std::path::PathBuf, std::time::SystemTime)>,
+) -> Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.chars().all(|c| c.is_ascii_digit()) {
+                collect_codex_sessions(&path, entries)?;
+            } else {
+                let modified = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                entries.push((path, modified));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Build resume flags for agent command.
 ///
 /// Constructs a tool-specific command-line flag string to resume an existing session.
-/// Each agent tool uses a different flag format: Claude uses `--session-id`, OpenCode uses
+/// Each agent tool uses a different flag format: Claude uses `--resume`, OpenCode uses
 /// `--session`, and Codex uses `resume` as a subcommand. For unrecognized tools, returns
 /// an empty string.
 fn build_resume_flags(tool: &str, session_id: &str) -> String {
     match tool {
-        "claude" => format!("--session-id {}", session_id),
+        "claude" => format!("--resume {}", session_id),
         "opencode" => format!("--session {}", session_id),
         "codex" => format!("resume {}", session_id),
         _ => String::new(),
@@ -303,17 +409,25 @@ impl Instance {
     /// at debug level and treated as if no session ID was found. The session ID is cached
     /// in `self.agent_session_id` for future calls.
     pub fn acquire_session_id(&mut self) -> Option<String> {
-        // Return existing session ID if already set
         if self.agent_session_id.is_some() {
             return self.agent_session_id.clone();
         }
 
         let session_id = match self.tool.as_str() {
             "claude" => Some(generate_claude_session_id()),
-            "opencode" => capture_opencode_session_id()
+            "opencode" | "codex" if self.is_sandboxed() => {
+                self.acquire_session_id_from_container().or_else(|| {
+                    tracing::debug!(
+                        "Container capture failed for {}, falling back to host",
+                        self.tool
+                    );
+                    self.acquire_session_id_from_host()
+                })
+            }
+            "opencode" => capture_opencode_session_id(&self.project_path)
                 .map_err(|e| tracing::debug!("Failed to capture OpenCode session ID: {}", e))
                 .ok(),
-            "codex" => capture_codex_session_id()
+            "codex" => capture_codex_session_id(&self.project_path)
                 .map_err(|e| tracing::debug!("Failed to capture Codex session ID: {}", e))
                 .ok(),
             _ => None,
@@ -325,6 +439,77 @@ impl Instance {
         }
 
         session_id
+    }
+
+    fn acquire_session_id_from_host(&self) -> Option<String> {
+        match self.tool.as_str() {
+            "opencode" => capture_opencode_session_id(&self.project_path)
+                .map_err(|e| tracing::debug!("Failed to capture OpenCode session ID: {}", e))
+                .ok(),
+            "codex" => capture_codex_session_id(&self.project_path)
+                .map_err(|e| tracing::debug!("Failed to capture Codex session ID: {}", e))
+                .ok(),
+            _ => None,
+        }
+    }
+
+    fn acquire_session_id_from_container(&self) -> Option<String> {
+        let container = DockerContainer::from_session_id(&self.id);
+        if !container.is_running().unwrap_or(false) {
+            tracing::debug!("Container not running for session {}", self.id);
+            return None;
+        }
+
+        match self.tool.as_str() {
+            "opencode" => {
+                let output = container
+                    .exec(&["opencode", "session", "list", "--format", "json"])
+                    .map_err(|e| tracing::debug!("Container exec failed for opencode: {}", e))
+                    .ok()?;
+
+                if !output.status.success() {
+                    tracing::debug!("opencode session list failed inside container");
+                    return None;
+                }
+
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let sessions: Vec<serde_json::Value> = serde_json::from_str(&stdout)
+                    .map_err(|e| tracing::debug!("Failed to parse container opencode JSON: {}", e))
+                    .ok()?;
+
+                // In container context, just pick the most recently updated session
+                let mut sorted = sessions;
+                sorted.sort_by(|a, b| {
+                    let a_time = a.get("updated").and_then(|v| v.as_str()).unwrap_or("");
+                    let b_time = b.get("updated").and_then(|v| v.as_str()).unwrap_or("");
+                    b_time.cmp(a_time)
+                });
+
+                sorted
+                    .first()
+                    .and_then(|s| s["id"].as_str())
+                    .map(|s| s.to_string())
+            }
+            "codex" => {
+                let output = container
+                    .exec(&["ls", "-t", "/root/.codex/sessions/"])
+                    .map_err(|e| tracing::debug!("Container exec failed for codex: {}", e))
+                    .ok()?;
+
+                if !output.status.success() {
+                    tracing::debug!("ls codex sessions failed inside container");
+                    return None;
+                }
+
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                stdout
+                    .lines()
+                    .next()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            }
+            _ => None,
+        }
     }
     fn has_custom_command(&self) -> bool {
         if !self.extra_args.is_empty() {
@@ -1269,7 +1454,7 @@ mod tests {
     fn test_build_claude_resume_flags() {
         let session_id = "abc123-def456";
         let flags = build_resume_flags("claude", session_id);
-        assert_eq!(flags, "--session-id abc123-def456");
+        assert_eq!(flags, "--resume abc123-def456");
     }
 
     #[test]
@@ -1374,7 +1559,7 @@ mod tests {
 
         // Should still generate resume flags even with invalid ID
         let flags = build_resume_flags(&inst.tool, inst.agent_session_id.as_ref().unwrap());
-        assert_eq!(flags, "--session-id invalid-session-id");
+        assert_eq!(flags, "--resume invalid-session-id");
 
         // The method should return the existing invalid session ID
         let session_id = inst.acquire_session_id();
@@ -1516,5 +1701,112 @@ mod tests {
         assert_eq!(json, "\"unknown\"");
         let deserialized: Status = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, Status::Unknown);
+    }
+
+    #[test]
+    fn test_opencode_directory_matching() {
+        let sessions_json = serde_json::json!([
+            {"id": "wrong-session", "directory": "/home/user/other-project", "updated": "2025-01-01T00:00:00Z"},
+            {"id": "correct-session", "directory": "/tmp/my-project", "updated": "2025-01-02T00:00:00Z"},
+            {"id": "older-match", "directory": "/tmp/my-project", "updated": "2025-01-01T00:00:00Z"},
+        ]);
+        let sessions: Vec<serde_json::Value> = serde_json::from_value(sessions_json).unwrap();
+
+        let project_path = "/tmp/my-project";
+        let canonical_path = std::fs::canonicalize(project_path)
+            .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
+        let canonical_str = canonical_path.to_string_lossy();
+
+        let mut matching: Vec<&serde_json::Value> = sessions
+            .iter()
+            .filter(|s| {
+                s.get("directory")
+                    .or_else(|| s.get("path"))
+                    .and_then(|v| v.as_str())
+                    .map(|dir| {
+                        let session_path = std::fs::canonicalize(dir)
+                            .unwrap_or_else(|_| std::path::PathBuf::from(dir));
+                        session_path.to_string_lossy() == canonical_str
+                    })
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        matching.sort_by(|a, b| {
+            let a_time = a.get("updated").and_then(|v| v.as_str()).unwrap_or("");
+            let b_time = b.get("updated").and_then(|v| v.as_str()).unwrap_or("");
+            b_time.cmp(a_time)
+        });
+
+        let session = matching.first().copied().or_else(|| sessions.first());
+        let id = session.and_then(|s| s["id"].as_str()).unwrap();
+
+        assert_eq!(id, "correct-session");
+        assert_eq!(matching.len(), 2);
+    }
+
+    #[test]
+    fn test_codex_most_recent_session_selected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sessions_dir = tmp.path().join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+
+        std::fs::create_dir(sessions_dir.join("old-session")).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::create_dir(sessions_dir.join("new-session")).unwrap();
+
+        let mut entries: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
+        collect_codex_sessions(&sessions_dir, &mut entries).unwrap();
+        entries.sort_by(|a, b| b.1.cmp(&a.1));
+
+        let selected = entries
+            .first()
+            .and_then(|(p, _)| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap();
+        assert_eq!(selected, "new-session");
+    }
+
+    #[test]
+    fn test_codex_respects_codex_home_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sessions_dir = tmp.path().join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        std::fs::create_dir(sessions_dir.join("test-session")).unwrap();
+
+        let old_val = std::env::var("CODEX_HOME").ok();
+        std::env::set_var("CODEX_HOME", tmp.path());
+
+        let result = capture_codex_session_id("/tmp/test");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "test-session");
+
+        match old_val {
+            Some(v) => std::env::set_var("CODEX_HOME", v),
+            None => std::env::remove_var("CODEX_HOME"),
+        }
+    }
+
+    #[test]
+    fn test_codex_walks_date_partitioned_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sessions_dir = tmp.path().join("sessions");
+
+        let date_path = sessions_dir.join("2025").join("03").join("06");
+        std::fs::create_dir_all(&date_path).unwrap();
+        std::fs::create_dir(date_path.join("my-deep-session")).unwrap();
+        std::fs::create_dir(sessions_dir.join("flat-session")).unwrap();
+
+        let mut entries: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
+        collect_codex_sessions(&sessions_dir, &mut entries).unwrap();
+
+        let names: Vec<String> = entries
+            .iter()
+            .filter_map(|(p, _)| p.file_name().and_then(|n| n.to_str()).map(String::from))
+            .collect();
+
+        assert!(names.contains(&"my-deep-session".to_string()));
+        assert!(names.contains(&"flat-session".to_string()));
+        assert_eq!(names.len(), 2);
     }
 }
