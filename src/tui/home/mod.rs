@@ -685,6 +685,18 @@ impl HomeView {
         Ok(())
     }
 
+    pub fn restart_instance_with_size_opts(
+        &mut self,
+        id: &str,
+        size: Option<(u16, u16)>,
+        skip_on_launch: bool,
+    ) -> anyhow::Result<()> {
+        if let Some(inst) = self.instance_map.get_mut(id) {
+            inst.restart_with_size_opts(size, skip_on_launch)?;
+        }
+        Ok(())
+    }
+
     pub fn select_session_by_id(&mut self, session_id: &str) {
         for (idx, item) in self.flat_items.iter().enumerate() {
             if let Item::Session { id, .. } = item {

@@ -1651,6 +1651,16 @@ impl Instance {
     }
 
     pub fn restart_with_size(&mut self, size: Option<(u16, u16)>) -> Result<()> {
+        self.restart_with_size_opts(size, false)
+    }
+
+    /// Restart the session, optionally skipping on_launch hooks (e.g. when
+    /// they already ran in the background creation poller).
+    pub fn restart_with_size_opts(
+        &mut self,
+        size: Option<(u16, u16)>,
+        skip_on_launch: bool,
+    ) -> Result<()> {
         self.stop_poller();
         self.session_id_poller = None;
         self.join_deferred_capture();
@@ -1666,7 +1676,7 @@ impl Instance {
         // Small delay to ensure tmux cleanup
         std::thread::sleep(std::time::Duration::from_millis(100));
 
-        self.start_with_size(size)
+        self.start_with_size_opts(size, skip_on_launch)
     }
 
     pub fn kill(&self) -> Result<()> {
