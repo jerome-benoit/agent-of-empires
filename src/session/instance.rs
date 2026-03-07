@@ -21,6 +21,7 @@ use super::container_config;
 use super::environment::{build_docker_env_args, shell_escape};
 use super::poller::SessionPoller;
 
+/// Load session timing configuration from disk (or fall back to defaults).
 fn session_timing() -> super::config::SessionConfig {
     super::config::Config::load()
         .map(|c| c.session)
@@ -753,7 +754,7 @@ fn extract_vibe_cwd_from_meta(path: &std::path::Path) -> Option<String> {
         .map(String::from)
 }
 
-fn is_valid_session_id(id: &str) -> bool {
+pub(crate) fn is_valid_session_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 256
         && id
@@ -1436,14 +1437,14 @@ impl Instance {
         let profile = profile.to_string();
         let is_sandboxed = self.is_sandboxed();
 
+        let launch_time_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as f64)
+            .unwrap_or(0.0);
+
         match std::thread::Builder::new()
             .name(format!("deferred-capture-{}", instance_id))
             .spawn(move || {
-                let launch_time_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as f64)
-                    .unwrap_or(0.0);
-
                 let timing = session_timing();
                 std::thread::sleep(Duration::from_secs(
                     timing.deferred_capture_initial_delay_secs,

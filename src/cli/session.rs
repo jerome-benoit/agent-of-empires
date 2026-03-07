@@ -406,7 +406,14 @@ async fn set_session_id(profile: &str, args: SetSessionIdArgs) -> Result<()> {
     let new_id = if args.session_id.trim().is_empty() {
         None
     } else {
-        Some(args.session_id.trim().to_string())
+        let trimmed = args.session_id.trim().to_string();
+        if !crate::session::is_valid_session_id(&trimmed) {
+            bail!(
+                "Invalid session ID {:?}: must be 1-256 ASCII alphanumeric, dash, underscore, or dot characters",
+                trimmed
+            );
+        }
+        Some(trimmed)
     };
 
     instances[idx].agent_session_id = new_id.clone();

@@ -109,25 +109,35 @@ pub fn get_hidden_env_batch(session_names: &[&str], key: &str) -> Vec<(String, O
     let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let output = Command::new("tmux").args(&str_args).output();
 
+    let fallback = || {
+        session_names
+            .iter()
+            .map(|name| (name.to_string(), get_hidden_env(name, key)))
+            .collect()
+    };
+
     match output {
         Ok(out) if out.status.success() => {
             parse_batch_output(&String::from_utf8_lossy(&out.stdout), session_names)
+                .unwrap_or_else(fallback)
         }
-        _ => {
-            // Fall back to sequential reads
-            session_names
-                .iter()
-                .map(|name| (name.to_string(), get_hidden_env(name, key)))
-                .collect()
-        }
+        _ => fallback(),
     }
 }
 
-/// Parse output from batch show-environment command
+/// Parse output from batch show-environment command.
 ///
 /// Each session's output is on a separate line in the format "KEY=VALUE" or "-KEY".
-fn parse_batch_output(output: &str, session_names: &[&str]) -> Vec<(String, Option<String>)> {
+/// If the number of output lines does not match the number of sessions (e.g. due to
+/// tmux error lines), returns `None` so the caller can fall back to sequential reads.
+fn parse_batch_output(
+    output: &str,
+    session_names: &[&str],
+) -> Option<Vec<(String, Option<String>)>> {
     let lines: Vec<&str> = output.lines().collect();
+    if lines.len() != session_names.len() {
+        return None;
+    }
     let mut results = Vec::new();
 
     for (i, session_name) in session_names.iter().enumerate() {
@@ -146,7 +156,7 @@ fn parse_batch_output(output: &str, session_names: &[&str]) -> Vec<(String, Opti
         }
     }
 
-    results
+    Some(results)
 }
 
 #[cfg(test)]
@@ -156,7 +166,7 @@ mod tests {
     #[test]
     fn test_parse_key_value() {
         let output = "AOE_INSTANCE_ID=abc123";
-        let result = parse_batch_output(output, &["test_session"]);
+        let result = parse_batch_output(output, &["test_session"]).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, "test_session");
         assert_eq!(result[0].1, Some("abc123".to_string()));
@@ -165,7 +175,7 @@ mod tests {
     #[test]
     fn test_parse_unset_key() {
         let output = "-AOE_INSTANCE_ID";
-        let result = parse_batch_output(output, &["test_session"]);
+        let result = parse_batch_output(output, &["test_session"]).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, "test_session");
         assert_eq!(result[0].1, None);
@@ -174,7 +184,7 @@ mod tests {
     #[test]
     fn test_parse_multiple_sessions() {
         let output = "AOE_INSTANCE_ID=abc123\n-AOE_INSTANCE_ID\nAOE_INSTANCE_ID=xyz789";
-        let result = parse_batch_output(output, &["session1", "session2", "session3"]);
+        let result = parse_batch_output(output, &["session1", "session2", "session3"]).unwrap();
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].1, Some("abc123".to_string()));
         assert_eq!(result[1].1, None);
@@ -183,25 +193,24 @@ mod tests {
 
     #[test]
     fn test_parse_value_with_equals() {
-        // Handle values that contain '='
         let output = "KEY=value=with=equals";
-        let result = parse_batch_output(output, &["test_session"]);
+        let result = parse_batch_output(output, &["test_session"]).unwrap();
         assert_eq!(result[0].1, Some("value=with=equals".to_string()));
     }
 
     #[test]
-    fn test_parse_empty_output_missing_session() {
+    fn test_parse_line_count_mismatch_returns_none() {
         let output = "";
-        let result = parse_batch_output(output, &["session1", "session2"]);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].1, None);
-        assert_eq!(result[1].1, None);
+        assert!(parse_batch_output(output, &["session1", "session2"]).is_none());
+
+        let output = "VAL1\nVAL2\nVAL3";
+        assert!(parse_batch_output(output, &["session1"]).is_none());
     }
 
     #[test]
     fn test_parse_whitespace_handling() {
         let output = "  AOE_INSTANCE_ID=value123  \n  -AOE_INSTANCE_ID  ";
-        let result = parse_batch_output(output, &["session1", "session2"]);
+        let result = parse_batch_output(output, &["session1", "session2"]).unwrap();
         assert_eq!(result[0].1, Some("value123".to_string()));
         assert_eq!(result[1].1, None);
     }
