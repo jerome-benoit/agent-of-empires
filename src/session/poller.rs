@@ -112,14 +112,17 @@ impl SessionPoller {
         }
     }
 
-    /// Start the polling thread with the given callbacks
+    /// Start the polling thread with the given callbacks.
+    ///
+    /// Returns `true` if the thread was successfully spawned, `false` if the
+    /// poller was already started, the thread budget was exhausted, or spawning failed.
     pub fn start(
         &mut self,
         instance_id: String,
         poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static>,
         on_change: Box<dyn Fn(&str) + Send + 'static>,
         initial_known: Option<String>,
-    ) {
+    ) -> bool {
         let cmd_rx = match self.cmd_rx.take() {
             Some(rx) => rx,
             None => {
@@ -127,7 +130,7 @@ impl SessionPoller {
                     "Poller for {} already started, ignoring duplicate start",
                     instance_id
                 );
-                return;
+                return false;
             }
         };
 
@@ -140,7 +143,7 @@ impl SessionPoller {
                 instance_id
             );
             self.cmd_rx = Some(cmd_rx);
-            return;
+            return false;
         }
 
         ACTIVE_POLLER_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -190,10 +193,14 @@ impl SessionPoller {
             });
 
         match handle {
-            Ok(h) => self.handle = Some(h),
+            Ok(h) => {
+                self.handle = Some(h);
+                true
+            }
             Err(e) => {
                 tracing::warn!("Failed to spawn poller thread for {}: {}", instance_id, e);
                 ACTIVE_POLLER_COUNT.fetch_sub(1, Ordering::SeqCst);
+                false
             }
         }
     }
