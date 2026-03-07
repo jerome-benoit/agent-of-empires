@@ -380,7 +380,12 @@ mod tests {
         // Verify they're there
         let content: Value =
             serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-        assert!(content.get("hooks").unwrap().as_object().unwrap().len() > 0);
+        assert!(!content
+            .get("hooks")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .is_empty());
 
         // Uninstall
         let modified = uninstall_hooks(&settings_path).unwrap();

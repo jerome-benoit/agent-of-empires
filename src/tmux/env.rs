@@ -231,8 +231,10 @@ fn clear_env_cache() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_cache_populate_and_lookup() {
         clear_env_cache();
         let key = ("cache_test_sess".to_string(), "MY_KEY".to_string());
@@ -260,6 +262,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cache_stale_entry_not_returned() {
         clear_env_cache();
         let key = ("stale_sess".to_string(), "MY_KEY".to_string());
@@ -287,6 +290,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_invalidate_cache_entry_removes_key() {
         clear_env_cache();
         let session = "inv_test_sess";

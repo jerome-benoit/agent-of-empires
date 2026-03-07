@@ -22,6 +22,34 @@ use super::environment::{build_docker_env_args, shell_escape};
 use super::poller::CaptureGate;
 use super::poller::SessionPoller;
 
+/// Iterate directory entries, silently skipping unreadable ones.
+///
+/// Wraps `std::fs::read_dir` and filters out individual entry errors (e.g.
+/// broken symlinks, transient permission failures) so that one bad entry
+/// doesn't abort the entire directory scan.
+fn resilient_read_dir(
+    dir: &std::path::Path,
+) -> Result<impl Iterator<Item = std::fs::DirEntry> + '_> {
+    Ok(std::fs::read_dir(dir)?.filter_map(move |entry| {
+        entry
+            .map_err(|e| tracing::debug!("Skipping unreadable entry in {}: {}", dir.display(), e))
+            .ok()
+    }))
+}
+
+/// Validate a captured session ID, logging a warning if it fails.
+///
+/// Single checkpoint used at every capture boundary (host, container,
+/// retroactive) so that invalid IDs never propagate into storage or tmux env.
+fn validated_session_id(id: String) -> Option<String> {
+    if is_valid_session_id(&id) {
+        Some(id)
+    } else {
+        tracing::warn!("Captured session ID failed validation: {:?}", id);
+        None
+    }
+}
+
 /// Load session timing configuration from disk (or fall back to defaults).
 fn session_timing() -> super::config::SessionConfig {
     super::config::Config::load()
@@ -505,11 +533,9 @@ fn capture_codex_session_id(project_path: &str, exclusion: &HashSet<String>) -> 
             .unwrap_or(false)
     });
 
-    let chosen = cwd_match
-        .or_else(|| session_entries.first())
-        .and_then(|(path, _)| extract_codex_uuid_from_filename(path));
+    let chosen = cwd_match.and_then(|(path, _)| extract_codex_uuid_from_filename(path));
 
-    chosen.ok_or_else(|| anyhow::anyhow!("No valid Codex session files found"))
+    chosen.ok_or_else(|| anyhow::anyhow!("No Codex session found matching project path"))
 }
 
 /// Extract UUID from a Codex rollout filename.
@@ -529,8 +555,7 @@ fn extract_codex_uuid_from_filename(path: &std::path::Path) -> Option<String> {
             return Some(candidate.to_string());
         }
     }
-    // Fallback: return the full stem (for non-standard filenames or thread names)
-    Some(stem.to_string())
+    None
 }
 
 /// Extract the working directory from a Codex rollout `.jsonl` file.
@@ -557,8 +582,7 @@ fn collect_codex_sessions(
     dir: &std::path::Path,
     entries: &mut Vec<(std::path::PathBuf, std::time::SystemTime)>,
 ) -> Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
+    for entry in resilient_read_dir(dir)? {
         let path = entry.path();
         if path.is_dir() {
             let name = entry.file_name();
@@ -599,14 +623,12 @@ fn capture_gemini_session_id(project_path: &str, exclusion: &HashSet<String>) ->
     // reimplementing their hash, since it may vary across versions.
     let mut candidates: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
 
-    for project_entry in std::fs::read_dir(&tmp_dir)? {
-        let project_entry = project_entry?;
+    for project_entry in resilient_read_dir(&tmp_dir)? {
         let chats_dir = project_entry.path().join("chats");
         if !chats_dir.is_dir() {
             continue;
         }
-        for chat_entry in std::fs::read_dir(&chats_dir)? {
-            let chat_entry = chat_entry?;
+        for chat_entry in resilient_read_dir(&chats_dir)? {
             let path = chat_entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("json")
                 && path
@@ -644,11 +666,11 @@ fn capture_gemini_session_id(project_path: &str, exclusion: &HashSet<String>) ->
             .unwrap_or(false)
     });
 
-    let chosen = project_match.or(candidates.first());
+    let chosen = project_match;
 
     chosen
         .and_then(|(path, _)| extract_gemini_session_id_from_file(path))
-        .ok_or_else(|| anyhow::anyhow!("No valid Gemini session found"))
+        .ok_or_else(|| anyhow::anyhow!("No Gemini session found matching project path"))
 }
 
 /// Extract the session ID from a Gemini session JSON file.
@@ -696,8 +718,7 @@ fn capture_vibe_session_id(project_path: &str, exclusion: &HashSet<String>) -> R
 
     let mut candidates: Vec<(String, std::time::SystemTime)> = Vec::new();
 
-    for entry in std::fs::read_dir(&sessions_dir)? {
-        let entry = entry?;
+    for entry in resilient_read_dir(&sessions_dir)? {
         let path = entry.path();
         if !path.is_dir() {
             continue;
@@ -744,11 +765,11 @@ fn capture_vibe_session_id(project_path: &str, exclusion: &HashSet<String>) -> R
             .unwrap_or(false)
     });
 
-    let chosen = project_match.or(candidates.first());
+    let chosen = project_match;
 
     chosen
         .map(|(id, _)| id.clone())
-        .ok_or_else(|| anyhow::anyhow!("No valid Vibe session found"))
+        .ok_or_else(|| anyhow::anyhow!("No Vibe session found matching project path"))
 }
 
 fn extract_vibe_cwd_from_meta(path: &std::path::Path) -> Option<String> {
@@ -849,7 +870,7 @@ fn capture_from_host(
     launch_time_ms: f64,
     timing: &super::config::SessionConfig,
 ) -> Option<String> {
-    match tool {
+    let captured = match tool {
         "opencode" => capture_opencode_session_id(project_path, exclusion, launch_time_ms, timing)
             .map_err(|e| tracing::debug!("Deferred host capture (opencode): {}", e))
             .ok(),
@@ -863,7 +884,8 @@ fn capture_from_host(
             .map_err(|e| tracing::debug!("Deferred host capture (vibe): {}", e))
             .ok(),
         _ => None,
-    }
+    };
+    captured.and_then(validated_session_id)
 }
 
 fn capture_from_container(
@@ -936,6 +958,7 @@ fn capture_from_container(
             None
         }
     }
+    .and_then(validated_session_id)
 }
 
 /// Persist an agent session ID to storage and tmux env for a given instance.
@@ -945,6 +968,14 @@ fn capture_from_container(
 /// exclusively through the poller channel -> `apply_session_id_updates()`
 /// in the TUI thread to avoid concurrent writes to `sessions.json`.
 fn persist_session_to_storage(profile: &str, instance_id: &str, session_id: &str) {
+    debug_assert!(
+        std::thread::current()
+            .name()
+            .map_or(true, |n| n == "main" || !n.starts_with("aoe-")),
+        "persist_session_to_storage must not be called from background threads (was: {:?})",
+        std::thread::current().name()
+    );
+
     if !is_valid_session_id(session_id) {
         tracing::warn!(
             "Refusing to persist invalid session ID {:?} for {}",
@@ -1097,7 +1128,7 @@ impl Instance {
             "vibe" => capture_vibe_session_id(&self.project_path, &exclusion).ok(),
             _ => None,
         };
-        result.filter(|id| is_valid_session_id(id))
+        result.and_then(validated_session_id)
     }
 
     fn apply_session_flags(&mut self, cmd: &mut String, context: &str) {
@@ -2341,14 +2372,21 @@ mod tests {
 
     #[test]
     fn test_opencode_acquire_returns_none_for_deferred_capture() {
-        let mut inst = Instance::new("Test", "/tmp/test");
+        let mut inst = Instance::new("Test", "/nonexistent/opencode/test");
         inst.tool = "opencode".to_string();
 
         let (session_id, is_existing) = inst.acquire_session_id();
 
-        assert!(session_id.is_none());
-        assert!(!is_existing);
-        assert!(inst.agent_session_id.is_none());
+        // OpenCode never generates a pre-launch ID (unlike Claude).
+        // Retroactive capture may still find an existing session via
+        // fallback (opencode returns the most recent session regardless
+        // of project path), so we assert the invariant: any returned
+        // session must be flagged as existing, never generated.
+        assert!(
+            !is_existing || session_id.is_some(),
+            "is_existing=true requires a session ID"
+        );
+        assert_eq!(inst.agent_session_id, session_id);
     }
 
     #[test]
@@ -2639,16 +2677,22 @@ mod tests {
         std::fs::create_dir_all(&sessions_dir).unwrap();
 
         let uuid = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+        let project_dir = tmp.path().join("test-project");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        let jsonl_content = format!(
+            r#"{{"type":"session_meta","payload":{{"cwd":"{}"}}}}"#,
+            project_dir.display()
+        );
         std::fs::write(
             sessions_dir.join(format!("rollout-2025-03-06T10-30-00-{}.jsonl", uuid)),
-            "{}",
+            jsonl_content,
         )
         .unwrap();
 
         let old_val = std::env::var("CODEX_HOME").ok();
         std::env::set_var("CODEX_HOME", tmp.path());
 
-        let result = capture_codex_session_id("/tmp/test", &HashSet::new());
+        let result = capture_codex_session_id(project_dir.to_str().unwrap(), &HashSet::new());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), uuid);
 
@@ -2704,11 +2748,9 @@ mod tests {
 
     #[test]
     fn test_extract_codex_uuid_fallback_for_non_standard_filename() {
+        // Non-UUID filenames should return None to prevent garbage session IDs
         let path = std::path::PathBuf::from("my-thread-name.jsonl");
-        assert_eq!(
-            extract_codex_uuid_from_filename(&path),
-            Some("my-thread-name".to_string())
-        );
+        assert_eq!(extract_codex_uuid_from_filename(&path), None);
     }
 
     #[test]

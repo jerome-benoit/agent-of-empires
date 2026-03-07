@@ -13,6 +13,39 @@ static ACTIVE_POLLER_COUNT: AtomicU32 = AtomicU32::new(0);
 /// Maximum number of concurrent poller threads allowed
 const MAX_POLLER_THREADS: u32 = 20;
 
+/// RAII guard that decrements `ACTIVE_POLLER_COUNT` on drop.
+///
+/// Ensures the counter is always decremented even if the poller thread panics,
+/// preventing permanent budget exhaustion.
+struct PollerCountGuard;
+
+impl PollerCountGuard {
+    /// Atomically check the budget and increment. Returns `None` if at capacity.
+    fn try_acquire() -> Option<Self> {
+        let mut current = ACTIVE_POLLER_COUNT.load(Ordering::SeqCst);
+        loop {
+            if current >= MAX_POLLER_THREADS {
+                return None;
+            }
+            match ACTIVE_POLLER_COUNT.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => return Some(Self),
+                Err(actual) => current = actual,
+            }
+        }
+    }
+}
+
+impl Drop for PollerCountGuard {
+    fn drop(&mut self) {
+        ACTIVE_POLLER_COUNT.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 const POLL_INITIAL_INTERVAL: Duration = Duration::from_secs(2);
 const POLL_MAX_INTERVAL: Duration = Duration::from_secs(60);
 const POLL_BACKOFF_FACTOR: f64 = 1.5;
@@ -228,19 +261,19 @@ impl SessionPoller {
             }
         };
 
-        let count = ACTIVE_POLLER_COUNT.load(Ordering::SeqCst);
-        if count >= MAX_POLLER_THREADS {
-            tracing::warn!(
-                "Poller thread budget exhausted ({}/{}), skipping poller for {}",
-                count,
-                MAX_POLLER_THREADS,
-                instance_id
-            );
-            self.cmd_rx = Some(cmd_rx);
-            return false;
-        }
-
-        ACTIVE_POLLER_COUNT.fetch_add(1, Ordering::SeqCst);
+        let _guard = match PollerCountGuard::try_acquire() {
+            Some(g) => g,
+            None => {
+                tracing::warn!(
+                    "Poller thread budget exhausted ({}/{}), skipping poller for {}",
+                    ACTIVE_POLLER_COUNT.load(Ordering::Relaxed),
+                    MAX_POLLER_THREADS,
+                    instance_id
+                );
+                self.cmd_rx = Some(cmd_rx);
+                return false;
+            }
+        };
 
         let session_name = self.session_name.clone();
         let thread_label = format!("aoe-poller/{}", instance_id);
@@ -250,6 +283,9 @@ impl SessionPoller {
             .name(thread_label.clone())
             .stack_size(128 * 1024)
             .spawn(move || {
+                // Move the guard into the thread so it decrements on exit (including panic)
+                let _guard = _guard;
+
                 let mut last_known = initial_known;
 
                 if let Some(gate) = capture_gate {
@@ -295,8 +331,6 @@ impl SessionPoller {
                         interval.record_no_change();
                     }
                 }
-
-                ACTIVE_POLLER_COUNT.fetch_sub(1, Ordering::SeqCst);
             });
 
         match handle {
@@ -306,7 +340,6 @@ impl SessionPoller {
             }
             Err(e) => {
                 tracing::warn!("Failed to spawn poller thread {}: {}", thread_label, e);
-                ACTIVE_POLLER_COUNT.fetch_sub(1, Ordering::SeqCst);
                 // Restore channels so this poller can be retried.
                 // The closure was consumed by the failed spawn, so recreate both.
                 let (cmd_tx, cmd_rx) = mpsc::channel();
