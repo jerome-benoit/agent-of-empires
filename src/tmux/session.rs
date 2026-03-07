@@ -58,9 +58,6 @@ impl Session {
             return Ok(());
         }
 
-        // Clear stale env vars from any previous session with this name
-        crate::tmux::env::clear_all_hidden_env(&self.name);
-
         let args = build_create_args(&self.name, working_dir, command, size);
         let output = Command::new("tmux").args(&args).output()?;
 

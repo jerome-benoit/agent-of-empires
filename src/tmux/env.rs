@@ -121,31 +121,10 @@ pub fn remove_hidden_env(session_name: &str, key: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Clear all AoE hidden environment variables from a tmux session.
-///
-/// Best-effort: logs warnings on failure rather than propagating errors,
-/// since stale env vars are harmless if the session is about to be recreated.
-pub fn clear_all_hidden_env(session_name: &str) {
-    for key in [AOE_INSTANCE_ID_KEY, AOE_CAPTURED_SESSION_ID_KEY] {
-        if let Err(e) = remove_hidden_env(session_name, key) {
-            tracing::debug!("Failed to clear stale {key} env var: {e}");
-        }
-    }
-    invalidate_cache_session(session_name);
-}
-
 fn invalidate_cache_entry(session_name: &str, key: &str) {
     if let Ok(mut cache) = ENV_CACHE.write() {
         if let Some(entries) = &mut cache.entries {
             entries.remove(&(session_name.to_string(), key.to_string()));
-        }
-    }
-}
-
-fn invalidate_cache_session(session_name: &str) {
-    if let Ok(mut cache) = ENV_CACHE.write() {
-        if let Some(entries) = &mut cache.entries {
-            entries.retain(|(s, _), _| s != session_name);
         }
     }
 }
@@ -228,19 +207,15 @@ fn parse_batch_output(
     let mut results = Vec::new();
 
     for (i, session_name) in session_names.iter().enumerate() {
-        if i < lines.len() {
-            let line = lines[i].trim();
-            let value = if line.starts_with('-') {
-                None
-            } else if let Some((_, val)) = line.split_once('=') {
-                Some(val.to_string())
-            } else {
-                None
-            };
-            results.push((session_name.to_string(), value));
+        let line = lines[i].trim();
+        let value = if line.starts_with('-') {
+            None
+        } else if let Some((_, val)) = line.split_once('=') {
+            Some(val.to_string())
         } else {
-            results.push((session_name.to_string(), None));
-        }
+            None
+        };
+        results.push((session_name.to_string(), value));
     }
 
     Some(results)
@@ -340,56 +315,6 @@ mod tests {
             })
             .unwrap_or(false);
         assert!(!exists);
-        clear_env_cache();
-    }
-
-    #[test]
-    fn test_invalidate_cache_session_removes_all_keys_for_session() {
-        clear_env_cache();
-        let session = "sess_clear";
-        let other = "sess_keep";
-
-        if let Ok(mut cache) = ENV_CACHE.write() {
-            let entries = cache.entries.get_or_insert_with(HashMap::new);
-            entries.insert(
-                (session.to_string(), "K1".to_string()),
-                EnvCacheEntry {
-                    value: "v1".to_string(),
-                    fetched_at: Instant::now(),
-                },
-            );
-            entries.insert(
-                (session.to_string(), "K2".to_string()),
-                EnvCacheEntry {
-                    value: "v2".to_string(),
-                    fetched_at: Instant::now(),
-                },
-            );
-            entries.insert(
-                (other.to_string(), "K1".to_string()),
-                EnvCacheEntry {
-                    value: "keep".to_string(),
-                    fetched_at: Instant::now(),
-                },
-            );
-        }
-
-        invalidate_cache_session(session);
-
-        let remaining = ENV_CACHE
-            .read()
-            .ok()
-            .and_then(|c| c.entries.as_ref().map(|e| e.len()))
-            .unwrap_or(0);
-        assert_eq!(remaining, 1);
-
-        let kept = ENV_CACHE.read().ok().and_then(|c| {
-            c.entries
-                .as_ref()?
-                .get(&(other.to_string(), "K1".to_string()))
-                .map(|e| e.value.clone())
-        });
-        assert_eq!(kept, Some("keep".to_string()));
         clear_env_cache();
     }
 
