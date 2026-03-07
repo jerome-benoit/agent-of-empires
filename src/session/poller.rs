@@ -3,6 +3,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::sync::mpsc::RecvTimeoutError;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -16,6 +17,80 @@ const POLL_INITIAL_INTERVAL: Duration = Duration::from_secs(2);
 const POLL_MAX_INTERVAL: Duration = Duration::from_secs(60);
 const POLL_BACKOFF_FACTOR: f64 = 1.5;
 const POLL_STABLE_THRESHOLD: u32 = 3;
+
+/// Bounds how long the poller blocks on a capture gate (covers the full capture
+/// cycle of initial_delay + max_attempts * retry_delay with margin).
+const CAPTURE_GATE_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Coordination gate between the deferred capture thread and the session poller.
+///
+/// When an agent (e.g. opencode) requires both a deferred capture (to discover the
+/// initial session ID) and continuous polling (to detect later changes), the poller
+/// must wait for the capture to finish before entering its poll loop. This avoids
+/// concurrent writes to the storage file and redundant work.
+///
+/// The capture thread calls [`CaptureGate::complete`] when it finishes (with or
+/// without a result). The poller thread calls [`CaptureGate::wait`] to block until
+/// the gate opens, then uses the captured ID as its `initial_known` value.
+pub struct CaptureGate {
+    inner: Mutex<CaptureGateState>,
+    cond: Condvar,
+}
+
+struct CaptureGateState {
+    done: bool,
+    captured_id: Option<String>,
+}
+
+impl CaptureGate {
+    pub fn new() -> Self {
+        Self {
+            inner: Mutex::new(CaptureGateState {
+                done: false,
+                captured_id: None,
+            }),
+            cond: Condvar::new(),
+        }
+    }
+
+    /// Signal that the deferred capture is complete.
+    ///
+    /// `captured_id` is `Some(id)` on success, `None` if all attempts were exhausted.
+    pub fn complete(&self, captured_id: Option<String>) {
+        let mut state = self.inner.lock().expect("CaptureGate lock poisoned");
+        state.done = true;
+        state.captured_id = captured_id;
+        self.cond.notify_all();
+    }
+
+    /// Block until the deferred capture completes, then return the captured ID (if any).
+    ///
+    /// Uses a timeout so the poller thread is never stuck indefinitely if the capture
+    /// thread panics or is cancelled.
+    pub fn wait(&self, timeout: Duration) -> Option<String> {
+        let state = self.inner.lock().expect("CaptureGate lock poisoned");
+        let result = self
+            .cond
+            .wait_timeout_while(state, timeout, |s| !s.done)
+            .expect("CaptureGate lock poisoned");
+        result.0.captured_id.clone()
+    }
+}
+
+impl Default for CaptureGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for CaptureGate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = self.inner.lock().ok();
+        f.debug_struct("CaptureGate")
+            .field("done", &state.as_ref().map(|s| s.done))
+            .finish()
+    }
+}
 
 /// Manages adaptive polling intervals that back off when no changes are detected
 #[derive(Debug)]
@@ -114,6 +189,10 @@ impl SessionPoller {
 
     /// Start the polling thread with the given callbacks.
     ///
+    /// When `capture_gate` is `Some`, the thread blocks until the deferred capture
+    /// completes, then uses the captured ID as its initial known value. This
+    /// prevents concurrent storage writes between the capture and poller threads.
+    ///
     /// Returns `true` if the thread was successfully spawned, `false` if the
     /// poller was already started, the thread budget was exhausted, or spawning failed.
     pub fn start(
@@ -122,6 +201,7 @@ impl SessionPoller {
         poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static>,
         on_change: Box<dyn Fn(&str) + Send + 'static>,
         initial_known: Option<String>,
+        capture_gate: Option<Arc<CaptureGate>>,
     ) -> bool {
         let cmd_rx = match self.cmd_rx.take() {
             Some(rx) => rx,
@@ -149,18 +229,29 @@ impl SessionPoller {
         ACTIVE_POLLER_COUNT.fetch_add(1, Ordering::SeqCst);
 
         let session_name = self.session_name.clone();
+        let thread_label = format!("aoe-poller/{}", instance_id);
 
         let handle = std::thread::Builder::new()
-            .name(format!("aoe-poller/{}", instance_id))
+            .name(thread_label.clone())
             .stack_size(128 * 1024)
             .spawn(move || {
+                let mut last_known = initial_known;
+
+                if let Some(gate) = capture_gate {
+                    tracing::debug!("Poller for {} waiting on capture gate", instance_id);
+                    let captured = gate.wait(CAPTURE_GATE_TIMEOUT);
+                    if let Some(ref id) = captured {
+                        tracing::debug!("Poller for {} received captured ID: {}", instance_id, id);
+                    }
+                    last_known = last_known.or(captured);
+                }
+
                 let mut interval = AdaptiveInterval::new(
                     POLL_INITIAL_INTERVAL,
                     POLL_MAX_INTERVAL,
                     POLL_BACKOFF_FACTOR,
                     POLL_STABLE_THRESHOLD,
                 );
-                let mut last_known = initial_known;
 
                 loop {
                     match cmd_rx.recv_timeout(interval.current()) {
@@ -198,7 +289,7 @@ impl SessionPoller {
                 true
             }
             Err(e) => {
-                tracing::warn!("Failed to spawn poller thread for {}: {}", instance_id, e);
+                tracing::warn!("Failed to spawn poller thread {}: {}", thread_label, e);
                 ACTIVE_POLLER_COUNT.fetch_sub(1, Ordering::SeqCst);
                 false
             }
@@ -411,6 +502,7 @@ mod tests {
             poll_fn,
             on_change,
             Some("id-1".to_string()),
+            None,
         );
 
         // Force polls via PollNow (the default interval is 2s, too slow for tests)
@@ -448,7 +540,7 @@ mod tests {
         let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(|_| {});
 
         let mut poller = SessionPoller::new("test-session".to_string());
-        poller.start("test-pollnow".to_string(), poll_fn, on_change, None);
+        poller.start("test-pollnow".to_string(), poll_fn, on_change, None, None);
 
         std::thread::sleep(Duration::from_millis(50));
         poller.poll_now();
@@ -476,6 +568,7 @@ mod tests {
             Box::new(|| Some("id".to_string())),
             Box::new(|_| {}),
             None,
+            None,
         );
 
         assert!(
@@ -501,6 +594,7 @@ mod tests {
             }),
             Box::new(|_| {}),
             None,
+            None,
         );
 
         assert!(poller.is_running(), "poller should be running after start");
@@ -522,6 +616,7 @@ mod tests {
                 Some("id".to_string())
             }),
             Box::new(|_| {}),
+            None,
             None,
         );
 
@@ -600,5 +695,93 @@ mod tests {
         interval.record_change();
         assert_eq!(interval.current(), Duration::from_secs(2));
         assert_eq!(interval.stable_count, 0);
+    }
+
+    #[test]
+    fn test_capture_gate_blocks_until_complete() {
+        let gate = Arc::new(CaptureGate::new());
+        let gate_clone = Arc::clone(&gate);
+
+        let waiter = std::thread::spawn(move || gate_clone.wait(Duration::from_secs(5)));
+
+        std::thread::sleep(Duration::from_millis(50));
+        gate.complete(Some("ses_123".to_string()));
+
+        let result = waiter.join().unwrap();
+        assert_eq!(result, Some("ses_123".to_string()));
+    }
+
+    #[test]
+    fn test_capture_gate_returns_none_on_exhausted() {
+        let gate = Arc::new(CaptureGate::new());
+        let gate_clone = Arc::clone(&gate);
+
+        let waiter = std::thread::spawn(move || gate_clone.wait(Duration::from_secs(5)));
+
+        std::thread::sleep(Duration::from_millis(50));
+        gate.complete(None);
+
+        let result = waiter.join().unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_capture_gate_timeout() {
+        let gate = Arc::new(CaptureGate::new());
+        let result = gate.wait(Duration::from_millis(50));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_capture_gate_already_complete_returns_immediately() {
+        let gate = CaptureGate::new();
+        gate.complete(Some("ses_fast".to_string()));
+        let result = gate.wait(Duration::from_millis(10));
+        assert_eq!(result, Some("ses_fast".to_string()));
+    }
+
+    #[test]
+    fn test_poller_with_capture_gate() {
+        let gate = Arc::new(CaptureGate::new());
+        let gate_clone = Arc::clone(&gate);
+
+        let poll_count = Arc::new(Mutex::new(0u32));
+        let poll_count_clone = poll_count.clone();
+
+        let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = Box::new(move || {
+            let mut count = poll_count_clone.lock().unwrap();
+            *count += 1;
+            Some("ses_polled".to_string())
+        });
+
+        let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(|_| {});
+
+        let mut poller = SessionPoller::new("test-session".to_string());
+        poller.start(
+            "test-gate".to_string(),
+            poll_fn,
+            on_change,
+            None,
+            Some(gate_clone),
+        );
+
+        std::thread::sleep(Duration::from_millis(100));
+        let count_before = *poll_count.lock().unwrap();
+
+        gate.complete(Some("ses_captured".to_string()));
+
+        std::thread::sleep(Duration::from_millis(300));
+        poller.poll_now();
+        std::thread::sleep(Duration::from_millis(100));
+
+        let count_after = *poll_count.lock().unwrap();
+        assert!(
+            count_after > count_before,
+            "poller should have started polling after gate opened (before={}, after={})",
+            count_before,
+            count_after
+        );
+
+        poller.stop();
     }
 }

@@ -19,6 +19,7 @@ use crate::tmux;
 
 use super::container_config;
 use super::environment::{build_docker_env_args, shell_escape};
+use super::poller::CaptureGate;
 use super::poller::SessionPoller;
 
 /// Load session timing configuration from disk (or fall back to defaults).
@@ -145,6 +146,8 @@ pub struct Instance {
     pub session_id_poller: Option<Arc<Mutex<SessionPoller>>>,
     #[serde(skip)]
     pub(crate) deferred_capture_handle: Option<Arc<Mutex<Option<std::thread::JoinHandle<()>>>>>,
+    #[serde(skip)]
+    pub(crate) capture_gate: Option<Arc<CaptureGate>>,
 }
 
 /// Generate a new UUID for Claude Code session.
@@ -998,6 +1001,7 @@ impl Instance {
             last_error: None,
             session_id_poller: None,
             deferred_capture_handle: None,
+            capture_gate: None,
         }
     }
 
@@ -1431,6 +1435,10 @@ impl Instance {
             return;
         }
 
+        let gate = Arc::new(CaptureGate::new());
+        let gate_for_thread = Arc::clone(&gate);
+        self.capture_gate = Some(gate);
+
         let instance_id = self.id.clone();
         let tool = self.tool.clone();
         let project_path = self.project_path.clone();
@@ -1467,6 +1475,7 @@ impl Instance {
                             session_id
                         );
                         persist_session_to_storage(&profile, &instance_id, session_id);
+                        gate_for_thread.complete(Some(session_id.clone()));
                         return;
                     }
 
@@ -1488,6 +1497,7 @@ impl Instance {
                     timing.deferred_capture_max_attempts,
                     instance_id
                 );
+                gate_for_thread.complete(None);
             }) {
             Ok(handle) => {
                 self.deferred_capture_handle = Some(Arc::new(Mutex::new(Some(handle))));
@@ -1498,6 +1508,10 @@ impl Instance {
                     error = %e,
                     "Failed to spawn deferred session capture thread"
                 );
+                // Signal the gate so the poller is not stuck waiting
+                if let Some(ref gate) = self.capture_gate {
+                    gate.complete(None);
+                }
             }
         }
     }
@@ -1603,7 +1617,13 @@ impl Instance {
             persist_session_to_storage(&profile, &cb_instance_id, new_id);
         });
 
-        poller.start(instance_id, poll_fn, on_change, initial_known);
+        poller.start(
+            instance_id,
+            poll_fn,
+            on_change,
+            initial_known,
+            self.capture_gate.clone(),
+        );
         self.session_id_poller = Some(Arc::new(Mutex::new(poller)));
     }
 
@@ -1624,6 +1644,7 @@ impl Instance {
         self.session_id_poller = None;
         self.join_deferred_capture();
         self.deferred_capture_handle = None;
+        self.capture_gate = None;
 
         let session = self.tmux_session()?;
 
