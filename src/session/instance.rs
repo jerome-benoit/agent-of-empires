@@ -21,13 +21,11 @@ use super::container_config;
 use super::environment::{build_docker_env_args, shell_escape};
 use super::poller::SessionPoller;
 
-const OPENCODE_MAX_RETRY_ATTEMPTS: u32 = 3;
-const OPENCODE_RETRY_DELAY: Duration = Duration::from_secs(2);
-const OPENCODE_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
-const OPENCODE_CAPTURE_DEADLINE: Duration = Duration::from_secs(15);
-const DEFERRED_CAPTURE_INITIAL_DELAY: Duration = Duration::from_secs(5);
-const DEFERRED_CAPTURE_MAX_ATTEMPTS: u32 = 6;
-const DEFERRED_CAPTURE_RETRY_DELAY: Duration = Duration::from_secs(5);
+fn session_timing() -> super::config::SessionConfig {
+    super::config::Config::load()
+        .map(|c| c.session)
+        .unwrap_or_default()
+}
 
 fn default_true() -> bool {
     true
@@ -201,7 +199,9 @@ pub fn opencode_poll_fn(
 ) -> impl Fn() -> Option<String> + Send + 'static {
     move || {
         let exclusion = build_exclusion_set(&instance_id);
-        try_capture_opencode_session_id(&project_path, &exclusion, launch_time_ms).ok()
+        try_capture_opencode_session_id(&project_path, &exclusion, launch_time_ms)
+            .map_err(|e| tracing::debug!("OpenCode poll capture failed: {}", e))
+            .ok()
     }
 }
 
@@ -210,6 +210,13 @@ pub fn opencode_poll_fn(
 /// Lists all tmux sessions with the AoE prefix, reads each one's hidden env vars
 /// to find its instance ID and captured session ID, and collects all captured IDs
 /// from instances other than `current_instance_id`.
+///
+/// NOTE: This is a point-in-time snapshot. Two instances that call this
+/// concurrently may both see an empty set and claim the same session (TOCTOU).
+/// The deferred capture loop mitigates this by re-reading on each attempt, and
+/// the poller provides an additional layer of correction. Full mutual exclusion
+/// would require a file lock or atomic tmux compare-and-set, which is not
+/// currently justified given the low collision probability in practice.
 fn build_exclusion_set(current_instance_id: &str) -> HashSet<String> {
     let output = match std::process::Command::new("tmux")
         .args(["list-sessions", "-F", "#{session_name}"])
@@ -245,6 +252,60 @@ fn build_exclusion_set(current_instance_id: &str) -> HashSet<String> {
     excluded
 }
 
+/// Filter, sort, and deduplicate OpenCode sessions by project directory.
+///
+/// Given a list of parsed OpenCode session JSON values:
+/// 1. Filters to sessions matching `project_path` (canonicalized comparison on `directory`/`path`)
+/// 2. Sorts by `updated` timestamp descending (most recent first)
+/// 3. If `launch_time_ms` is `Some`, removes sessions older than that threshold
+/// 4. Removes sessions whose IDs appear in `exclusion`
+fn filter_opencode_sessions<'a>(
+    sessions: &'a [serde_json::Value],
+    project_path: &str,
+    exclusion: &HashSet<String>,
+    launch_time_ms: Option<f64>,
+) -> Vec<&'a serde_json::Value> {
+    let canonical_path = std::fs::canonicalize(project_path)
+        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
+    let canonical_str = canonical_path.to_string_lossy();
+
+    let mut matching: Vec<&serde_json::Value> = sessions
+        .iter()
+        .filter(|s| {
+            s.get("directory")
+                .or_else(|| s.get("path"))
+                .and_then(|v| v.as_str())
+                .map(|dir| {
+                    let session_path = std::fs::canonicalize(dir)
+                        .unwrap_or_else(|_| std::path::PathBuf::from(dir));
+                    session_path.to_string_lossy() == canonical_str
+                })
+                .unwrap_or(false)
+        })
+        .collect();
+
+    matching.sort_by(|a, b| {
+        let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        b_time
+            .partial_cmp(&a_time)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    if let Some(threshold) = launch_time_ms {
+        matching.retain(|s| s.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0) >= threshold);
+    }
+
+    matching.retain(|s| {
+        s.get("id")
+            .and_then(|v| v.as_str())
+            .map(|id| !exclusion.contains(id))
+            .unwrap_or(true)
+    });
+
+    matching
+}
+
 /// Capture session ID from OpenCode CLI with retry logic.
 ///
 /// Attempts up to 3 times to capture an OpenCode session ID, with 2-second delays between
@@ -267,15 +328,18 @@ fn capture_opencode_session_id(
     exclusion: &HashSet<String>,
     launch_time_ms: f64,
 ) -> Result<String> {
-    let deadline = std::time::Instant::now() + OPENCODE_CAPTURE_DEADLINE;
+    let timing = session_timing();
+    let deadline =
+        std::time::Instant::now() + Duration::from_secs(timing.opencode_capture_deadline_secs);
     let mut last_err = None;
 
-    for attempt in 0..OPENCODE_MAX_RETRY_ATTEMPTS {
+    for attempt in 0..timing.opencode_max_retry_attempts {
         if attempt > 0 {
-            if std::time::Instant::now() + OPENCODE_RETRY_DELAY > deadline {
+            let retry_delay = Duration::from_secs(timing.opencode_retry_delay_secs);
+            if std::time::Instant::now() + retry_delay > deadline {
                 break;
             }
-            std::thread::sleep(OPENCODE_RETRY_DELAY);
+            std::thread::sleep(retry_delay);
             tracing::debug!(
                 "Retrying OpenCode session capture (attempt {})",
                 attempt + 1
@@ -321,7 +385,8 @@ fn try_capture_opencode_session_id(
         let _ = tx.send(child.wait_with_output());
     });
 
-    let output = match rx.recv_timeout(OPENCODE_COMMAND_TIMEOUT) {
+    let timing = session_timing();
+    let output = match rx.recv_timeout(Duration::from_secs(timing.opencode_command_timeout_secs)) {
         Ok(Ok(out)) => out,
         Ok(Err(e)) => return Err(anyhow::anyhow!("Failed to execute opencode: {}", e)),
         Err(_) => {
@@ -339,46 +404,8 @@ fn try_capture_opencode_session_id(
     let sessions: Vec<serde_json::Value> =
         serde_json::from_str(&stdout).context("Failed to parse OpenCode session list JSON")?;
 
-    // Try to match by project directory first
-    let canonical_path = std::fs::canonicalize(project_path)
-        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
-    let canonical_str = canonical_path.to_string_lossy();
-
-    let mut matching: Vec<&serde_json::Value> = sessions
-        .iter()
-        .filter(|s| {
-            s.get("directory")
-                .or_else(|| s.get("path"))
-                .and_then(|v| v.as_str())
-                .map(|dir| {
-                    let session_path = std::fs::canonicalize(dir)
-                        .unwrap_or_else(|_| std::path::PathBuf::from(dir));
-                    session_path.to_string_lossy() == canonical_str
-                })
-                .unwrap_or(false)
-        })
-        .collect();
-
-    // Sort by updated time (most recent first).
-    // OpenCode stores `updated` as a numeric epoch (Date.now() milliseconds), not a string.
-    matching.sort_by(|a, b| {
-        let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        b_time
-            .partial_cmp(&a_time)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    // Filter out sessions older than launch (stale from a previous run)
-    matching.retain(|s| s.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0) >= launch_time_ms);
-
-    // Filter out sessions already claimed by other AoE instances
-    matching.retain(|s| {
-        s.get("id")
-            .and_then(|v| v.as_str())
-            .map(|id| !exclusion.contains(id))
-            .unwrap_or(true)
-    });
+    let matching =
+        filter_opencode_sessions(&sessions, project_path, exclusion, Some(launch_time_ms));
 
     // Use directory match if found, otherwise fall back to first session
     let session = matching.first().copied().or_else(|| sessions.first());
@@ -511,22 +538,47 @@ fn collect_codex_sessions(
     Ok(())
 }
 
+fn is_valid_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 256
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+}
+
 /// Build resume flags for agent command.
 ///
-/// Constructs a tool-specific command-line flag string to resume an existing session.
-/// Each agent tool uses a different flag format, and for unrecognized tools returns
-/// an empty string.
-///
-/// For Claude, the flag depends on whether conversation data already exists:
-/// `--resume` only works for sessions that have prior conversation data, while
-/// `--session-id` creates or attaches to a session unconditionally.
+/// Uses the agent's `ResumeStrategy` (from the registry) to construct the correct
+/// CLI flag or subcommand string. Returns an empty string for agents that don't
+/// support resume or for invalid session IDs.
 fn build_resume_flags(tool: &str, session_id: &str, is_existing_session: bool) -> String {
-    match tool {
-        "claude" if is_existing_session => format!("--resume {}", session_id),
-        "claude" => format!("--session-id {}", session_id),
-        "opencode" => format!("--session {}", session_id),
-        "codex" => format!("resume {}", session_id),
-        _ => String::new(),
+    use crate::agents::{get_agent, ResumeStrategy};
+
+    if !is_valid_session_id(session_id) {
+        tracing::warn!(
+            "Refusing to build resume flags: invalid session ID {:?}",
+            session_id
+        );
+        return String::new();
+    }
+    let Some(agent) = get_agent(tool) else {
+        return String::new();
+    };
+    match &agent.resume_strategy {
+        ResumeStrategy::Flag(flag) => format!("{} {}", flag, session_id),
+        ResumeStrategy::FlagPair {
+            existing,
+            new_session,
+        } => {
+            let flag = if is_existing_session {
+                existing
+            } else {
+                new_session
+            };
+            format!("{} {}", flag, session_id)
+        }
+        ResumeStrategy::Subcommand(sub) => format!("{} {}", sub, session_id),
+        ResumeStrategy::None => String::new(),
     }
 }
 
@@ -537,16 +589,31 @@ fn append_resume_flags(
     cmd: &mut String,
     context: &str,
 ) {
+    use crate::agents::{get_agent, ResumeStrategy};
+
     if let Some(session_id) = session_id {
-        let resume_flags = build_resume_flags(tool, session_id, is_existing_session);
-        if !resume_flags.is_empty() {
-            *cmd = format!("{} {}", cmd, resume_flags);
-            tracing::debug!(
-                "Added resume flags to {} command: {}",
-                context,
-                resume_flags
-            );
+        let resume_part = build_resume_flags(tool, session_id, is_existing_session);
+        if resume_part.is_empty() {
+            return;
         }
+        let is_subcommand = matches!(
+            get_agent(tool).map(|a| &a.resume_strategy),
+            Some(ResumeStrategy::Subcommand(_))
+        );
+        if is_subcommand {
+            // Subcommand-style resume (e.g. `codex resume <id>`) must appear
+            // right after the binary name so other flags land after it.
+            if let Some(space_pos) = cmd.find(' ') {
+                let binary = &cmd[..space_pos];
+                let flags = &cmd[space_pos..];
+                *cmd = format!("{} {}{}", binary, resume_part, flags);
+            } else {
+                *cmd = format!("{} {}", cmd, resume_part);
+            }
+        } else {
+            *cmd = format!("{} {}", cmd, resume_part);
+        }
+        tracing::debug!("Added resume flags to {} command: {}", context, resume_part);
     }
 }
 
@@ -623,7 +690,7 @@ fn capture_from_container(
                 .exec(&[
                     "sh",
                     "-c",
-                    "SESS_DIR=\"${CODEX_HOME:-$HOME/.codex}/sessions\"; find \"$SESS_DIR\" -name '*.jsonl' -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -1",
+                    "SESS_DIR=\"${CODEX_HOME:-$HOME/.codex}/sessions\"; find \"$SESS_DIR\" -name '*.jsonl' 2>/dev/null | xargs ls -1t 2>/dev/null | head -1",
                 ])
                 .map_err(|e| tracing::debug!("Deferred container exec (codex): {}", e))
                 .ok()?;
@@ -636,8 +703,10 @@ fn capture_from_container(
             let uuid = stdout
                 .lines()
                 .next()
-                .and_then(|line| line.split_once(' '))
-                .and_then(|(_, path)| extract_codex_uuid_from_filename(std::path::Path::new(path)));
+                .filter(|line| !line.is_empty())
+                .and_then(|path| {
+                    extract_codex_uuid_from_filename(std::path::Path::new(path.trim()))
+                });
 
             uuid.filter(|id| !exclusion.contains(id))
         }
@@ -646,6 +715,14 @@ fn capture_from_container(
 }
 
 fn persist_deferred_session_id(profile: &str, instance_id: &str, session_id: &str) {
+    if !is_valid_session_id(session_id) {
+        tracing::warn!(
+            "Refusing to persist invalid session ID {:?} for {}",
+            session_id,
+            instance_id
+        );
+        return;
+    }
     let storage = match super::storage::Storage::new(profile) {
         Ok(s) => s,
         Err(e) => {
@@ -1198,7 +1275,7 @@ impl Instance {
         let profile = profile.to_string();
         let is_sandboxed = self.is_sandboxed();
 
-        std::thread::Builder::new()
+        if let Err(e) = std::thread::Builder::new()
             .name(format!("deferred-capture-{}", instance_id))
             .spawn(move || {
                 let launch_time_ms = std::time::SystemTime::now()
@@ -1206,9 +1283,12 @@ impl Instance {
                     .map(|d| d.as_millis() as f64)
                     .unwrap_or(0.0);
 
-                std::thread::sleep(DEFERRED_CAPTURE_INITIAL_DELAY);
+                let timing = session_timing();
+                std::thread::sleep(Duration::from_secs(
+                    timing.deferred_capture_initial_delay_secs,
+                ));
 
-                for attempt in 1..=DEFERRED_CAPTURE_MAX_ATTEMPTS {
+                for attempt in 1..=timing.deferred_capture_max_attempts {
                     let exclusion = build_exclusion_set(&instance_id);
 
                     let captured = if is_sandboxed {
@@ -1228,24 +1308,32 @@ impl Instance {
                         return;
                     }
 
-                    if attempt < DEFERRED_CAPTURE_MAX_ATTEMPTS {
+                    if attempt < timing.deferred_capture_max_attempts {
                         tracing::debug!(
                             "Deferred capture attempt {}/{} found nothing for {}, retrying",
                             attempt,
-                            DEFERRED_CAPTURE_MAX_ATTEMPTS,
+                            timing.deferred_capture_max_attempts,
                             instance_id
                         );
-                        std::thread::sleep(DEFERRED_CAPTURE_RETRY_DELAY);
+                        std::thread::sleep(Duration::from_secs(
+                            timing.deferred_capture_retry_delay_secs,
+                        ));
                     }
                 }
 
                 tracing::debug!(
                     "Deferred capture exhausted all {} attempts for {}",
-                    DEFERRED_CAPTURE_MAX_ATTEMPTS,
+                    timing.deferred_capture_max_attempts,
                     instance_id
                 );
             })
-            .ok();
+        {
+            tracing::error!(
+                session = %self.id,
+                error = %e,
+                "Failed to spawn deferred session capture thread"
+            );
+        }
     }
 
     fn apply_tmux_options(&self) {
@@ -2023,10 +2111,8 @@ mod tests {
         assert!(is_existing);
     }
 
-    // Test: resume with invalid session ID
     #[test]
-    fn test_resume_with_invalid_session_id() {
-        // Test that an invalid session ID is still stored and used
+    fn test_resume_with_arbitrary_session_id() {
         let mut inst = Instance::new("Test", "/home/user/project");
         inst.tool = "claude".to_string();
         inst.agent_session_id = Some("invalid-session-id".to_string());
@@ -2039,6 +2125,38 @@ mod tests {
         let (session_id, is_existing) = inst.acquire_session_id();
         assert_eq!(session_id, Some("invalid-session-id".to_string()));
         assert!(is_existing);
+    }
+
+    #[test]
+    fn test_is_valid_session_id() {
+        assert!(is_valid_session_id("abc-123"));
+        assert!(is_valid_session_id("session_id.v2"));
+        assert!(is_valid_session_id("a"));
+        assert!(is_valid_session_id("ABC-def_123.456"));
+
+        assert!(!is_valid_session_id(""));
+        assert!(!is_valid_session_id("bad id!@#"));
+        assert!(!is_valid_session_id("has space"));
+        assert!(!is_valid_session_id("semi;colon"));
+        assert!(!is_valid_session_id("back`tick"));
+        assert!(!is_valid_session_id("path/slash"));
+        assert!(!is_valid_session_id(&"x".repeat(257)));
+    }
+
+    #[test]
+    fn test_build_resume_flags_rejects_invalid_id() {
+        let flags = build_resume_flags("claude", "$(rm -rf /)", true);
+        assert_eq!(flags, "");
+
+        let flags = build_resume_flags("opencode", "id; echo pwned", false);
+        assert_eq!(flags, "");
+    }
+
+    #[test]
+    fn test_codex_append_resume_flags_ordering() {
+        let mut cmd = "codex --dangerously-auto-approve".to_string();
+        append_resume_flags("codex", Some("ses-abc"), true, &mut cmd, "test");
+        assert_eq!(cmd, "codex resume ses-abc --dangerously-auto-approve");
     }
 
     // Test: backwards compatibility - load old JSON without agent_session_id
@@ -2199,7 +2317,6 @@ mod tests {
 
     #[test]
     fn test_opencode_directory_matching() {
-        // Use numeric epoch timestamps (milliseconds) matching OpenCode's Date.now() format.
         let sessions_json = serde_json::json!([
             {"id": "wrong-session", "directory": "/home/user/other-project", "updated": 1735689600000_u64},
             {"id": "correct-session", "directory": "/tmp/my-project", "updated": 1735776000000_u64},
@@ -2207,34 +2324,8 @@ mod tests {
         ]);
         let sessions: Vec<serde_json::Value> = serde_json::from_value(sessions_json).unwrap();
 
-        let project_path = "/tmp/my-project";
-        let canonical_path = std::fs::canonicalize(project_path)
-            .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
-        let canonical_str = canonical_path.to_string_lossy();
-
-        let mut matching: Vec<&serde_json::Value> = sessions
-            .iter()
-            .filter(|s| {
-                s.get("directory")
-                    .or_else(|| s.get("path"))
-                    .and_then(|v| v.as_str())
-                    .map(|dir| {
-                        let session_path = std::fs::canonicalize(dir)
-                            .unwrap_or_else(|_| std::path::PathBuf::from(dir));
-                        session_path.to_string_lossy() == canonical_str
-                    })
-                    .unwrap_or(false)
-            })
-            .collect();
-
-        // Sort by numeric epoch (most recent first), matching production code.
-        matching.sort_by(|a, b| {
-            let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            b_time
-                .partial_cmp(&a_time)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        let matching =
+            filter_opencode_sessions(&sessions, "/tmp/my-project", &HashSet::new(), None);
 
         let session = matching.first().copied().or_else(|| sessions.first());
         let id = session.and_then(|s| s["id"].as_str()).unwrap();
@@ -2421,42 +2512,8 @@ mod tests {
         exclusion.insert("A".to_string());
         exclusion.insert("B".to_string());
 
-        let project_path = "/tmp/my-project";
-        let canonical_path = std::fs::canonicalize(project_path)
-            .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
-        let canonical_str = canonical_path.to_string_lossy();
-
-        let mut matching: Vec<&serde_json::Value> = sessions
-            .iter()
-            .filter(|s| {
-                s.get("directory")
-                    .or_else(|| s.get("path"))
-                    .and_then(|v| v.as_str())
-                    .map(|dir| {
-                        let session_path = std::fs::canonicalize(dir)
-                            .unwrap_or_else(|_| std::path::PathBuf::from(dir));
-                        session_path.to_string_lossy() == canonical_str
-                    })
-                    .unwrap_or(false)
-            })
-            .collect();
-
-        matching.sort_by(|a, b| {
-            let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            b_time
-                .partial_cmp(&a_time)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        matching.retain(|s| s.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0) >= 0.0);
-
-        matching.retain(|s| {
-            s.get("id")
-                .and_then(|v| v.as_str())
-                .map(|id| !exclusion.contains(id))
-                .unwrap_or(true)
-        });
+        let matching =
+            filter_opencode_sessions(&sessions, "/tmp/my-project", &exclusion, Some(0.0));
 
         let best = matching.first().unwrap();
         assert_eq!(best["id"].as_str().unwrap(), "C");
@@ -2473,40 +2530,7 @@ mod tests {
         let mut exclusion = HashSet::new();
         exclusion.insert("best-session".to_string());
 
-        let project_path = "/tmp/my-project";
-        let canonical_path = std::fs::canonicalize(project_path)
-            .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
-        let canonical_str = canonical_path.to_string_lossy();
-
-        let mut matching: Vec<&serde_json::Value> = sessions
-            .iter()
-            .filter(|s| {
-                s.get("directory")
-                    .or_else(|| s.get("path"))
-                    .and_then(|v| v.as_str())
-                    .map(|dir| {
-                        let session_path = std::fs::canonicalize(dir)
-                            .unwrap_or_else(|_| std::path::PathBuf::from(dir));
-                        session_path.to_string_lossy() == canonical_str
-                    })
-                    .unwrap_or(false)
-            })
-            .collect();
-
-        matching.sort_by(|a, b| {
-            let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            b_time
-                .partial_cmp(&a_time)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        matching.retain(|s| {
-            s.get("id")
-                .and_then(|v| v.as_str())
-                .map(|id| !exclusion.contains(id))
-                .unwrap_or(true)
-        });
+        let matching = filter_opencode_sessions(&sessions, "/tmp/my-project", &exclusion, None);
 
         let session = matching.first().copied().or_else(|| sessions.first());
         let id = session.and_then(|s| s["id"].as_str()).unwrap();
@@ -2525,40 +2549,7 @@ mod tests {
         exclusion.insert("sess-1".to_string());
         exclusion.insert("sess-2".to_string());
 
-        let project_path = "/tmp/my-project";
-        let canonical_path = std::fs::canonicalize(project_path)
-            .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
-        let canonical_str = canonical_path.to_string_lossy();
-
-        let mut matching: Vec<&serde_json::Value> = sessions
-            .iter()
-            .filter(|s| {
-                s.get("directory")
-                    .or_else(|| s.get("path"))
-                    .and_then(|v| v.as_str())
-                    .map(|dir| {
-                        let session_path = std::fs::canonicalize(dir)
-                            .unwrap_or_else(|_| std::path::PathBuf::from(dir));
-                        session_path.to_string_lossy() == canonical_str
-                    })
-                    .unwrap_or(false)
-            })
-            .collect();
-
-        matching.sort_by(|a, b| {
-            let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            b_time
-                .partial_cmp(&a_time)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        matching.retain(|s| {
-            s.get("id")
-                .and_then(|v| v.as_str())
-                .map(|id| !exclusion.contains(id))
-                .unwrap_or(true)
-        });
+        let matching = filter_opencode_sessions(&sessions, "/tmp/my-project", &exclusion, None);
 
         assert!(
             matching.is_empty(),
@@ -2578,43 +2569,12 @@ mod tests {
         let launch_time_ms: f64 = 1735000000000.0;
         let exclusion: HashSet<String> = HashSet::new();
 
-        let project_path = "/tmp/my-project";
-        let canonical_path = std::fs::canonicalize(project_path)
-            .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
-        let canonical_str = canonical_path.to_string_lossy();
-
-        let mut matching: Vec<&serde_json::Value> = sessions
-            .iter()
-            .filter(|s| {
-                s.get("directory")
-                    .or_else(|| s.get("path"))
-                    .and_then(|v| v.as_str())
-                    .map(|dir| {
-                        let session_path = std::fs::canonicalize(dir)
-                            .unwrap_or_else(|_| std::path::PathBuf::from(dir));
-                        session_path.to_string_lossy() == canonical_str
-                    })
-                    .unwrap_or(false)
-            })
-            .collect();
-
-        matching.sort_by(|a, b| {
-            let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            b_time
-                .partial_cmp(&a_time)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        matching
-            .retain(|s| s.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0) >= launch_time_ms);
-
-        matching.retain(|s| {
-            s.get("id")
-                .and_then(|v| v.as_str())
-                .map(|id| !exclusion.contains(id))
-                .unwrap_or(true)
-        });
+        let matching = filter_opencode_sessions(
+            &sessions,
+            "/tmp/my-project",
+            &exclusion,
+            Some(launch_time_ms),
+        );
 
         assert_eq!(matching.len(), 1);
         assert_eq!(matching[0]["id"].as_str().unwrap(), "new-session");
