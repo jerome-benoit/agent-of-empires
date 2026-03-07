@@ -169,21 +169,35 @@ pub fn claude_poll_fn() -> impl Fn() -> Option<String> + Send + 'static {
     }
 }
 
+/// Check whether a string is a valid UUID (8-4-4-4-12 hex-and-dash format).
+fn is_uuid_format(s: &str) -> bool {
+    s.len() == 36
+        && s.chars().filter(|&c| c == '-').count() == 4
+        && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+}
+
 /// Read a symlink and walk its target path components looking for a UUID segment.
 ///
-/// Returns the first 36-character hex-and-dash component that matches the UUID
-/// format (8-4-4-4-12). Returns `None` if the symlink is missing, broken, or
-/// its target contains no UUID-shaped path component.
+/// Returns the first path component that matches the UUID format (8-4-4-4-12).
+/// Also handles the case where a component is `<UUID>.<ext>` (e.g. `UUID.txt`)
+/// by stripping the file extension before checking. Returns `None` if the
+/// symlink is missing, broken, or its target contains no UUID-shaped component.
 fn extract_uuid_from_symlink_target(symlink_path: &std::path::Path) -> Option<String> {
     let target = std::fs::read_link(symlink_path).ok()?;
     let mut path = target.as_path();
     loop {
         let name = path.file_name()?.to_str()?;
-        if name.len() == 36
-            && name.chars().filter(|&c| c == '-').count() == 4
-            && name.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
-        {
+        if is_uuid_format(name) {
             return Some(name.to_string());
+        }
+        // Handle filenames like `<UUID>.txt` where the stem is the UUID
+        if let Some(stem) = std::path::Path::new(name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+        {
+            if stem != name && is_uuid_format(stem) {
+                return Some(stem.to_string());
+            }
         }
         path = path.parent()?;
     }
@@ -277,7 +291,6 @@ fn filter_agent_sessions<'a>(
             .iter()
             .filter(|s| {
                 s.get("directory")
-                    .or_else(|| s.get("path"))
                     .and_then(|v| v.as_str())
                     .map(|dir| {
                         let session_path = std::fs::canonicalize(dir)
@@ -552,6 +565,194 @@ fn collect_codex_sessions(
     Ok(())
 }
 
+/// Capture session ID from Gemini CLI filesystem.
+///
+/// Gemini stores sessions at `~/.gemini/tmp/<project_hash>/chats/session-*.json`.
+/// The project hash is a SHA-256 of the project path. Each session file contains
+/// an `id` field. We find all session files, pick the most recently modified one
+/// that matches the project, and return its filename stem (e.g. `session-12345`)
+/// as the session ID.
+fn capture_gemini_session_id(project_path: &str, exclusion: &HashSet<String>) -> Result<String> {
+    let gemini_home = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+        .join(".gemini");
+    let tmp_dir = gemini_home.join("tmp");
+
+    if !tmp_dir.exists() {
+        anyhow::bail!("Gemini tmp directory not found: {}", tmp_dir.display());
+    }
+
+    // Gemini hashes the project root to create the subdirectory name.
+    // We scan all subdirs and check for chat sessions rather than
+    // reimplementing their hash, since it may vary across versions.
+    let mut candidates: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
+
+    for project_entry in std::fs::read_dir(&tmp_dir)? {
+        let project_entry = project_entry?;
+        let chats_dir = project_entry.path().join("chats");
+        if !chats_dir.is_dir() {
+            continue;
+        }
+        for chat_entry in std::fs::read_dir(&chats_dir)? {
+            let chat_entry = chat_entry?;
+            let path = chat_entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("json")
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("session-"))
+            {
+                let modified = chat_entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                candidates.push((path, modified));
+            }
+        }
+    }
+
+    if candidates.is_empty() {
+        anyhow::bail!("No Gemini session files found in {}", tmp_dir.display());
+    }
+
+    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+
+    candidates.retain(|(path, _)| {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        !exclusion.contains(stem)
+    });
+
+    let canonical_project = std::fs::canonicalize(project_path)
+        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
+
+    let project_match = candidates.iter().find(|(path, _)| {
+        extract_gemini_cwd_from_file(path)
+            .and_then(|cwd| std::fs::canonicalize(&cwd).ok())
+            .map(|cwd| cwd == canonical_project)
+            .unwrap_or(false)
+    });
+
+    let chosen = project_match.or(candidates.first());
+
+    chosen
+        .and_then(|(path, _)| extract_gemini_session_id_from_file(path))
+        .ok_or_else(|| anyhow::anyhow!("No valid Gemini session found"))
+}
+
+/// Extract the session ID from a Gemini session JSON file.
+///
+/// Falls back to the filename stem if the `id` field is absent, since Gemini
+/// also accepts `--resume <index>` or `--resume` (latest).
+fn extract_gemini_session_id_from_file(path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+    parsed
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .or_else(|| path.file_stem().and_then(|s| s.to_str()).map(String::from))
+}
+
+fn extract_gemini_cwd_from_file(path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+    parsed
+        .get("cwd")
+        .or_else(|| parsed.get("projectPath"))
+        .or_else(|| parsed.get("workingDirectory"))
+        .and_then(|v| v.as_str())
+        .map(String::from)
+}
+
+/// Capture session ID from Mistral Vibe filesystem.
+///
+/// Vibe stores sessions at `~/.vibe/logs/session/<session_id>/meta.json`.
+/// Each `meta.json` contains session metadata including `cwd`. We find the
+/// most recently modified session directory matching the project path.
+fn capture_vibe_session_id(project_path: &str, exclusion: &HashSet<String>) -> Result<String> {
+    let vibe_home = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+        .join(".vibe");
+    let sessions_dir = vibe_home.join("logs").join("session");
+
+    if !sessions_dir.exists() {
+        anyhow::bail!(
+            "Vibe sessions directory not found: {}",
+            sessions_dir.display()
+        );
+    }
+
+    let mut candidates: Vec<(String, std::time::SystemTime)> = Vec::new();
+
+    for entry in std::fs::read_dir(&sessions_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let session_id = entry
+            .file_name()
+            .to_str()
+            .map(String::from)
+            .unwrap_or_default();
+        if session_id.is_empty() || exclusion.contains(&session_id) {
+            continue;
+        }
+        let meta_path = path.join("meta.json");
+        let modified = if meta_path.exists() {
+            std::fs::metadata(&meta_path)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        } else {
+            entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        };
+        candidates.push((session_id, modified));
+    }
+
+    if candidates.is_empty() {
+        anyhow::bail!(
+            "No Vibe session directories found in {}",
+            sessions_dir.display()
+        );
+    }
+
+    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let canonical_project = std::fs::canonicalize(project_path)
+        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
+
+    let project_match = candidates.iter().find(|(session_id, _)| {
+        let meta_path = sessions_dir.join(session_id).join("meta.json");
+        extract_vibe_cwd_from_meta(&meta_path)
+            .and_then(|cwd| std::fs::canonicalize(&cwd).ok())
+            .map(|cwd| cwd == canonical_project)
+            .unwrap_or(false)
+    });
+
+    let chosen = project_match.or(candidates.first());
+
+    chosen
+        .map(|(id, _)| id.clone())
+        .ok_or_else(|| anyhow::anyhow!("No valid Vibe session found"))
+}
+
+fn extract_vibe_cwd_from_meta(path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+    parsed
+        .get("cwd")
+        .or_else(|| parsed.get("working_directory"))
+        .or_else(|| parsed.get("project_path"))
+        .and_then(|v| v.as_str())
+        .map(String::from)
+}
+
 fn is_valid_session_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 256
@@ -645,6 +846,12 @@ fn capture_from_host(
             .ok(),
         "codex" => capture_codex_session_id(project_path, exclusion)
             .map_err(|e| tracing::debug!("Deferred host capture (codex): {}", e))
+            .ok(),
+        "gemini" => capture_gemini_session_id(project_path, exclusion)
+            .map_err(|e| tracing::debug!("Deferred host capture (gemini): {}", e))
+            .ok(),
+        "vibe" => capture_vibe_session_id(project_path, exclusion)
+            .map_err(|e| tracing::debug!("Deferred host capture (vibe): {}", e))
             .ok(),
         _ => None,
     }
@@ -1219,7 +1426,7 @@ impl Instance {
         if self.agent_session_id.is_some() {
             return;
         }
-        if !matches!(self.tool.as_str(), "opencode" | "codex") {
+        if !matches!(self.tool.as_str(), "opencode" | "codex" | "gemini" | "vibe") {
             return;
         }
 
@@ -2442,10 +2649,39 @@ mod tests {
     }
 
     #[test]
-    fn test_claude_poll_fn_missing_symlink() {
+    fn test_extract_gemini_helpers_round_trip() {
         let tmp = tempfile::tempdir().unwrap();
-        let missing = tmp.path().join("nonexistent-symlink");
-        assert_eq!(extract_uuid_from_symlink_target(&missing), None);
+        let path = tmp.path().join("session-99.json");
+        std::fs::write(
+            &path,
+            r#"{"id": "gemini-abc", "cwd": "/home/user/project"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            extract_gemini_session_id_from_file(&path),
+            Some("gemini-abc".to_string())
+        );
+        assert_eq!(
+            extract_gemini_cwd_from_file(&path),
+            Some("/home/user/project".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_vibe_helpers_round_trip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let meta_path = tmp.path().join("meta.json");
+        std::fs::write(
+            &meta_path,
+            r#"{"cwd": "/home/user/myrepo", "session_id": "vibe-xyz"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            extract_vibe_cwd_from_meta(&meta_path),
+            Some("/home/user/myrepo".to_string())
+        );
     }
 
     #[test]
@@ -2470,6 +2706,126 @@ mod tests {
         std::os::unix::fs::symlink(&dangling_target, &symlink_path).unwrap();
 
         assert_eq!(extract_uuid_from_symlink_target(&symlink_path), None);
+    }
+
+    #[test]
+    fn test_claude_poll_fn_extracts_uuid_from_dotted_filename() {
+        let tmp = tempfile::tempdir().unwrap();
+        let uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        let target_file = tmp.path().join(format!("{uuid}.txt"));
+        std::fs::write(&target_file, "").unwrap();
+
+        let symlink_path = tmp.path().join("latest");
+        std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
+
+        let result = extract_uuid_from_symlink_target(&symlink_path);
+        assert_eq!(result, Some(uuid.to_string()));
+    }
+
+    #[test]
+    fn test_is_uuid_format_valid() {
+        assert!(is_uuid_format("a1b2c3d4-e5f6-7890-abcd-ef1234567890"));
+        assert!(is_uuid_format("00000000-0000-0000-0000-000000000000"));
+        assert!(is_uuid_format("AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"));
+    }
+
+    #[test]
+    fn test_is_uuid_format_invalid() {
+        assert!(!is_uuid_format(""));
+        assert!(!is_uuid_format("not-a-uuid"));
+        assert!(!is_uuid_format("a1b2c3d4-e5f6-7890-abcd")); // too short
+        assert!(!is_uuid_format("a1b2c3d4-e5f6-7890-abcd-ef1234567890.txt")); // has extension
+        assert!(!is_uuid_format("a1b2c3d4e5f67890abcdef1234567890")); // no dashes
+        assert!(!is_uuid_format("g1b2c3d4-e5f6-7890-abcd-ef1234567890")); // 'g' is not hex
+    }
+
+    #[test]
+    fn test_extract_gemini_session_id_from_file_with_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("session-42.json");
+        std::fs::write(&path, r#"{"id": "abc-123", "cwd": "/tmp/project"}"#).unwrap();
+        assert_eq!(
+            extract_gemini_session_id_from_file(&path),
+            Some("abc-123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_gemini_session_id_from_file_no_id_falls_back_to_stem() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("session-42.json");
+        std::fs::write(&path, r#"{"cwd": "/tmp/project"}"#).unwrap();
+        assert_eq!(
+            extract_gemini_session_id_from_file(&path),
+            Some("session-42".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_gemini_session_id_from_file_invalid_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("session-42.json");
+        std::fs::write(&path, "not json").unwrap();
+        assert_eq!(extract_gemini_session_id_from_file(&path), None);
+    }
+
+    #[test]
+    fn test_extract_gemini_cwd_from_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("session.json");
+        std::fs::write(&path, r#"{"id": "s1", "cwd": "/home/user/project"}"#).unwrap();
+        assert_eq!(
+            extract_gemini_cwd_from_file(&path),
+            Some("/home/user/project".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_gemini_cwd_from_file_project_path_fallback() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("session.json");
+        std::fs::write(
+            &path,
+            r#"{"id": "s1", "projectPath": "/home/user/project"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            extract_gemini_cwd_from_file(&path),
+            Some("/home/user/project".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_vibe_cwd_from_meta() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("meta.json");
+        std::fs::write(
+            &path,
+            r#"{"cwd": "/home/user/myrepo", "session_id": "abc"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            extract_vibe_cwd_from_meta(&path),
+            Some("/home/user/myrepo".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_vibe_cwd_from_meta_working_directory_fallback() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("meta.json");
+        std::fs::write(&path, r#"{"working_directory": "/home/user/myrepo"}"#).unwrap();
+        assert_eq!(
+            extract_vibe_cwd_from_meta(&path),
+            Some("/home/user/myrepo".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_vibe_cwd_from_meta_missing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("nonexistent.json");
+        assert_eq!(extract_vibe_cwd_from_meta(&path), None);
     }
 
     #[test]

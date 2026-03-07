@@ -126,7 +126,7 @@ pub const AGENTS: &[AgentDef] = &[
         detect_status: status_detection::detect_vibe_status,
         container_env: &[],
         hook_config: None,
-        resume_strategy: ResumeStrategy::Unsupported,
+        resume_strategy: ResumeStrategy::Flag("--resume"),
     },
     AgentDef {
         name: "codex",
@@ -156,7 +156,7 @@ pub const AGENTS: &[AgentDef] = &[
         detect_status: status_detection::detect_gemini_status,
         container_env: &[],
         hook_config: None,
-        resume_strategy: ResumeStrategy::Unsupported,
+        resume_strategy: ResumeStrategy::Flag("--resume"),
     },
     AgentDef {
         name: "cursor",
