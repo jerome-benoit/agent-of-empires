@@ -685,16 +685,21 @@ impl HomeView {
         Ok(())
     }
 
+    /// Restart an instance in-place on the owned map entry, so that new poller/capture
+    /// threads are stored in the long-lived Instance (not a temporary clone whose Drop
+    /// would block the TUI thread). The `instances` vec is not mutated here because
+    /// `reload()` is called after tmux attach returns, which resyncs it from storage.
     pub fn restart_instance_with_size_opts(
         &mut self,
         id: &str,
         size: Option<(u16, u16)>,
         skip_on_launch: bool,
     ) -> anyhow::Result<()> {
-        if let Some(inst) = self.instance_map.get_mut(id) {
-            inst.restart_with_size_opts(size, skip_on_launch)?;
-        }
-        Ok(())
+        let inst = self
+            .instance_map
+            .get_mut(id)
+            .ok_or_else(|| anyhow::anyhow!("instance not found: {id}"))?;
+        inst.restart_with_size_opts(size, skip_on_launch)
     }
 
     pub fn select_session_by_id(&mut self, session_id: &str) {
