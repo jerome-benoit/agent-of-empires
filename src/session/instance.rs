@@ -163,8 +163,8 @@ fn generate_claude_session_id() -> String {
 /// Create a polling closure for Claude that reads the `~/.claude/debug/latest` symlink.
 ///
 /// The symlink retargets within ~100ms of `/new`, `/clear`, or session switches.
-/// The target path contains the session UUID as a directory component, e.g.
-/// `~/.claude/debug/sessions/<UUID>/...`. Returns `None` on any failure (missing
+/// The target is a file whose name contains the session UUID, e.g.
+/// `~/.claude/debug/<UUID>.txt`. Returns `None` on any failure (missing
 /// symlink, invalid path, non-UUID segment).
 pub fn claude_poll_fn() -> impl Fn() -> Option<String> + Send + 'static {
     move || {
@@ -183,9 +183,9 @@ fn is_uuid_format(s: &str) -> bool {
 /// Read a symlink and walk its target path components looking for a UUID segment.
 ///
 /// Returns the first path component that matches the UUID format (8-4-4-4-12).
-/// Also handles the case where a component is `<UUID>.<ext>` (e.g. `UUID.txt`)
-/// by stripping the file extension before checking. Returns `None` if the
-/// symlink is missing, broken, or its target contains no UUID-shaped component.
+/// Also handles filenames with an extension (e.g. `<UUID>.txt`, `<UUID>.log`)
+/// by stripping it before checking. Returns `None` if the symlink is missing,
+/// broken, or its target contains no UUID-shaped component.
 fn extract_uuid_from_symlink_target(symlink_path: &std::path::Path) -> Option<String> {
     let target = std::fs::read_link(symlink_path).ok()?;
     let mut path = target.as_path();
@@ -332,9 +332,13 @@ fn filter_agent_sessions<'a>(
 
 /// Capture session ID from OpenCode CLI with retry logic.
 ///
-/// Attempts up to 3 times to capture an OpenCode session ID, with 2-second delays between
-/// retries. Each attempt executes `opencode session list --format json` with a 5-second
-/// timeout. When a `project_path` is provided, sessions are filtered to prefer those matching
+/// Retries up to `opencode_max_retry_attempts` times (default 3) with
+/// `opencode_retry_delay_secs` between attempts (default 2s). Each attempt runs
+/// `opencode session list --format json` with a configurable timeout
+/// (`opencode_command_timeout_secs`, default 5s). An overall deadline
+/// (`opencode_capture_deadline_secs`, default 15s) caps the total capture time.
+///
+/// When a `project_path` is provided, sessions are filtered to prefer those matching
 /// the project directory, sorted by most recently updated. Falls back to the first session
 /// if no directory match is found.
 ///
@@ -388,8 +392,9 @@ fn capture_opencode_session_id(
 
 /// Single attempt to capture an OpenCode session ID.
 ///
-/// Spawns `opencode session list --format json` with a 5-second timeout, parses the JSON,
-/// and selects the best matching session based on project directory and update time.
+/// Spawns `opencode session list --format json` with a configurable timeout
+/// (`opencode_command_timeout_secs`), parses the JSON, and selects the best
+/// matching session based on project directory and update time.
 fn try_capture_opencode_session_id(
     project_path: &str,
     exclusion: &HashSet<String>,
@@ -1021,7 +1026,7 @@ impl Instance {
     ///
     /// Returns `(session_id, is_existing)`. If a persisted ID exists, returns it
     /// with `is_existing = true`. Otherwise, only Claude gets a new UUID here
-    /// (it requires `--session-id <uuid>` at launch). OpenCode/Codex create their
+    /// (it requires `--session-id <uuid>` at launch). Other agents create their
     /// own sessions on startup; their IDs are captured post-launch by
     /// `deferred_capture_session_id()`.
     pub fn acquire_session_id(&mut self) -> (Option<String>, bool) {
@@ -1029,7 +1034,7 @@ impl Instance {
             return (self.agent_session_id.clone(), true);
         }
 
-        // For OpenCode/Codex on first launch (no persisted ID), skip capture.
+        // For non-Claude agents on first launch (no persisted ID), skip capture.
         // These agents create their own sessions; the ID is captured post-launch
         // via deferred_capture_session_id() and persisted for future relaunches.
         // Only Claude needs a pre-launch ID (--session-id <uuid> creates a new session).
@@ -1423,10 +1428,10 @@ impl Instance {
 
     /// Spawn a background thread to capture the session ID after the agent starts.
     ///
-    /// OpenCode and Codex create their own sessions on launch, so the ID cannot be
-    /// known in advance. This method polls the agent's CLI or filesystem until a
-    /// session appears, then persists it so that future relaunches resume the same
-    /// conversation.
+    /// Some agents (OpenCode, Codex, Gemini, Vibe) create their own sessions on
+    /// launch, so the ID cannot be known in advance. This method polls the agent's
+    /// CLI or filesystem until a session appears, then persists it so that future
+    /// relaunches resume the same conversation.
     fn deferred_capture_session_id(&mut self, profile: &str) {
         if self.agent_session_id.is_some() {
             return;
