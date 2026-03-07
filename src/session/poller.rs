@@ -90,6 +90,14 @@ pub struct SessionPoller {
     handle: Option<JoinHandle<()>>,
 }
 
+impl std::fmt::Debug for SessionPoller {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionPoller")
+            .field("running", &self.handle.is_some())
+            .finish()
+    }
+}
+
 impl SessionPoller {
     /// Create a new poller (does not start the thread)
     pub fn new() -> Self {

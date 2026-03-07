@@ -253,6 +253,28 @@ impl HomeView {
                 .unwrap_or(35),
         };
 
+        // Start pollers for pre-existing running sessions (TUI relaunch case).
+        // When AoE restarts while agents are still running in tmux, we need to
+        // resume polling for session ID changes.
+        for inst in &mut view.instances {
+            if !matches!(inst.tool.as_str(), "claude" | "opencode") {
+                continue;
+            }
+            if inst.poller.is_some() {
+                continue;
+            }
+            if let Ok(session) = inst.tmux_session() {
+                if session.exists() && !session.is_pane_dead() {
+                    inst.maybe_start_poller();
+                }
+            }
+        }
+        view.instance_map = view
+            .instances
+            .iter()
+            .map(|i| (i.id.clone(), i.clone()))
+            .collect();
+
         view.update_selected();
         Ok(view)
     }
@@ -266,6 +288,7 @@ impl HomeView {
                 inst.last_error = prev.last_error.clone();
                 inst.last_error_check = prev.last_error_check;
                 inst.last_start_time = prev.last_start_time;
+                inst.poller = prev.poller.clone();
             }
         }
 

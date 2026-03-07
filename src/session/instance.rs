@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -18,6 +19,7 @@ use crate::tmux;
 
 use super::container_config;
 use super::environment::{build_docker_env_args, shell_escape};
+use super::poller::SessionPoller;
 
 const OPENCODE_MAX_RETRY_ATTEMPTS: u32 = 3;
 const OPENCODE_RETRY_DELAY: Duration = Duration::from_secs(2);
@@ -140,6 +142,8 @@ pub struct Instance {
     pub last_start_time: Option<std::time::Instant>,
     #[serde(skip)]
     pub last_error: Option<String>,
+    #[serde(skip)]
+    pub poller: Option<Arc<Mutex<SessionPoller>>>,
 }
 
 /// Generate a new UUID for Claude Code session.
@@ -150,6 +154,48 @@ pub struct Instance {
 /// Claude Code CLI commands.
 fn generate_claude_session_id() -> String {
     Uuid::new_v4().to_string()
+}
+
+/// Create a polling closure for Claude that reads the `~/.claude/debug/latest` symlink.
+///
+/// The symlink retargets within ~100ms of `/new`, `/clear`, or session switches.
+/// The target path contains the session UUID as a directory component, e.g.
+/// `~/.claude/debug/sessions/<UUID>/...`. Returns `None` on any failure (missing
+/// symlink, invalid path, non-UUID segment).
+pub fn claude_poll_fn() -> impl Fn() -> Option<String> + Send + 'static {
+    move || {
+        let latest = dirs::home_dir()?.join(".claude/debug/latest");
+        let target = std::fs::read_link(&latest).ok()?;
+        // Walk up from the target to find a UUID-shaped directory component.
+        // Typical target: .../sessions/<UUID>/debug.log
+        let mut path = target.as_path();
+        loop {
+            let name = path.file_name()?.to_str()?;
+            if name.len() == 36
+                && name.chars().filter(|&c| c == '-').count() == 4
+                && name.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+            {
+                return Some(name.to_string());
+            }
+            path = path.parent()?;
+        }
+    }
+}
+
+/// Create a polling closure for OpenCode that re-runs `try_capture_opencode_session_id`.
+///
+/// Each invocation rebuilds the exclusion set from other AoE instances and invokes
+/// the single-attempt capture. The poller's adaptive interval prevents hammering;
+/// under stable conditions polls back off to 60s.
+pub fn opencode_poll_fn(
+    project_path: String,
+    instance_id: String,
+    launch_time_ms: f64,
+) -> impl Fn() -> Option<String> + Send + 'static {
+    move || {
+        let exclusion = build_exclusion_set(&instance_id);
+        try_capture_opencode_session_id(&project_path, &exclusion, launch_time_ms).ok()
+    }
 }
 
 /// Build a set of session IDs already claimed by other AoE instances.
@@ -650,6 +696,7 @@ impl Instance {
             last_error_check: None,
             last_start_time: None,
             last_error: None,
+            poller: None,
         }
     }
 
@@ -1045,6 +1092,7 @@ impl Instance {
 
         self.persist_session_id(&profile);
         self.deferred_capture_session_id(&profile);
+        self.maybe_start_poller();
 
         // Apply all configured tmux options (status bar, mouse, etc.)
         self.apply_tmux_options();
@@ -1230,11 +1278,61 @@ impl Instance {
         )
     }
 
+    pub fn maybe_start_poller(&mut self) {
+        let tool = self.tool.as_str();
+        if !matches!(tool, "claude" | "opencode") {
+            return;
+        }
+
+        let launch_time_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as f64)
+            .unwrap_or(0.0);
+
+        let mut poller = SessionPoller::new();
+        let instance_id = self.id.clone();
+        let initial_known = self.agent_session_id.clone();
+
+        let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = match tool {
+            "claude" => Box::new(claude_poll_fn()),
+            "opencode" => Box::new(opencode_poll_fn(
+                self.project_path.clone(),
+                self.id.clone(),
+                launch_time_ms,
+            )),
+            _ => return,
+        };
+
+        let profile = super::config::Config::load()
+            .map(|c| c.default_profile)
+            .unwrap_or_else(|_| "default".to_string());
+        let cb_instance_id = self.id.clone();
+
+        let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(move |new_id: &str| {
+            tracing::info!("Session ID changed for {}: {}", cb_instance_id, new_id);
+            persist_deferred_session_id(&profile, &cb_instance_id, new_id);
+        });
+
+        poller.start(instance_id, poll_fn, on_change, initial_known);
+        self.poller = Some(Arc::new(Mutex::new(poller)));
+    }
+
+    fn stop_poller(&self) {
+        if let Some(ref poller_arc) = self.poller {
+            if let Ok(mut poller) = poller_arc.lock() {
+                poller.stop();
+            }
+        }
+    }
+
     pub fn restart(&mut self) -> Result<()> {
         self.restart_with_size(None)
     }
 
     pub fn restart_with_size(&mut self, size: Option<(u16, u16)>) -> Result<()> {
+        self.stop_poller();
+        self.poller = None;
+
         let session = self.tmux_session()?;
 
         if session.exists() {
@@ -1248,6 +1346,7 @@ impl Instance {
     }
 
     pub fn kill(&self) -> Result<()> {
+        self.stop_poller();
         let session = self.tmux_session()?;
         if session.exists() {
             session.kill()?;
