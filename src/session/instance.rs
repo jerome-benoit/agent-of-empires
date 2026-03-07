@@ -246,7 +246,7 @@ fn build_exclusion_set(current_instance_id: &str) -> HashSet<String> {
 
         if let Some(captured) = crate::tmux::env::get_hidden_env(
             session_name,
-            crate::tmux::env::AOE_CAPTURED_SESSION_KEY,
+            crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
         ) {
             excluded.insert(captured);
         }
@@ -755,7 +755,7 @@ fn persist_session_to_storage(profile: &str, instance_id: &str, session_id: &str
         tracing::debug!("Session ID persisted for {}", instance_id);
         if let Err(e) = crate::tmux::env::set_hidden_env(
             &tmux_name,
-            crate::tmux::env::AOE_CAPTURED_SESSION_KEY,
+            crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
             session_id,
         ) {
             tracing::warn!("Failed to write captured session ID to tmux env: {}", e);
@@ -2625,7 +2625,7 @@ mod tests {
 
             crate::tmux::env::set_hidden_env(
                 session_names[i],
-                crate::tmux::env::AOE_CAPTURED_SESSION_KEY,
+                crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
                 captured_sessions[i],
             )
             .unwrap_or_else(|e| {

@@ -8,7 +8,7 @@ use anyhow::bail;
 use std::process::Command;
 
 pub const AOE_INSTANCE_ID_KEY: &str = "AOE_INSTANCE_ID";
-pub const AOE_CAPTURED_SESSION_KEY: &str = "AOE_CAPTURED_SESSION";
+pub const AOE_CAPTURED_SESSION_ID_KEY: &str = "AOE_CAPTURED_SESSION_ID";
 
 /// Set a hidden environment variable in a tmux session
 ///
@@ -74,7 +74,7 @@ pub fn remove_hidden_env(session_name: &str, key: &str) -> anyhow::Result<()> {
 /// Best-effort: logs warnings on failure rather than propagating errors,
 /// since stale env vars are harmless if the session is about to be recreated.
 pub fn clear_all_hidden_env(session_name: &str) {
-    for key in [AOE_INSTANCE_ID_KEY, AOE_CAPTURED_SESSION_KEY] {
+    for key in [AOE_INSTANCE_ID_KEY, AOE_CAPTURED_SESSION_ID_KEY] {
         if let Err(e) = remove_hidden_env(session_name, key) {
             tracing::warn!("Failed to clear stale {key} env var: {e}");
         }

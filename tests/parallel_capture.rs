@@ -54,7 +54,7 @@ fn build_exclusion_set_for_test(current_instance_id: &str) -> HashSet<String> {
         }
 
         if let Some(captured) =
-            tmux::env::get_hidden_env(session_name, tmux::env::AOE_CAPTURED_SESSION_KEY)
+            tmux::env::get_hidden_env(session_name, tmux::env::AOE_CAPTURED_SESSION_ID_KEY)
         {
             excluded.insert(captured);
         }
@@ -139,7 +139,7 @@ fn test_parallel_launch_unique_session_ids() {
                     if let Some(ref session_id) = captured {
                         let _ = tmux::env::set_hidden_env(
                             session_name,
-                            tmux::env::AOE_CAPTURED_SESSION_KEY,
+                            tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
                             session_id,
                         );
                     }
@@ -206,7 +206,7 @@ fn test_sequential_capture_strict_uniqueness() {
 
         tmux::env::set_hidden_env(
             &session_names[i],
-            tmux::env::AOE_CAPTURED_SESSION_KEY,
+            tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
             &session_id,
         )
         .unwrap_or_else(|e| panic!("Failed to persist captured session for {}: {}", i + 1, e));
