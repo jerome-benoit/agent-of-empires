@@ -292,6 +292,7 @@ impl HomeView {
                 inst.last_error_check = prev.last_error_check;
                 inst.last_start_time = prev.last_start_time;
                 inst.session_id_poller = prev.session_id_poller.clone();
+                inst.deferred_capture_handle = prev.deferred_capture_handle.clone();
             }
         }
 

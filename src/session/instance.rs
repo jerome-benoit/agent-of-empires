@@ -143,7 +143,7 @@ pub struct Instance {
     #[serde(skip)]
     pub session_id_poller: Option<Arc<Mutex<SessionPoller>>>,
     #[serde(skip)]
-    deferred_capture_handle: Option<Arc<Mutex<Option<std::thread::JoinHandle<()>>>>>,
+    pub(crate) deferred_capture_handle: Option<Arc<Mutex<Option<std::thread::JoinHandle<()>>>>>,
 }
 
 /// Generate a new UUID for Claude Code session.
