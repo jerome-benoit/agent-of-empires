@@ -2561,4 +2561,160 @@ mod tests {
         assert_eq!(matching.len(), 1);
         assert_eq!(matching[0]["id"].as_str().unwrap(), "new-session");
     }
+
+    struct TmuxSessionGuard {
+        sessions: Vec<String>,
+    }
+
+    impl Drop for TmuxSessionGuard {
+        fn drop(&mut self) {
+            for name in &self.sessions {
+                let _ = std::process::Command::new("tmux")
+                    .args(["kill-session", "-t", name])
+                    .output();
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    #[serial]
+    fn test_parallel_multi_instance_capture() {
+        if std::process::Command::new("tmux")
+            .args(["-V"])
+            .output()
+            .is_err()
+        {
+            return;
+        }
+
+        let session_names = [
+            "aoe_test_parallel_1",
+            "aoe_test_parallel_2",
+            "aoe_test_parallel_3",
+        ];
+        let instance_ids = ["instance-id-1", "instance-id-2", "instance-id-3"];
+        let captured_sessions = [
+            "opencode-session-AAA",
+            "opencode-session-BBB",
+            "opencode-session-CCC",
+        ];
+
+        let _guard = TmuxSessionGuard {
+            sessions: session_names.iter().map(|s| s.to_string()).collect(),
+        };
+
+        for i in 0..3 {
+            let output = std::process::Command::new("tmux")
+                .args([
+                    "new-session",
+                    "-d",
+                    "-s",
+                    session_names[i],
+                    "-x",
+                    "200",
+                    "-y",
+                    "50",
+                ])
+                .output()
+                .expect("Failed to create tmux session");
+            assert!(
+                output.status.success(),
+                "Failed to create tmux session {}: {}",
+                session_names[i],
+                String::from_utf8_lossy(&output.stderr)
+            );
+
+            crate::tmux::env::set_hidden_env(
+                session_names[i],
+                crate::tmux::env::AOE_INSTANCE_ID_KEY,
+                instance_ids[i],
+            )
+            .unwrap_or_else(|e| {
+                panic!("Failed to set instance ID for {}: {}", session_names[i], e)
+            });
+
+            crate::tmux::env::set_hidden_env(
+                session_names[i],
+                crate::tmux::env::AOE_CAPTURED_SESSION_KEY,
+                captured_sessions[i],
+            )
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to set captured session for {}: {}",
+                    session_names[i], e
+                )
+            });
+        }
+
+        let results: Vec<HashSet<String>> = std::thread::scope(|s| {
+            let handles: Vec<_> = instance_ids
+                .iter()
+                .map(|id| s.spawn(move || build_exclusion_set(id)))
+                .collect();
+
+            handles
+                .into_iter()
+                .map(|h| h.join().expect("Thread panicked"))
+                .collect()
+        });
+
+        // Each instance's exclusion set should contain only the other instances' captured sessions
+        assert!(
+            results[0].contains("opencode-session-BBB"),
+            "Instance 1 exclusion set should contain BBB, got: {:?}",
+            results[0]
+        );
+        assert!(
+            results[0].contains("opencode-session-CCC"),
+            "Instance 1 exclusion set should contain CCC, got: {:?}",
+            results[0]
+        );
+        assert!(
+            !results[0].contains("opencode-session-AAA"),
+            "Instance 1 exclusion set must NOT contain its own AAA, got: {:?}",
+            results[0]
+        );
+
+        assert!(
+            results[1].contains("opencode-session-AAA"),
+            "Instance 2 exclusion set should contain AAA, got: {:?}",
+            results[1]
+        );
+        assert!(
+            results[1].contains("opencode-session-CCC"),
+            "Instance 2 exclusion set should contain CCC, got: {:?}",
+            results[1]
+        );
+        assert!(
+            !results[1].contains("opencode-session-BBB"),
+            "Instance 2 exclusion set must NOT contain its own BBB, got: {:?}",
+            results[1]
+        );
+
+        assert!(
+            results[2].contains("opencode-session-AAA"),
+            "Instance 3 exclusion set should contain AAA, got: {:?}",
+            results[2]
+        );
+        assert!(
+            results[2].contains("opencode-session-BBB"),
+            "Instance 3 exclusion set should contain BBB, got: {:?}",
+            results[2]
+        );
+        assert!(
+            !results[2].contains("opencode-session-CCC"),
+            "Instance 3 exclusion set must NOT contain its own CCC, got: {:?}",
+            results[2]
+        );
+
+        for i in 0..3 {
+            assert!(
+                !results[i].contains(captured_sessions[i]),
+                "Instance {} exclusion set must not contain its own captured session {}",
+                i + 1,
+                captured_sessions[i]
+            );
+        }
+    }
 }
