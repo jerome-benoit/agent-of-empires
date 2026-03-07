@@ -158,11 +158,16 @@ pub enum PollCommand {
     Stop,
 }
 
-/// Manages polling thread lifecycle and communication
+/// Manages polling thread lifecycle and communication.
+///
+/// Results flow back to the TUI via `result_rx`, matching the channel pattern
+/// used by `StatusPoller`, `DeletionPoller`, and `CreationPoller`.
 pub struct SessionPoller {
     session_name: String,
     cmd_tx: mpsc::Sender<PollCommand>,
     cmd_rx: Option<mpsc::Receiver<PollCommand>>,
+    result_tx: mpsc::Sender<(String, String)>,
+    result_rx: Option<mpsc::Receiver<(String, String)>>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -178,11 +183,14 @@ impl std::fmt::Debug for SessionPoller {
 impl SessionPoller {
     /// Create a new poller (does not start the thread)
     pub fn new(session_name: String) -> Self {
-        let (tx, rx) = mpsc::channel();
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
         Self {
             session_name,
-            cmd_tx: tx,
-            cmd_rx: Some(rx),
+            cmd_tx,
+            cmd_rx: Some(cmd_rx),
+            result_tx,
+            result_rx: Some(result_rx),
             handle: None,
         }
     }
@@ -230,6 +238,7 @@ impl SessionPoller {
 
         let session_name = self.session_name.clone();
         let thread_label = format!("aoe-poller/{}", instance_id);
+        let result_tx = self.result_tx.clone();
 
         let handle = std::thread::Builder::new()
             .name(thread_label.clone())
@@ -270,6 +279,7 @@ impl SessionPoller {
                         let changed = last_known.as_deref() != Some(&new_id);
                         if changed {
                             on_change(&new_id);
+                            let _ = result_tx.send((instance_id.clone(), new_id.clone()));
                             last_known = Some(new_id);
                             interval.record_change();
                         } else {
@@ -291,14 +301,22 @@ impl SessionPoller {
             Err(e) => {
                 tracing::warn!("Failed to spawn poller thread {}: {}", thread_label, e);
                 ACTIVE_POLLER_COUNT.fetch_sub(1, Ordering::SeqCst);
-                // Restore cmd_rx so this poller can be retried.
-                // The closure was consumed by the failed spawn, so recreate the channel.
-                let (tx, rx) = mpsc::channel();
-                self.cmd_tx = tx;
-                self.cmd_rx = Some(rx);
+                // Restore channels so this poller can be retried.
+                // The closure was consumed by the failed spawn, so recreate both.
+                let (cmd_tx, cmd_rx) = mpsc::channel();
+                self.cmd_tx = cmd_tx;
+                self.cmd_rx = Some(cmd_rx);
+                let (result_tx, result_rx) = mpsc::channel();
+                self.result_tx = result_tx;
+                self.result_rx = Some(result_rx);
                 false
             }
         }
+    }
+
+    /// Drain a pending session ID update, if any. Returns `(instance_id, session_id)`.
+    pub fn try_recv_session_update(&self) -> Option<(String, String)> {
+        self.result_rx.as_ref()?.try_recv().ok()
     }
 
     /// Send a poll command

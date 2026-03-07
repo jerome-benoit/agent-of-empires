@@ -381,10 +381,7 @@ impl HomeView {
                 self.instance_map.remove(&result.session_id);
                 self.group_tree = GroupTree::new_with_groups(&self.instances, &self.groups);
 
-                if let Err(e) = self
-                    .storage
-                    .save_with_groups(&self.instances, &self.group_tree)
-                {
+                if let Err(e) = self.save() {
                     tracing::error!("Failed to save after deletion: {}", e);
                 }
                 let _ = self.reload();
@@ -405,6 +402,32 @@ impl HomeView {
             return true;
         }
         false
+    }
+
+    /// Apply any pending session ID updates from background pollers.
+    /// Returns true if any instance was updated.
+    pub fn apply_session_id_updates(&mut self) -> bool {
+        let mut changed = false;
+        for inst in &mut self.instances {
+            let update = inst
+                .session_id_poller
+                .as_ref()
+                .and_then(|p| p.lock().ok())
+                .and_then(|p| p.try_recv_session_update());
+            if let Some((_instance_id, session_id)) = update {
+                inst.agent_session_id = Some(session_id.clone());
+                if let Some(map_inst) = self.instance_map.get_mut(&inst.id) {
+                    map_inst.agent_session_id = Some(session_id);
+                }
+                changed = true;
+            }
+        }
+        if changed {
+            if let Err(e) = self.save() {
+                tracing::error!("Failed to save after session ID update: {}", e);
+            }
+        }
+        changed
     }
 
     /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
@@ -513,10 +536,7 @@ impl HomeView {
                         self.group_tree.create_group(&instance.group_path);
                     }
 
-                    if let Err(e) = self
-                        .storage
-                        .save_with_groups(&self.instances, &self.group_tree)
-                    {
+                    if let Err(e) = self.save() {
                         tracing::error!("Failed to save after creation: {}", e);
                     }
                 }
@@ -680,8 +700,7 @@ impl HomeView {
         if let Some(inst) = self.instance_map.get_mut(id) {
             inst.start_terminal_with_size(size)?;
         }
-        self.storage
-            .save_with_groups(&self.instances, &self.group_tree)?;
+        self.save()?;
         Ok(())
     }
 

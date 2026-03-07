@@ -203,6 +203,10 @@ impl App {
                 refresh_needed = true;
             }
 
+            if self.home.apply_session_id_updates() {
+                refresh_needed = true;
+            }
+
             // Check for and apply creation results (non-blocking)
             if let Some(session_id) = self.home.apply_creation_results() {
                 // Creation succeeded - attach to the new session

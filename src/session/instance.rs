@@ -1034,10 +1034,23 @@ impl Instance {
             return (self.agent_session_id.clone(), true);
         }
 
-        // For non-Claude agents on first launch (no persisted ID), skip capture.
-        // These agents create their own sessions; the ID is captured post-launch
-        // via deferred_capture_session_id() and persisted for future relaunches.
+        // Try retroactive capture: query the agent CLI for the most recent
+        // session matching this project. This covers the case where the
+        // deferred capture never ran (e.g., session created with an older
+        // binary) or failed silently.
+        if let Some(id) = self.try_retroactive_capture() {
+            tracing::info!(
+                "Retroactive capture found session ID for {}: {}",
+                self.tool,
+                id
+            );
+            self.agent_session_id = Some(id);
+            return (self.agent_session_id.clone(), true);
+        }
+
         // Only Claude needs a pre-launch ID (--session-id <uuid> creates a new session).
+        // Other agents create their own sessions; the ID is captured post-launch
+        // via deferred_capture_session_id().
         let session_id = match self.tool.as_str() {
             "claude" => Some(generate_claude_session_id()),
             _ => None,
@@ -1049,6 +1062,23 @@ impl Instance {
         }
 
         (session_id, false)
+    }
+
+    fn try_retroactive_capture(&self) -> Option<String> {
+        let exclusion = build_exclusion_set(&self.id);
+        let result = match self.tool.as_str() {
+            "opencode" => {
+                let timing = session_timing();
+                // Single attempt with no time filter -- this runs synchronously
+                // before the agent starts, so we only do one quick probe.
+                try_capture_opencode_session_id(&self.project_path, &exclusion, 0.0, &timing).ok()
+            }
+            "codex" => capture_codex_session_id(&self.project_path, &exclusion).ok(),
+            "gemini" => capture_gemini_session_id(&self.project_path, &exclusion).ok(),
+            "vibe" => capture_vibe_session_id(&self.project_path, &exclusion).ok(),
+            _ => None,
+        };
+        result.filter(|id| is_valid_session_id(id))
     }
 
     fn apply_session_flags(&mut self, cmd: &mut String, context: &str) {
@@ -1409,7 +1439,11 @@ impl Instance {
 
         self.persist_session_id(&profile);
         self.deferred_capture_session_id(&profile);
-        self.maybe_start_poller();
+        let poller_launch_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as f64)
+            .unwrap_or(0.0);
+        self.maybe_start_poller_with_time(Some(poller_launch_time));
 
         // Apply all configured tmux options (status bar, mouse, etc.)
         self.apply_tmux_options();
@@ -1584,15 +1618,24 @@ impl Instance {
     }
 
     pub fn maybe_start_poller(&mut self) {
+        self.maybe_start_poller_with_time(None);
+    }
+
+    /// Start the session ID poller with an explicit launch time filter.
+    ///
+    /// When `launch_time_ms` is `Some(t)`, the OpenCode poll function only
+    /// considers sessions updated at or after `t` (used after freshly spawning
+    /// the agent so we don't pick up stale sessions). When `None`, no time
+    /// filter is applied -- the poller discovers any matching session for the
+    /// project, which is the correct behaviour when resuming monitoring of an
+    /// already-running agent on TUI restart.
+    fn maybe_start_poller_with_time(&mut self, launch_time_ms: Option<f64>) {
         let tool = self.tool.as_str();
         if !matches!(tool, "claude" | "opencode") {
             return;
         }
 
-        let launch_time_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as f64)
-            .unwrap_or(0.0);
+        let effective_launch_time = launch_time_ms.unwrap_or(0.0);
 
         let tmux_session_name = self
             .tmux_session()
@@ -1607,7 +1650,7 @@ impl Instance {
             "opencode" => Box::new(opencode_poll_fn(
                 self.project_path.clone(),
                 self.id.clone(),
-                launch_time_ms,
+                effective_launch_time,
             )),
             _ => return,
         };

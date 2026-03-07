@@ -59,8 +59,7 @@ impl HomeView {
             if !instance.group_path.is_empty() {
                 self.group_tree.create_group(&instance.group_path);
             }
-            self.storage
-                .save_with_groups(&self.instances, &self.group_tree)?;
+            self.save()?;
         }
 
         self.reload()?;
@@ -104,8 +103,7 @@ impl HomeView {
 
             self.group_tree = GroupTree::new_with_groups(&self.instances, &self.groups);
             self.group_tree.delete_group(&group_path);
-            self.storage
-                .save_with_groups(&self.instances, &self.group_tree)?;
+            self.save()?;
 
             self.reload()?;
         }
@@ -165,8 +163,7 @@ impl HomeView {
 
             self.group_tree.delete_group(&group_path);
             self.groups = self.group_tree.get_all_groups();
-            self.storage
-                .save_with_groups(&self.instances, &self.group_tree)?;
+            self.save()?;
             self.flat_items = flatten_tree(&self.group_tree, &self.instances, self.sort_order);
         }
         Ok(())
@@ -256,8 +253,7 @@ impl HomeView {
                     // Remove from current profile
                     self.instances.retain(|i| i.id != id);
                     self.group_tree = GroupTree::new_with_groups(&self.instances, &self.groups);
-                    self.storage
-                        .save_with_groups(&self.instances, &self.group_tree)?;
+                    self.save()?;
 
                     // Add to target profile
                     let target_storage = Storage::new(target_profile)?;
@@ -306,8 +302,7 @@ impl HomeView {
             if !effective_group.is_empty() {
                 self.group_tree.create_group(&effective_group);
             }
-            self.storage
-                .save_with_groups(&self.instances, &self.group_tree)?;
+            self.save()?;
 
             self.reload()?;
         }
