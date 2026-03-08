@@ -183,8 +183,7 @@ impl HomeView {
 
             // Get current values for comparison
             let (current_title, current_group) = self
-                .instance_map
-                .get(&id)
+                .get_instance(&id)
                 .map(|i| (i.title.clone(), i.group_path.clone()))
                 .unwrap_or_default();
 
