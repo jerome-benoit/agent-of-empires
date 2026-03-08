@@ -256,20 +256,38 @@ impl HomeView {
                 .unwrap_or(35),
         };
 
-        // Start pollers for pre-existing running sessions (TUI relaunch case).
-        // When AoE restarts while agents are still running in tmux, we need to
-        // resume polling for session ID changes.
+        // Resume session ID discovery for pre-existing running sessions (TUI
+        // relaunch case). Claude/OpenCode get pollers; Codex/Gemini/Vibe get a
+        // one-shot retroactive capture since they have no poller.
+        let mut recovered_session_id = false;
         for inst in &mut view.instances {
-            if !matches!(inst.tool.as_str(), "claude" | "opencode") {
+            let has_live_tmux = inst
+                .tmux_session()
+                .map(|s| s.exists() && !s.is_pane_dead())
+                .unwrap_or(false);
+            if !has_live_tmux {
                 continue;
             }
-            if inst.session_id_poller.is_some() {
-                continue;
-            }
-            if let Ok(session) = inst.tmux_session() {
-                if session.exists() && !session.is_pane_dead() {
-                    inst.maybe_start_poller();
+
+            match inst.tool.as_str() {
+                "claude" | "opencode" => {
+                    if inst.session_id_poller.is_none() {
+                        inst.maybe_start_poller();
+                    }
                 }
+                "codex" | "gemini" | "vibe" if inst.agent_session_id.is_none() => {
+                    if let Some(id) = inst.try_retroactive_capture() {
+                        inst.agent_session_id = Some(id);
+                        recovered_session_id = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if recovered_session_id {
+            let group_tree = GroupTree::new_with_groups(&view.instances, &view.groups);
+            if let Err(e) = view.storage.save_with_groups(&view.instances, &group_tree) {
+                tracing::warn!("Failed to save retroactively captured session IDs: {}", e);
             }
         }
         view.instance_map = view
@@ -294,6 +312,12 @@ impl HomeView {
                 inst.session_id_poller = prev.session_id_poller.clone();
                 inst.deferred_capture_handle = prev.deferred_capture_handle.clone();
                 inst.capture_gate = prev.capture_gate.clone();
+                // Prefer in-memory agent_session_id (may be fresher from poller)
+                // over disk value, but keep disk value if in-memory is None
+                inst.agent_session_id = prev
+                    .agent_session_id
+                    .clone()
+                    .or(inst.agent_session_id.take());
             }
         }
 
@@ -395,11 +419,13 @@ impl HomeView {
         false
     }
 
-    /// Apply any pending session ID updates from background pollers.
+    /// Apply any pending session ID updates from background pollers and
+    /// completed capture gates.
     /// Returns true if any instance was updated.
     pub fn apply_session_id_updates(&mut self) -> bool {
         let mut changed = false;
         for inst in &mut self.instances {
+            // 1. Check the poller channel (Claude, OpenCode)
             let update = inst
                 .session_id_poller
                 .as_ref()
@@ -411,6 +437,21 @@ impl HomeView {
                     map_inst.agent_session_id = Some(session_id);
                 }
                 changed = true;
+                continue;
+            }
+
+            // 2. Drain completed capture gates (Codex, Gemini, Vibe, and
+            //    OpenCode before its poller propagates). The deferred capture
+            //    thread signals the gate; we pick up the result here so that
+            //    only the TUI thread writes to sessions.json.
+            if inst.agent_session_id.is_none() {
+                if let Some(session_id) = inst.capture_gate.as_ref().and_then(|g| g.try_take()) {
+                    inst.agent_session_id = Some(session_id.clone());
+                    if let Some(map_inst) = self.instance_map.get_mut(&inst.id) {
+                        map_inst.agent_session_id = Some(session_id);
+                    }
+                    changed = true;
+                }
             }
         }
         if changed {

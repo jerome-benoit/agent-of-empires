@@ -114,6 +114,23 @@ impl CaptureGate {
         };
         result.0.captured_id.clone()
     }
+
+    /// Non-blocking check: if the gate is complete and holds a captured ID,
+    /// take it (returns `Some(id)` exactly once). Subsequent calls return `None`.
+    ///
+    /// Used by the TUI thread in `apply_session_id_updates()` to drain completed
+    /// captures without blocking, preserving the invariant that only the TUI
+    /// thread writes to `sessions.json`.
+    pub fn try_take(&self) -> Option<String> {
+        let Ok(mut state) = self.inner.lock() else {
+            return None;
+        };
+        if state.done {
+            state.captured_id.take()
+        } else {
+            None
+        }
+    }
 }
 
 impl Default for CaptureGate {
@@ -287,6 +304,7 @@ impl SessionPoller {
                 let _guard = _guard;
 
                 let mut last_known = initial_known;
+                let had_gate = capture_gate.is_some();
 
                 if let Some(gate) = capture_gate {
                     tracing::debug!("Poller for {} waiting on capture gate", instance_id);
@@ -303,6 +321,19 @@ impl SessionPoller {
                     POLL_BACKOFF_FACTOR,
                     POLL_STABLE_THRESHOLD,
                 );
+
+                // Immediate first poll for sessions without a capture gate
+                // (e.g. pre-existing sessions loaded from disk)
+                if !had_gate {
+                    if let Some(new_id) = poll_fn() {
+                        if last_known.as_deref() != Some(&new_id) {
+                            on_change(&new_id);
+                            let _ = result_tx.send((instance_id.clone(), new_id.clone()));
+                            last_known = Some(new_id);
+                            interval.record_change();
+                        }
+                    }
+                }
 
                 loop {
                     match cmd_rx.recv_timeout(interval.current()) {

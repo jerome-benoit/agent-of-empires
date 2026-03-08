@@ -1126,7 +1126,7 @@ impl Instance {
         (session_id, false)
     }
 
-    fn try_retroactive_capture(&self) -> Option<String> {
+    pub(crate) fn try_retroactive_capture(&self) -> Option<String> {
         let exclusion = build_exclusion_set(&self.id);
         let result = match self.tool.as_str() {
             "opencode" => {
