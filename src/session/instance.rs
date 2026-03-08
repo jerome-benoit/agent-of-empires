@@ -183,50 +183,40 @@ fn generate_claude_session_id() -> String {
     Uuid::new_v4().to_string()
 }
 
-/// Polling closure that extracts Claude's session UUID from `~/.claude/debug/latest`.
-///
-/// The symlink points to `<UUID>.txt`. Requires debug mode (`--debug` / `DEBUG=1`).
-pub fn claude_poll_fn() -> impl Fn() -> Option<String> + Send + 'static {
-    move || {
-        let home = dirs::home_dir()?;
-        let path = home.join(".claude/debug/latest");
-        extract_uuid_from_symlink_target(&path)
-    }
-}
-
-/// Check whether a string is a valid UUID (8-4-4-4-12 hex-and-dash format).
-fn is_uuid_format(s: &str) -> bool {
-    s.len() == 36
-        && s.chars().filter(|&c| c == '-').count() == 4
-        && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
-}
-
-/// Read a symlink and walk its target path components looking for a UUID segment.
-///
-/// Returns the first path component that matches the UUID format (8-4-4-4-12).
-/// Also handles filenames with an extension (e.g. `<UUID>.txt`, `<UUID>.log`)
-/// by stripping it before checking. Returns `None` if the symlink is missing,
-/// broken, or its target contains no UUID-shaped component.
-fn extract_uuid_from_symlink_target(symlink_path: &std::path::Path) -> Option<String> {
-    let target = std::fs::read_link(symlink_path).ok()?;
-    let mut path = target.as_path();
-    loop {
-        let name = path.file_name()?.to_str()?;
-        if is_uuid_format(name) {
-            return Some(name.to_string());
-        }
-        // Handle filenames like `<UUID>.txt` where the stem is the UUID
-        if let Some(stem) = std::path::Path::new(name)
-            .file_stem()
-            .and_then(|s| s.to_str())
-        {
-            if stem != name && is_uuid_format(stem) {
-                return Some(stem.to_string());
-            }
-        }
-        path = path.parent()?;
-    }
-}
+// // Claude poll -- disabled, see supports_session_poller().
+// pub fn claude_poll_fn() -> impl Fn() -> Option<String> + Send + 'static {
+//     move || {
+//         let home = dirs::home_dir()?;
+//         let path = home.join(".claude/debug/latest");
+//         extract_uuid_from_symlink_target(&path)
+//     }
+// }
+//
+// fn is_uuid_format(s: &str) -> bool {
+//     s.len() == 36
+//         && s.chars().filter(|&c| c == '-').count() == 4
+//         && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+// }
+//
+// fn extract_uuid_from_symlink_target(symlink_path: &std::path::Path) -> Option<String> {
+//     let target = std::fs::read_link(symlink_path).ok()?;
+//     let mut path = target.as_path();
+//     loop {
+//         let name = path.file_name()?.to_str()?;
+//         if is_uuid_format(name) {
+//             return Some(name.to_string());
+//         }
+//         if let Some(stem) = std::path::Path::new(name)
+//             .file_stem()
+//             .and_then(|s| s.to_str())
+//         {
+//             if stem != name && is_uuid_format(stem) {
+//                 return Some(stem.to_string());
+//             }
+//         }
+//         path = path.parent()?;
+//     }
+// }
 
 /// Create a polling closure for OpenCode that re-runs `try_capture_opencode_session_id`.
 ///
@@ -1105,12 +1095,12 @@ impl Instance {
 
     /// Whether this agent uses a session ID poller for live tracking.
     ///
-    /// Pollers continuously monitor for session ID changes via agent-specific
-    /// poll functions (e.g. reading Claude's JSONL logs, querying OpenCode's
-    /// session DB). Agents without a poll function use one-shot deferred
-    /// capture instead.
+    /// Claude is excluded: `~/.claude/debug/latest` is a global symlink shared
+    /// across all instances, so it cannot reliably identify which project owns
+    /// the session. Its pre-launch UUID via `--session-id` is authoritative.
+    // TODO: hook-based approach for Claude post-launch verification.
     pub fn supports_session_poller(&self) -> bool {
-        matches!(self.tool.as_str(), "claude" | "opencode")
+        matches!(self.tool.as_str(), "opencode")
     }
 
     /// Whether this agent creates its own session on startup, requiring
@@ -1793,7 +1783,7 @@ impl Instance {
         let initial_known = self.agent_session_id.clone();
 
         let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = match tool {
-            "claude" => Box::new(claude_poll_fn()),
+            // Claude excluded: see supports_session_poller() for rationale.
             "opencode" => Box::new(opencode_poll_fn(
                 self.project_path.clone(),
                 self.id.clone(),
@@ -2848,76 +2838,78 @@ mod tests {
         assert_eq!(extract_codex_uuid_from_filename(&path), None);
     }
 
-    #[test]
-    fn test_claude_poll_fn_extracts_uuid() {
-        let tmp = tempfile::tempdir().unwrap();
-        let uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
-        let sessions_dir = tmp.path().join("sessions").join(uuid);
-        std::fs::create_dir_all(&sessions_dir).unwrap();
-        let debug_log = sessions_dir.join("debug.log");
-        std::fs::write(&debug_log, "").unwrap();
-
-        let symlink_path = tmp.path().join("latest");
-        std::os::unix::fs::symlink(&debug_log, &symlink_path).unwrap();
-
-        let result = extract_uuid_from_symlink_target(&symlink_path);
-        assert_eq!(result, Some(uuid.to_string()));
-    }
-
-    #[test]
-    fn test_claude_poll_fn_invalid_target() {
-        let tmp = tempfile::tempdir().unwrap();
-        let target_dir = tmp.path().join("no-uuid-here");
-        std::fs::create_dir_all(&target_dir).unwrap();
-        let target_file = target_dir.join("somefile.log");
-        std::fs::write(&target_file, "").unwrap();
-
-        let symlink_path = tmp.path().join("latest");
-        std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
-
-        assert_eq!(extract_uuid_from_symlink_target(&symlink_path), None);
-    }
-
-    #[test]
-    fn test_claude_poll_fn_broken_symlink() {
-        let tmp = tempfile::tempdir().unwrap();
-        let dangling_target = tmp.path().join("sessions/dead-uuid/debug.log");
-        let symlink_path = tmp.path().join("latest");
-        std::os::unix::fs::symlink(&dangling_target, &symlink_path).unwrap();
-
-        assert_eq!(extract_uuid_from_symlink_target(&symlink_path), None);
-    }
-
-    #[test]
-    fn test_claude_poll_fn_extracts_uuid_from_dotted_filename() {
-        let tmp = tempfile::tempdir().unwrap();
-        let uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
-        let target_file = tmp.path().join(format!("{uuid}.txt"));
-        std::fs::write(&target_file, "").unwrap();
-
-        let symlink_path = tmp.path().join("latest");
-        std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
-
-        let result = extract_uuid_from_symlink_target(&symlink_path);
-        assert_eq!(result, Some(uuid.to_string()));
-    }
-
-    #[test]
-    fn test_is_uuid_format_valid() {
-        assert!(is_uuid_format("a1b2c3d4-e5f6-7890-abcd-ef1234567890"));
-        assert!(is_uuid_format("00000000-0000-0000-0000-000000000000"));
-        assert!(is_uuid_format("AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"));
-    }
-
-    #[test]
-    fn test_is_uuid_format_invalid() {
-        assert!(!is_uuid_format(""));
-        assert!(!is_uuid_format("not-a-uuid"));
-        assert!(!is_uuid_format("a1b2c3d4-e5f6-7890-abcd")); // too short
-        assert!(!is_uuid_format("a1b2c3d4-e5f6-7890-abcd-ef1234567890.txt")); // has extension
-        assert!(!is_uuid_format("a1b2c3d4e5f67890abcdef1234567890")); // no dashes
-        assert!(!is_uuid_format("g1b2c3d4-e5f6-7890-abcd-ef1234567890")); // 'g' is not hex
-    }
+    // Claude poll tests -- disabled, see supports_session_poller().
+    //
+    // #[test]
+    // fn test_claude_poll_fn_extracts_uuid() {
+    //     let tmp = tempfile::tempdir().unwrap();
+    //     let uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    //     let sessions_dir = tmp.path().join("sessions").join(uuid);
+    //     std::fs::create_dir_all(&sessions_dir).unwrap();
+    //     let debug_log = sessions_dir.join("debug.log");
+    //     std::fs::write(&debug_log, "").unwrap();
+    //
+    //     let symlink_path = tmp.path().join("latest");
+    //     std::os::unix::fs::symlink(&debug_log, &symlink_path).unwrap();
+    //
+    //     let result = extract_uuid_from_symlink_target(&symlink_path);
+    //     assert_eq!(result, Some(uuid.to_string()));
+    // }
+    //
+    // #[test]
+    // fn test_claude_poll_fn_invalid_target() {
+    //     let tmp = tempfile::tempdir().unwrap();
+    //     let target_dir = tmp.path().join("no-uuid-here");
+    //     std::fs::create_dir_all(&target_dir).unwrap();
+    //     let target_file = target_dir.join("somefile.log");
+    //     std::fs::write(&target_file, "").unwrap();
+    //
+    //     let symlink_path = tmp.path().join("latest");
+    //     std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
+    //
+    //     assert_eq!(extract_uuid_from_symlink_target(&symlink_path), None);
+    // }
+    //
+    // #[test]
+    // fn test_claude_poll_fn_broken_symlink() {
+    //     let tmp = tempfile::tempdir().unwrap();
+    //     let dangling_target = tmp.path().join("sessions/dead-uuid/debug.log");
+    //     let symlink_path = tmp.path().join("latest");
+    //     std::os::unix::fs::symlink(&dangling_target, &symlink_path).unwrap();
+    //
+    //     assert_eq!(extract_uuid_from_symlink_target(&symlink_path), None);
+    // }
+    //
+    // #[test]
+    // fn test_claude_poll_fn_extracts_uuid_from_dotted_filename() {
+    //     let tmp = tempfile::tempdir().unwrap();
+    //     let uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    //     let target_file = tmp.path().join(format!("{uuid}.txt"));
+    //     std::fs::write(&target_file, "").unwrap();
+    //
+    //     let symlink_path = tmp.path().join("latest");
+    //     std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
+    //
+    //     let result = extract_uuid_from_symlink_target(&symlink_path);
+    //     assert_eq!(result, Some(uuid.to_string()));
+    // }
+    //
+    // #[test]
+    // fn test_is_uuid_format_valid() {
+    //     assert!(is_uuid_format("a1b2c3d4-e5f6-7890-abcd-ef1234567890"));
+    //     assert!(is_uuid_format("00000000-0000-0000-0000-000000000000"));
+    //     assert!(is_uuid_format("AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"));
+    // }
+    //
+    // #[test]
+    // fn test_is_uuid_format_invalid() {
+    //     assert!(!is_uuid_format(""));
+    //     assert!(!is_uuid_format("not-a-uuid"));
+    //     assert!(!is_uuid_format("a1b2c3d4-e5f6-7890-abcd")); // too short
+    //     assert!(!is_uuid_format("a1b2c3d4-e5f6-7890-abcd-ef1234567890.txt")); // has extension
+    //     assert!(!is_uuid_format("a1b2c3d4e5f67890abcdef1234567890")); // no dashes
+    //     assert!(!is_uuid_format("g1b2c3d4-e5f6-7890-abcd-ef1234567890")); // 'g' is not hex
+    // }
 
     #[test]
     fn test_extract_gemini_session_id_from_file_with_id() {
