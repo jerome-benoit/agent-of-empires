@@ -420,6 +420,7 @@ fn try_capture_opencode_session_id(
 ) -> Result<String> {
     let child = std::process::Command::new("opencode")
         .args(["session", "list", "--format", "json"])
+        .current_dir(project_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -457,16 +458,8 @@ fn try_capture_opencode_session_id(
         Some(launch_time_ms),
     );
 
-    // Use directory match if found, otherwise fall back to most recent
-    // non-excluded session (without directory filter, but still respecting
-    // exclusion and launch-time constraints).
-    let session = matching.first().copied().or_else(|| {
-        filter_agent_sessions(&session_entries, None, exclusion, Some(launch_time_ms))
-            .into_iter()
-            .next()
-    });
-
-    session
+    matching
+        .first()
         .and_then(|s| s["id"].as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| anyhow::anyhow!("No OpenCode sessions found"))
@@ -2977,7 +2970,8 @@ mod tests {
     #[test]
     fn test_build_exclusion_set_empty() {
         let result = build_exclusion_set("nonexistent-instance-id-12345");
-        assert!(result.is_empty());
+        // May be non-empty if other AoE tmux sessions are running.
+        assert!(!result.contains("nonexistent-instance-id-12345"));
     }
 
     #[test]

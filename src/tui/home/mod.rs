@@ -249,6 +249,46 @@ impl HomeView {
                 .unwrap_or(35),
         };
 
+        // Restore tmux env vars so build_exclusion_set() can distinguish instances
+        // and exclude already-claimed session IDs.
+        for inst in &view.instances {
+            let tmux_name = match inst.tmux_session() {
+                Ok(s) if s.exists() && !s.is_pane_dead() => s.name().to_string(),
+                _ => continue,
+            };
+
+            if let Err(e) = crate::tmux::env::set_hidden_env(
+                &tmux_name,
+                crate::tmux::env::AOE_INSTANCE_ID_KEY,
+                &inst.id,
+            ) {
+                tracing::warn!("Failed to set AOE_INSTANCE_ID for {}: {}", inst.id, e);
+            }
+
+            // Synchronize tmux env with sessions.json: set the captured session
+            // ID if known, or clear stale values left by previous (possibly buggy)
+            // builds. Pollers re-publish on discovery, so they get cleared here to
+            // avoid poisoning the exclusion set with stale data.
+            if let Some(ref sid) = inst.agent_session_id {
+                if let Err(e) = crate::tmux::env::set_hidden_env(
+                    &tmux_name,
+                    crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
+                    sid,
+                ) {
+                    tracing::warn!(
+                        "Failed to restore AOE_CAPTURED_SESSION_ID for {}: {}",
+                        inst.id,
+                        e
+                    );
+                }
+            } else {
+                let _ = crate::tmux::env::remove_hidden_env(
+                    &tmux_name,
+                    crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
+                );
+            }
+        }
+
         // Recover session IDs for pre-existing sessions: pollers for Claude/OpenCode,
         // retroactive capture for others.
         let mut recovered_session_id = false;
@@ -263,10 +303,25 @@ impl HomeView {
 
             if inst.supports_session_poller() {
                 if inst.session_id_poller.is_none() {
+                    // Reset so the poller rediscovers from scratch (stale IDs
+                    // would poison the exclusion set).
+                    inst.agent_session_id = None;
                     inst.maybe_start_poller();
                 }
             } else if inst.supports_deferred_capture() && inst.agent_session_id.is_none() {
                 if let Some(id) = inst.try_retroactive_capture() {
+                    // Publish to tmux env so build_exclusion_set() can exclude this ID.
+                    let tmux_name = inst
+                        .tmux_session()
+                        .map(|s| s.name().to_string())
+                        .unwrap_or_default();
+                    if !tmux_name.is_empty() {
+                        let _ = crate::tmux::env::set_hidden_env(
+                            &tmux_name,
+                            crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
+                            &id,
+                        );
+                    }
                     inst.agent_session_id = Some(id);
                     recovered_session_id = true;
                 }
