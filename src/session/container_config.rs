@@ -633,7 +633,13 @@ pub(crate) fn build_container_config(
     if let Some(agent) = crate::agents::get_agent(tool) {
         if let Some(hook_cfg) = &agent.hook_config {
             let hook_dir = crate::hooks::hook_status_dir(instance_id);
-            std::fs::create_dir_all(&hook_dir).ok();
+            if let Err(e) = std::fs::create_dir_all(&hook_dir) {
+                tracing::warn!(
+                    "Failed to create hook status dir {}: {}",
+                    hook_dir.display(),
+                    e
+                );
+            }
             volumes.push(VolumeMount {
                 host_path: hook_dir.to_string_lossy().to_string(),
                 container_path: hook_dir.to_string_lossy().to_string(),
@@ -643,7 +649,6 @@ pub(crate) fn build_container_config(
             // Install hooks into the sandbox settings.json
             // The sandbox dir for the agent config is already prepared above.
             // We write hooks into it so the containerized agent picks them up.
-            let home = dirs::home_dir().unwrap_or_default();
             let config_dir_name = std::path::Path::new(hook_cfg.settings_rel_path)
                 .parent()
                 .unwrap_or(std::path::Path::new("."));
