@@ -183,16 +183,22 @@ fn generate_claude_session_id() -> String {
     Uuid::new_v4().to_string()
 }
 
-/// Create a polling closure for Claude that reads the `~/.claude/debug/latest` symlink.
+/// Create a polling closure for Claude that reads the debug `latest` symlink.
 ///
-/// The symlink retargets within ~100ms of `/new`, `/clear`, or session switches.
-/// The target is a file whose name contains the session UUID, e.g.
-/// `~/.claude/debug/<UUID>.txt`. Returns `None` on any failure (missing
-/// symlink, invalid path, non-UUID segment).
+/// Newer Claude versions use `~/.claude/debug-logs/latest`; older ones use
+/// `~/.claude/debug/latest`. We try both paths in order. The symlink target
+/// is `<UUID>.txt` -- we extract the UUID (8-4-4-4-12 hex format).
+/// Returns `None` on any failure (missing symlink, invalid path, non-UUID).
 pub fn claude_poll_fn() -> impl Fn() -> Option<String> + Send + 'static {
     move || {
-        let latest = dirs::home_dir()?.join(".claude/debug/latest");
-        extract_uuid_from_symlink_target(&latest)
+        let home = dirs::home_dir()?;
+        let candidates = [
+            home.join(".claude/debug-logs/latest"),
+            home.join(".claude/debug/latest"),
+        ];
+        candidates
+            .iter()
+            .find_map(|path| extract_uuid_from_symlink_target(path))
     }
 }
 
@@ -586,11 +592,13 @@ fn collect_codex_sessions(
 /// Capture session ID from Gemini CLI filesystem.
 ///
 /// Gemini stores sessions at `~/.gemini/tmp/<project_hash>/chats/session-*.json`.
-/// The project hash is a SHA-256 of the project path. Each session file contains
-/// an `id` field. We find all session files, pick the most recently modified one
-/// that matches the project, and return its filename stem (e.g. `session-12345`)
-/// as the session ID.
+/// The project hash is a SHA-256 hex digest of the absolute project path.
+/// Each session file contains a `sessionId` field. We compute the expected
+/// project hash, scan only the matching subdirectory, and return the `sessionId`
+/// from the most recently modified session file.
 fn capture_gemini_session_id(project_path: &str, exclusion: &HashSet<String>) -> Result<String> {
+    use sha2::{Digest, Sha256};
+
     let gemini_home = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
         .join(".gemini");
@@ -600,30 +608,64 @@ fn capture_gemini_session_id(project_path: &str, exclusion: &HashSet<String>) ->
         anyhow::bail!("Gemini tmp directory not found: {}", tmp_dir.display());
     }
 
-    // Gemini hashes the project root to create the subdirectory name.
-    // We scan all subdirs and check for chat sessions rather than
-    // reimplementing their hash, since it may vary across versions.
+    let canonical_project = std::fs::canonicalize(project_path)
+        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
+    let expected_hash = format!(
+        "{:x}",
+        Sha256::digest(canonical_project.to_string_lossy().as_bytes())
+    );
+
+    // Try the exact project hash directory first; fall back to scanning all subdirs
+    // in case the hash format varies across Gemini CLI versions.
+    let project_dirs: Vec<std::path::PathBuf> = {
+        let exact = tmp_dir.join(&expected_hash);
+        if exact.is_dir() {
+            vec![exact]
+        } else {
+            resilient_read_dir(&tmp_dir)?
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect()
+        }
+    };
+
     let mut candidates: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
 
-    for project_entry in resilient_read_dir(&tmp_dir)? {
-        let chats_dir = project_entry.path().join("chats");
+    for project_dir in &project_dirs {
+        let chats_dir = project_dir.join("chats");
         if !chats_dir.is_dir() {
             continue;
         }
+
+        // When scanning non-exact dirs, verify the projectHash inside the session file
+        let is_exact_match = project_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n == expected_hash);
+
         for chat_entry in resilient_read_dir(&chats_dir)? {
             let path = chat_entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("json")
-                && path
+            if path.extension().and_then(|e| e.to_str()) != Some("json")
+                || !path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .is_some_and(|n| n.starts_with("session-"))
             {
-                let modified = chat_entry
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                candidates.push((path, modified));
+                continue;
             }
+
+            if !is_exact_match {
+                let file_hash = extract_gemini_project_hash_from_file(&path).unwrap_or_default();
+                if file_hash != expected_hash {
+                    continue;
+                }
+            }
+
+            let modified = chat_entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            candidates.push((path, modified));
         }
     }
 
@@ -638,19 +680,8 @@ fn capture_gemini_session_id(project_path: &str, exclusion: &HashSet<String>) ->
         !exclusion.contains(&id)
     });
 
-    let canonical_project = std::fs::canonicalize(project_path)
-        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
-
-    let project_match = candidates.iter().find(|(path, _)| {
-        extract_gemini_cwd_from_file(path)
-            .and_then(|cwd| std::fs::canonicalize(&cwd).ok())
-            .map(|cwd| cwd == canonical_project)
-            .unwrap_or(false)
-    });
-
-    let chosen = project_match;
-
-    chosen
+    candidates
+        .first()
         .and_then(|(path, _)| extract_gemini_session_id_from_file(path))
         .ok_or_else(|| anyhow::anyhow!("No Gemini session found matching project path"))
 }
@@ -660,7 +691,7 @@ fn extract_gemini_session_id_from_file(path: &std::path::Path) -> Option<String>
     let content = std::fs::read_to_string(path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
     parsed
-        .get("id")
+        .get("sessionId")
         .and_then(|v| v.as_str())
         .map(String::from)
         .or_else(|| path.file_stem().and_then(|s| s.to_str()).map(String::from))
@@ -672,17 +703,25 @@ fn extract_cwd_from_json(parsed: &serde_json::Value, keys: &[&str]) -> Option<St
         .map(String::from)
 }
 
-fn extract_gemini_cwd_from_file(path: &std::path::Path) -> Option<String> {
+/// Extract the project hash from a Gemini session file for CWD matching.
+///
+/// Gemini stores a SHA-256 hash of the project root in `projectHash` rather than
+/// a literal path. Returns the hash string so callers can compare against a
+/// locally computed hash.
+fn extract_gemini_project_hash_from_file(path: &std::path::Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
-    extract_cwd_from_json(&parsed, &["cwd", "projectPath", "workingDirectory"])
+    parsed
+        .get("projectHash")
+        .and_then(|v| v.as_str())
+        .map(String::from)
 }
 
 /// Capture session ID from Mistral Vibe filesystem.
 ///
-/// Vibe stores sessions at `~/.vibe/logs/session/<session_id>/meta.json`.
-/// Each `meta.json` contains session metadata including `cwd`. We find the
-/// most recently modified session directory matching the project path.
+/// Vibe stores sessions at `~/.vibe/logs/session/session_<ts>_<id[:8]>/meta.json`.
+/// Directory names are NOT valid session IDs. The actual UUID lives inside
+/// `meta.json` under the `session_id` field. CWD is at `environment.working_directory`.
 fn capture_vibe_session_id(project_path: &str, exclusion: &HashSet<String>) -> Result<String> {
     let vibe_home = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
@@ -696,33 +735,26 @@ fn capture_vibe_session_id(project_path: &str, exclusion: &HashSet<String>) -> R
         );
     }
 
-    let mut candidates: Vec<(String, std::time::SystemTime)> = Vec::new();
+    // Collect (session_id_from_meta, meta_path, mtime) tuples
+    let mut candidates: Vec<(String, std::path::PathBuf, std::time::SystemTime)> = Vec::new();
 
     for entry in resilient_read_dir(&sessions_dir)? {
         let path = entry.path();
         if !path.is_dir() {
             continue;
         }
-        let session_id = entry
-            .file_name()
-            .to_str()
-            .map(String::from)
-            .unwrap_or_default();
-        if session_id.is_empty() || exclusion.contains(&session_id) {
+        let meta_path = path.join("meta.json");
+        if !meta_path.exists() {
             continue;
         }
-        let meta_path = path.join("meta.json");
-        let modified = if meta_path.exists() {
-            std::fs::metadata(&meta_path)
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-        } else {
-            entry
-                .metadata()
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        let session_id = match extract_vibe_session_id_from_meta(&meta_path) {
+            Some(id) if !id.is_empty() && !exclusion.contains(&id) => id,
+            _ => continue,
         };
-        candidates.push((session_id, modified));
+        let modified = std::fs::metadata(&meta_path)
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        candidates.push((session_id, meta_path, modified));
     }
 
     if candidates.is_empty() {
@@ -732,30 +764,48 @@ fn capture_vibe_session_id(project_path: &str, exclusion: &HashSet<String>) -> R
         );
     }
 
-    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+    candidates.sort_by(|a, b| b.2.cmp(&a.2));
 
     let canonical_project = std::fs::canonicalize(project_path)
         .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
 
-    let project_match = candidates.iter().find(|(session_id, _)| {
-        let meta_path = sessions_dir.join(session_id).join("meta.json");
-        extract_vibe_cwd_from_meta(&meta_path)
+    let project_match = candidates.iter().find(|(_, meta_path, _)| {
+        extract_vibe_cwd_from_meta(meta_path)
             .and_then(|cwd| std::fs::canonicalize(&cwd).ok())
             .map(|cwd| cwd == canonical_project)
             .unwrap_or(false)
     });
 
-    let chosen = project_match;
-
-    chosen
-        .map(|(id, _)| id.clone())
+    project_match
+        .map(|(id, _, _)| id.clone())
         .ok_or_else(|| anyhow::anyhow!("No Vibe session found matching project path"))
 }
 
+/// Extract CWD from a Vibe `meta.json`.
+///
+/// The actual path lives at `environment.working_directory` (nested object).
+/// Falls back to top-level `cwd` / `working_directory` for forward compatibility.
 fn extract_vibe_cwd_from_meta(path: &std::path::Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
-    extract_cwd_from_json(&parsed, &["cwd", "working_directory", "project_path"])
+    // Primary: nested under `environment`
+    parsed
+        .get("environment")
+        .and_then(|env| env.get("working_directory"))
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        // Fallback: top-level keys for forward compatibility
+        .or_else(|| extract_cwd_from_json(&parsed, &["cwd", "working_directory", "project_path"]))
+}
+
+/// Extract the `session_id` UUID from a Vibe `meta.json` file.
+fn extract_vibe_session_id_from_meta(path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+    parsed
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(String::from)
 }
 
 pub(crate) fn is_valid_session_id(id: &str) -> bool {
@@ -2882,7 +2932,7 @@ mod tests {
     fn test_extract_gemini_session_id_from_file_with_id() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("session-42.json");
-        std::fs::write(&path, r#"{"id": "abc-123", "cwd": "/tmp/project"}"#).unwrap();
+        std::fs::write(&path, r#"{"sessionId": "abc-123", "cwd": "/tmp/project"}"#).unwrap();
         assert_eq!(
             extract_gemini_session_id_from_file(&path),
             Some("abc-123".to_string())
@@ -2909,38 +2959,35 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_gemini_cwd_from_file() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("session.json");
-        std::fs::write(&path, r#"{"id": "s1", "cwd": "/home/user/project"}"#).unwrap();
-        assert_eq!(
-            extract_gemini_cwd_from_file(&path),
-            Some("/home/user/project".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extract_gemini_cwd_from_file_project_path_fallback() {
+    fn test_extract_gemini_project_hash_from_file() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("session.json");
         std::fs::write(
             &path,
-            r#"{"id": "s1", "projectPath": "/home/user/project"}"#,
+            r#"{"sessionId": "s1", "projectHash": "abc123def456"}"#,
         )
         .unwrap();
         assert_eq!(
-            extract_gemini_cwd_from_file(&path),
-            Some("/home/user/project".to_string())
+            extract_gemini_project_hash_from_file(&path),
+            Some("abc123def456".to_string())
         );
     }
 
     #[test]
-    fn test_extract_vibe_cwd_from_meta() {
+    fn test_extract_gemini_project_hash_from_file_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("session.json");
+        std::fs::write(&path, r#"{"sessionId": "s1"}"#).unwrap();
+        assert_eq!(extract_gemini_project_hash_from_file(&path), None);
+    }
+
+    #[test]
+    fn test_extract_vibe_cwd_from_meta_nested() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("meta.json");
         std::fs::write(
             &path,
-            r#"{"cwd": "/home/user/myrepo", "session_id": "abc"}"#,
+            r#"{"session_id": "abc", "environment": {"working_directory": "/home/user/myrepo"}}"#,
         )
         .unwrap();
         assert_eq!(
@@ -2950,14 +2997,38 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_vibe_cwd_from_meta_working_directory_fallback() {
+    fn test_extract_vibe_cwd_from_meta_top_level_fallback() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("meta.json");
-        std::fs::write(&path, r#"{"working_directory": "/home/user/myrepo"}"#).unwrap();
+        // No `environment` object -- falls back to top-level keys
+        std::fs::write(&path, r#"{"cwd": "/home/user/myrepo"}"#).unwrap();
         assert_eq!(
             extract_vibe_cwd_from_meta(&path),
             Some("/home/user/myrepo".to_string())
         );
+    }
+
+    #[test]
+    fn test_extract_vibe_session_id_from_meta() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("meta.json");
+        std::fs::write(
+            &path,
+            r#"{"session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "environment": {"working_directory": "/tmp"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            extract_vibe_session_id_from_meta(&path),
+            Some("a1b2c3d4-e5f6-7890-abcd-ef1234567890".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_vibe_session_id_from_meta_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("meta.json");
+        std::fs::write(&path, r#"{"environment": {"working_directory": "/tmp"}}"#).unwrap();
+        assert_eq!(extract_vibe_session_id_from_meta(&path), None);
     }
 
     #[test]
