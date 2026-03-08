@@ -687,15 +687,16 @@ fn extract_gemini_session_id_from_file(path: &std::path::Path) -> Option<String>
         .or_else(|| path.file_stem().and_then(|s| s.to_str()).map(String::from))
 }
 
+fn extract_cwd_from_json(parsed: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| parsed.get(*key).and_then(|v| v.as_str()))
+        .map(String::from)
+}
+
 fn extract_gemini_cwd_from_file(path: &std::path::Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
-    parsed
-        .get("cwd")
-        .or_else(|| parsed.get("projectPath"))
-        .or_else(|| parsed.get("workingDirectory"))
-        .and_then(|v| v.as_str())
-        .map(String::from)
+    extract_cwd_from_json(&parsed, &["cwd", "projectPath", "workingDirectory"])
 }
 
 /// Capture session ID from Mistral Vibe filesystem.
@@ -775,12 +776,7 @@ fn capture_vibe_session_id(project_path: &str, exclusion: &HashSet<String>) -> R
 fn extract_vibe_cwd_from_meta(path: &std::path::Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
-    parsed
-        .get("cwd")
-        .or_else(|| parsed.get("working_directory"))
-        .or_else(|| parsed.get("project_path"))
-        .and_then(|v| v.as_str())
-        .map(String::from)
+    extract_cwd_from_json(&parsed, &["cwd", "working_directory", "project_path"])
 }
 
 pub(crate) fn is_valid_session_id(id: &str) -> bool {
@@ -789,6 +785,21 @@ pub(crate) fn is_valid_session_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+}
+
+/// Apply yolo mode to a command string. For `CliFlag`, appends the flag. For `EnvVar`,
+/// prepends `KEY=VALUE` as an inline shell variable (only applicable on the host;
+/// sandboxed sessions pass env vars via Docker `-e` flags instead).
+fn apply_yolo_mode(cmd: &mut String, yolo: &crate::agents::YoloMode, is_sandboxed: bool) {
+    match yolo {
+        crate::agents::YoloMode::CliFlag(flag) => {
+            *cmd = format!("{} {}", cmd, flag);
+        }
+        crate::agents::YoloMode::EnvVar(key, value) if !is_sandboxed => {
+            *cmd = format!("{}={} {}", key, value, cmd);
+        }
+        crate::agents::YoloMode::EnvVar(..) => {}
+    }
 }
 
 /// Build resume flags for agent command.
@@ -1011,7 +1022,9 @@ fn persist_session_to_storage(profile: &str, instance_id: &str, session_id: &str
         tracing::warn!("Failed to save instances for session ID persistence: {}", e);
     } else {
         tracing::debug!("Session ID persisted for {}", instance_id);
-        publish_session_to_tmux_env(&tmux_name, session_id);
+        if let Err(e) = publish_session_to_tmux_env(&tmux_name, session_id) {
+            tracing::warn!("{}", e);
+        }
     }
 }
 
@@ -1022,14 +1035,13 @@ fn persist_session_to_storage(profile: &str, instance_id: &str, session_id: &str
 /// `save()`. The tmux env is the source of truth for `build_exclusion_set()`
 /// (cross-instance dedup), while `sessions.json` is written exclusively by
 /// the TUI thread via `apply_session_id_updates()`.
-fn publish_session_to_tmux_env(tmux_session_name: &str, session_id: &str) {
-    if let Err(e) = crate::tmux::env::set_hidden_env(
+fn publish_session_to_tmux_env(tmux_session_name: &str, session_id: &str) -> Result<()> {
+    crate::tmux::env::set_hidden_env(
         tmux_session_name,
         crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
         session_id,
-    ) {
-        tracing::warn!("Failed to write captured session ID to tmux env: {}", e);
-    }
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to write captured session ID to tmux env: {}", e))
 }
 
 impl Instance {
@@ -1226,7 +1238,10 @@ impl Instance {
         }
 
         let container = self.get_container_for_instance()?;
-        let sandbox = self.sandbox_info.as_ref().unwrap();
+        let sandbox = self
+            .sandbox_info
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("sandbox_info missing for sandboxed session"))?;
 
         let env_args = build_docker_env_args(sandbox);
         let env_part = if env_args.is_empty() {
@@ -1312,36 +1327,63 @@ impl Instance {
         }
 
         let profile = super::config::resolve_default_profile();
+        let on_launch_hooks = self.resolve_on_launch_hooks(skip_on_launch);
+        let agent = crate::agents::get_agent(&self.tool);
 
-        // Resolve on_launch hooks from the full config chain (global > profile > repo).
-        // Repo hooks go through trust verification; global/profile hooks are implicitly trusted.
-        let on_launch_hooks = if skip_on_launch {
-            None
+        self.install_agent_status_hooks(agent);
+
+        let cmd = if self.is_sandboxed() {
+            self.build_sandboxed_command(agent, &on_launch_hooks)?
         } else {
-            // Start with global+profile hooks as the base
-            let mut resolved_on_launch = super::profile_config::resolve_config(&profile)
-                .map(|c| c.hooks.on_launch)
-                .unwrap_or_default();
-
-            // Check if repo has trusted hooks that override
-            match super::repo_config::check_hook_trust(Path::new(&self.project_path)) {
-                Ok(super::repo_config::HookTrustStatus::Trusted(hooks))
-                    if !hooks.on_launch.is_empty() =>
-                {
-                    resolved_on_launch = hooks.on_launch.clone();
-                }
-                _ => {}
-            }
-
-            if resolved_on_launch.is_empty() {
-                None
-            } else {
-                Some(resolved_on_launch)
-            }
+            self.build_host_command(agent, &on_launch_hooks)
         };
 
-        // Install status-detection hooks for agents that support them
-        let agent = crate::agents::get_agent(&self.tool);
+        tracing::debug!("container cmd: {}", cmd.as_ref().map_or("none", |v| v));
+        session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
+
+        self.finalize_launch(session.name(), &profile);
+
+        Ok(())
+    }
+
+    /// Resolve on_launch hooks from the full config chain (global > profile > repo).
+    ///
+    /// Repo hooks go through trust verification; global/profile hooks are
+    /// implicitly trusted. Returns `None` when skipped or no hooks are configured.
+    fn resolve_on_launch_hooks(&self, skip_on_launch: bool) -> Option<Vec<String>> {
+        if skip_on_launch {
+            return None;
+        }
+
+        let profile = super::config::resolve_default_profile();
+
+        // Start with global+profile hooks as the base
+        let mut resolved_on_launch = super::profile_config::resolve_config(&profile)
+            .map(|c| c.hooks.on_launch)
+            .unwrap_or_default();
+
+        // Check if repo has trusted hooks that override
+        match super::repo_config::check_hook_trust(Path::new(&self.project_path)) {
+            Ok(super::repo_config::HookTrustStatus::Trusted(hooks))
+                if !hooks.on_launch.is_empty() =>
+            {
+                resolved_on_launch = hooks.on_launch.clone();
+            }
+            _ => {}
+        }
+
+        if resolved_on_launch.is_empty() {
+            None
+        } else {
+            Some(resolved_on_launch)
+        }
+    }
+
+    /// Install status-detection hooks for agents that support them.
+    ///
+    /// For sandboxed sessions hooks are installed via `build_container_config`,
+    /// so this only acts on host sessions by writing to the user's home directory.
+    fn install_agent_status_hooks(&self, agent: Option<&'static crate::agents::AgentDef>) {
         if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
             if self.is_sandboxed() {
                 // For sandboxed sessions, hooks are installed via build_container_config
@@ -1355,139 +1397,142 @@ impl Instance {
                 }
             }
         }
+    }
 
-        let cmd = if self.is_sandboxed() {
-            let container = self.get_container_for_instance()?;
-            // Run on_launch hooks inside the container
-            if let Some(ref hook_cmds) = on_launch_hooks {
-                if let Some(ref sandbox) = self.sandbox_info {
-                    let workdir = self.container_workdir();
-                    if let Err(e) = super::repo_config::execute_hooks_in_container(
-                        hook_cmds,
-                        &sandbox.container_name,
-                        &workdir,
-                    ) {
-                        tracing::warn!("on_launch hook failed in container: {}", e);
-                    }
+    /// Build the tmux command for a sandboxed (Docker) session.
+    ///
+    /// Runs on_launch hooks inside the container, constructs the tool command
+    /// with yolo mode / custom instructions / session flags, and wraps it in a
+    /// `docker exec` invocation.
+    fn build_sandboxed_command(
+        &mut self,
+        agent: Option<&'static crate::agents::AgentDef>,
+        on_launch_hooks: &Option<Vec<String>>,
+    ) -> Result<Option<String>> {
+        let container = self.get_container_for_instance()?;
+
+        // Run on_launch hooks inside the container
+        if let Some(ref hook_cmds) = on_launch_hooks {
+            if let Some(ref sandbox) = self.sandbox_info {
+                let workdir = self.container_workdir();
+                if let Err(e) = super::repo_config::execute_hooks_in_container(
+                    hook_cmds,
+                    &sandbox.container_name,
+                    &workdir,
+                ) {
+                    tracing::warn!("on_launch hook failed in container: {}", e);
                 }
             }
+        }
 
-            let sandbox = self.sandbox_info.as_ref().unwrap();
-            let base_cmd = if self.extra_args.is_empty() {
-                self.get_tool_command().to_string()
-            } else {
-                format!("{} {}", self.get_tool_command(), self.extra_args)
-            };
-            let mut tool_cmd = if self.is_yolo_mode() {
-                if let Some(ref yolo) = agent.and_then(|a| a.yolo.as_ref()) {
-                    match yolo {
-                        crate::agents::YoloMode::CliFlag(flag) => {
-                            format!("{} {}", base_cmd, flag)
-                        }
-                        crate::agents::YoloMode::EnvVar(..) => base_cmd,
-                    }
-                } else {
-                    base_cmd
-                }
-            } else {
-                base_cmd
-            };
-            if let Some(ref instruction) = sandbox.custom_instruction {
-                if !instruction.is_empty() {
-                    if let Some(flag_template) = agent.and_then(|a| a.instruction_flag) {
-                        let escaped = shell_escape(instruction);
-                        let flag = flag_template.replace("{}", &escaped);
-                        tool_cmd = format!("{} {}", tool_cmd, flag);
-                    }
-                }
-            }
-
-            let mut env_args = build_docker_env_args(sandbox);
-            // Pass AOE_INSTANCE_ID into the container
-            env_args = format!("{} -e AOE_INSTANCE_ID={}", env_args, self.id);
-
-            self.apply_session_flags(&mut tool_cmd, "sandboxed");
-            let env_part = format!("{} ", env_args);
-            Some(wrap_command_ignore_suspend(
-                &container.exec_command(Some(&env_part), &tool_cmd),
-            ))
+        let sandbox = self
+            .sandbox_info
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("sandbox_info missing for sandboxed session"))?;
+        let base_cmd = if self.extra_args.is_empty() {
+            self.get_tool_command().to_string()
         } else {
-            // Run on_launch hooks on host for non-sandboxed sessions
-            if let Some(ref hook_cmds) = on_launch_hooks {
-                if let Err(e) =
-                    super::repo_config::execute_hooks(hook_cmds, Path::new(&self.project_path))
-                {
-                    tracing::warn!("on_launch hook failed: {}", e);
+            format!("{} {}", self.get_tool_command(), self.extra_args)
+        };
+        let mut tool_cmd = base_cmd;
+        if self.is_yolo_mode() {
+            if let Some(yolo) = agent.and_then(|a| a.yolo.as_ref()) {
+                apply_yolo_mode(&mut tool_cmd, yolo, true);
+            }
+        }
+        if let Some(ref instruction) = sandbox.custom_instruction {
+            if !instruction.is_empty() {
+                if let Some(flag_template) = agent.and_then(|a| a.instruction_flag) {
+                    let escaped = shell_escape(instruction);
+                    let flag = flag_template.replace("{}", &escaped);
+                    tool_cmd = format!("{} {}", tool_cmd, flag);
                 }
             }
+        }
 
-            // Prepend AOE_INSTANCE_ID env var if this agent supports hooks
-            let env_prefix = if agent.and_then(|a| a.hook_config.as_ref()).is_some() {
-                format!("AOE_INSTANCE_ID={} ", self.id)
-            } else {
-                String::new()
-            };
+        let mut env_args = build_docker_env_args(sandbox);
+        // Pass AOE_INSTANCE_ID into the container
+        env_args = format!("{} -e AOE_INSTANCE_ID={}", env_args, self.id);
 
-            if self.command.is_empty() {
-                crate::agents::get_agent(&self.tool)
-                    .filter(|a| a.supports_host_launch)
-                    .map(|a| {
-                        let mut cmd = a.binary.to_string();
-                        if !self.extra_args.is_empty() {
-                            cmd = format!("{} {}", cmd, self.extra_args);
-                        }
-                        if self.is_yolo_mode() {
-                            if let Some(ref yolo) = a.yolo {
-                                match yolo {
-                                    crate::agents::YoloMode::CliFlag(flag) => {
-                                        cmd = format!("{} {}", cmd, flag);
-                                    }
-                                    crate::agents::YoloMode::EnvVar(key, value) => {
-                                        cmd = format!("{}={} {}", key, value, cmd);
-                                    }
-                                }
-                            }
-                        }
-                        self.apply_session_flags(&mut cmd, "host agent");
-                        wrap_command_ignore_suspend(&format!("{}{}", env_prefix, cmd))
-                    })
-            } else {
-                let mut cmd = self.command.clone();
-                if !self.extra_args.is_empty() {
-                    cmd = format!("{} {}", cmd, self.extra_args);
-                }
-                if self.is_yolo_mode() {
-                    if let Some(ref yolo) = agent.and_then(|a| a.yolo.as_ref()) {
-                        match yolo {
-                            crate::agents::YoloMode::CliFlag(flag) => {
-                                cmd = format!("{} {}", cmd, flag);
-                            }
-                            crate::agents::YoloMode::EnvVar(key, value) => {
-                                cmd = format!("{}={} {}", key, value, cmd);
-                            }
-                        }
-                    }
-                }
-                self.apply_session_flags(&mut cmd, "host custom");
-                Some(wrap_command_ignore_suspend(&format!(
-                    "{}{}",
-                    env_prefix, cmd
-                )))
+        self.apply_session_flags(&mut tool_cmd, "sandboxed");
+        let env_part = format!("{} ", env_args);
+        Ok(Some(wrap_command_ignore_suspend(
+            &container.exec_command(Some(&env_part), &tool_cmd),
+        )))
+    }
+
+    /// Build the tmux command for a host (non-sandboxed) session.
+    ///
+    /// Runs on_launch hooks on the host, then constructs the command from either
+    /// the agent's default binary or a user-supplied custom command, applying
+    /// yolo mode, session flags, and the AOE_INSTANCE_ID env prefix.
+    fn build_host_command(
+        &mut self,
+        agent: Option<&'static crate::agents::AgentDef>,
+        on_launch_hooks: &Option<Vec<String>>,
+    ) -> Option<String> {
+        // Run on_launch hooks on host for non-sandboxed sessions
+        if let Some(ref hook_cmds) = on_launch_hooks {
+            if let Err(e) =
+                super::repo_config::execute_hooks(hook_cmds, Path::new(&self.project_path))
+            {
+                tracing::warn!("on_launch hook failed: {}", e);
             }
+        }
+
+        // Prepend AOE_INSTANCE_ID env var if this agent supports hooks
+        let env_prefix = if agent.and_then(|a| a.hook_config.as_ref()).is_some() {
+            format!("AOE_INSTANCE_ID={} ", self.id)
+        } else {
+            String::new()
         };
 
-        tracing::debug!("container cmd: {}", cmd.as_ref().map_or("none", |v| v));
-        session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
+        if self.command.is_empty() {
+            crate::agents::get_agent(&self.tool)
+                .filter(|a| a.supports_host_launch)
+                .map(|a| {
+                    let mut cmd = a.binary.to_string();
+                    if !self.extra_args.is_empty() {
+                        cmd = format!("{} {}", cmd, self.extra_args);
+                    }
+                    if self.is_yolo_mode() {
+                        if let Some(ref yolo) = a.yolo {
+                            apply_yolo_mode(&mut cmd, yolo, false);
+                        }
+                    }
+                    self.apply_session_flags(&mut cmd, "host agent");
+                    wrap_command_ignore_suspend(&format!("{}{}", env_prefix, cmd))
+                })
+        } else {
+            let mut cmd = self.command.clone();
+            if !self.extra_args.is_empty() {
+                cmd = format!("{} {}", cmd, self.extra_args);
+            }
+            if self.is_yolo_mode() {
+                if let Some(yolo) = agent.and_then(|a| a.yolo.as_ref()) {
+                    apply_yolo_mode(&mut cmd, yolo, false);
+                }
+            }
+            self.apply_session_flags(&mut cmd, "host custom");
+            Some(wrap_command_ignore_suspend(&format!(
+                "{}{}",
+                env_prefix, cmd
+            )))
+        }
+    }
 
+    /// Post-launch setup: store the instance ID in tmux env, persist session
+    /// state, start the status poller, apply tmux options, and mark as starting.
+    fn finalize_launch(&mut self, session_name: &str, profile: &str) {
         if let Err(e) = crate::tmux::env::set_hidden_env(
-            session.name(),
+            session_name,
             crate::tmux::env::AOE_INSTANCE_ID_KEY,
             &self.id,
         ) {
             tracing::warn!("Failed to set AOE_INSTANCE_ID in tmux env: {}", e);
         }
 
-        self.persist_session_id(&profile);
+        self.persist_session_id(profile);
         self.deferred_capture_session_id();
         let poller_launch_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1500,8 +1545,6 @@ impl Instance {
 
         self.status = Status::Starting;
         self.last_start_time = Some(std::time::Instant::now());
-
-        Ok(())
     }
 
     fn persist_session_id(&self, profile: &str) {
@@ -1567,7 +1610,11 @@ impl Instance {
                             session_id
                         );
                         if !tmux_session_name.is_empty() {
-                            publish_session_to_tmux_env(&tmux_session_name, session_id);
+                            if let Err(e) =
+                                publish_session_to_tmux_env(&tmux_session_name, session_id)
+                            {
+                                tracing::warn!("{}", e);
+                            }
                         }
                         gate_for_thread.complete(Some(session_id.clone()));
                         return;
@@ -1718,7 +1765,9 @@ impl Instance {
         let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(move |new_id: &str| {
             tracing::info!("Session ID changed for {}: {}", cb_instance_id, new_id);
             if !cb_tmux_name.is_empty() {
-                publish_session_to_tmux_env(&cb_tmux_name, new_id);
+                if let Err(e) = publish_session_to_tmux_env(&cb_tmux_name, new_id) {
+                    tracing::warn!("{}", e);
+                }
             }
         });
 

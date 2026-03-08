@@ -339,30 +339,28 @@ impl HomeView {
 
         if let Some(updates) = self.status_poller.try_recv_updates() {
             for update in updates {
-                if let Some(inst) = self.instances.iter_mut().find(|i| i.id == update.id) {
-                    if inst.status != Status::Deleting
-                        && inst.status != Status::Stopped
-                        && update.status != Status::Stopped
-                    {
-                        let old_status = inst.status;
+                let dominated = |inst: &Instance| {
+                    inst.status == Status::Deleting
+                        || inst.status == Status::Stopped
+                        || update.status == Status::Stopped
+                };
+
+                let old_status = self
+                    .instance_map
+                    .get(&update.id)
+                    .filter(|inst| !dominated(inst))
+                    .map(|inst| inst.status);
+
+                if old_status.is_some() {
+                    self.mutate_instance(&update.id, |inst| {
                         inst.status = update.status;
                         inst.last_error = update.last_error.clone();
-                        if old_status != update.status {
-                            crate::sound::play_for_transition(
-                                old_status,
-                                update.status,
-                                &self.sound_config,
-                            );
-                        }
-                    }
+                    });
                 }
-                if let Some(inst) = self.instance_map.get_mut(&update.id) {
-                    if inst.status != Status::Deleting
-                        && inst.status != Status::Stopped
-                        && update.status != Status::Stopped
-                    {
-                        inst.status = update.status;
-                        inst.last_error = update.last_error;
+
+                if let Some(old) = old_status {
+                    if old != update.status {
+                        crate::sound::play_for_transition(old, update.status, &self.sound_config);
                     }
                 }
             }
@@ -386,18 +384,11 @@ impl HomeView {
                 }
                 let _ = self.reload();
             } else {
-                if let Some(inst) = self
-                    .instances
-                    .iter_mut()
-                    .find(|i| i.id == result.session_id)
-                {
+                let error = result.error;
+                self.mutate_instance(&result.session_id, |inst| {
                     inst.status = Status::Error;
-                    inst.last_error = result.error.clone();
-                }
-                if let Some(inst) = self.instance_map.get_mut(&result.session_id) {
-                    inst.status = Status::Error;
-                    inst.last_error = result.error;
-                }
+                    inst.last_error = error.clone();
+                });
             }
             return true;
         }
@@ -665,13 +656,20 @@ impl HomeView {
         self.profile_picker_dialog = Some(ProfilePickerDialog::new(entries, &current_profile));
     }
 
-    pub fn set_instance_status(&mut self, id: &str, status: crate::session::Status) {
+    /// Mutate an instance in both `instance_map` (authoritative for in-memory state) and
+    /// the `instances` Vec (used for persistence/iteration). This prevents the two stores
+    /// from diverging when fields are updated between `reload()` calls.
+    pub(super) fn mutate_instance(&mut self, id: &str, f: impl Fn(&mut Instance)) {
         if let Some(inst) = self.instance_map.get_mut(id) {
-            inst.status = status;
+            f(inst);
         }
         if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
-            inst.status = status;
+            f(inst);
         }
+    }
+
+    pub fn set_instance_status(&mut self, id: &str, status: crate::session::Status) {
+        self.mutate_instance(id, |inst| inst.status = status);
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
@@ -681,12 +679,7 @@ impl HomeView {
     }
 
     pub fn set_instance_error(&mut self, id: &str, error: Option<String>) {
-        if let Some(inst) = self.instance_map.get_mut(id) {
-            inst.last_error = error.clone();
-        }
-        if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
-            inst.last_error = error;
-        }
+        self.mutate_instance(id, |inst| inst.last_error = error.clone());
     }
 
     pub fn start_terminal_for_instance_with_size(
@@ -694,14 +687,22 @@ impl HomeView {
         id: &str,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
-            inst.start_terminal_with_size(size)?;
+        // Only start the terminal once via instance_map (authoritative), then sync to Vec
+        let result = self
+            .instance_map
+            .get_mut(id)
+            .ok_or_else(|| anyhow::anyhow!("instance not found: {id}"))
+            .and_then(|inst| inst.start_terminal_with_size(size));
+        if result.is_ok() {
+            if let Some(map_inst) = self.instance_map.get(id) {
+                let terminal_info = map_inst.terminal_info.clone();
+                if let Some(vec_inst) = self.instances.iter_mut().find(|i| i.id == id) {
+                    vec_inst.terminal_info = terminal_info;
+                }
+            }
+            self.save()?;
         }
-        if let Some(inst) = self.instance_map.get_mut(id) {
-            inst.start_terminal_with_size(size)?;
-        }
-        self.save()?;
-        Ok(())
+        result
     }
 
     /// Restart an instance in-place on the owned map entry, so that new poller/capture
@@ -771,13 +772,9 @@ impl HomeView {
         id: &str,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
-            inst.start_container_terminal_with_size(size)?;
-        }
-        if let Some(inst) = self.instance_map.get_mut(id) {
-            inst.start_container_terminal_with_size(size)?;
-        }
-        // Don't save terminal info for container terminals - it's ephemeral
-        Ok(())
+        self.instance_map
+            .get_mut(id)
+            .ok_or_else(|| anyhow::anyhow!("instance not found: {id}"))
+            .and_then(|inst| inst.start_container_terminal_with_size(size))
     }
 }

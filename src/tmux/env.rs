@@ -166,10 +166,29 @@ pub fn get_hidden_env_batch(session_names: &[&str], key: &str) -> Vec<(String, O
 
     let results = match output {
         Ok(out) if out.status.success() => {
-            parse_batch_output(&String::from_utf8_lossy(&out.stdout), session_names)
-                .unwrap_or_else(fallback)
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            parse_batch_output(&stdout, session_names).unwrap_or_else(|| {
+                tracing::debug!(
+                    "Batch env parse failed (line count mismatch for {} sessions), falling back to sequential reads",
+                    session_names.len()
+                );
+                fallback()
+            })
         }
-        _ => fallback(),
+        Ok(out) => {
+            tracing::debug!(
+                "Batch tmux show-environment failed (exit {}), falling back to sequential reads",
+                out.status
+            );
+            fallback()
+        }
+        Err(ref e) => {
+            tracing::debug!(
+                "Batch tmux show-environment error: {}, falling back to sequential reads",
+                e
+            );
+            fallback()
+        }
     };
 
     if let Ok(mut cache) = ENV_CACHE.write() {
