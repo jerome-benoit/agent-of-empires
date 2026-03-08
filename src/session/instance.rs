@@ -436,8 +436,12 @@ fn try_capture_opencode_session_id(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("No OpenCode sessions found");
+    }
     let session_entries: Vec<serde_json::Value> =
-        serde_json::from_str(&stdout).context("Failed to parse OpenCode session list JSON")?;
+        serde_json::from_str(trimmed).context("Failed to parse OpenCode session list JSON")?;
 
     let matching = filter_agent_sessions(
         &session_entries,
@@ -1132,18 +1136,19 @@ impl Instance {
             return (self.agent_session_id.clone(), true);
         }
 
-        // Try retroactive capture: query the agent CLI for the most recent
-        // session matching this project. This covers the case where the
-        // deferred capture never ran (e.g., session created with an older
-        // binary) or failed silently.
-        if let Some(id) = self.try_retroactive_capture() {
-            tracing::info!(
-                "Retroactive capture found session ID for {}: {}",
-                self.tool,
-                id
-            );
-            self.agent_session_id = Some(id);
-            return (self.agent_session_id.clone(), true);
+        // Skip retroactive capture when the tmux session doesn't exist yet
+        // (the agent hasn't launched, so there's nothing to query).
+        let tmux_exists = self.tmux_session().is_ok_and(|s| s.exists());
+        if tmux_exists {
+            if let Some(id) = self.try_retroactive_capture() {
+                tracing::info!(
+                    "Retroactive capture found session ID for {}: {}",
+                    self.tool,
+                    id
+                );
+                self.agent_session_id = Some(id);
+                return (self.agent_session_id.clone(), true);
+            }
         }
 
         // Only Claude needs a pre-launch ID (--session-id <uuid> creates a new session).
@@ -1364,8 +1369,8 @@ impl Instance {
 
         let profile = super::config::resolve_default_profile();
         let on_launch_hooks = self.resolve_on_launch_hooks(skip_on_launch);
-        let agent = crate::agents::get_agent(&self.tool);
 
+        let agent = crate::agents::get_agent(&self.tool);
         self.install_agent_status_hooks(agent);
 
         let cmd = if self.is_sandboxed() {
@@ -1557,17 +1562,8 @@ impl Instance {
         }
     }
 
-    /// Post-launch setup: store the instance ID in tmux env, persist session
-    /// state, start the status poller, apply tmux options, and mark as starting.
+    /// Post-launch setup: persist state, start pollers, and apply tmux options.
     fn finalize_launch(&mut self, session_name: &str, profile: &str) {
-        if let Err(e) = crate::tmux::env::set_hidden_env(
-            session_name,
-            crate::tmux::env::AOE_INSTANCE_ID_KEY,
-            &self.id,
-        ) {
-            tracing::warn!("Failed to set AOE_INSTANCE_ID in tmux env: {}", e);
-        }
-
         self.persist_session_id(profile);
         self.deferred_capture_session_id();
         let poller_launch_time = std::time::SystemTime::now()
@@ -1576,11 +1572,34 @@ impl Instance {
             .unwrap_or(0.0);
         self.maybe_start_poller_with_time(Some(poller_launch_time));
 
-        // Apply all configured tmux options (status bar, mouse, etc.)
-        self.apply_tmux_options();
-
         self.status = Status::Starting;
         self.last_start_time = Some(std::time::Instant::now());
+
+        // Apply tmux env and status bar options in a background thread to avoid
+        // blocking the TUI on subprocess calls.
+        let session_name = session_name.to_string();
+        let instance_id = self.id.clone();
+        let title = self.title.clone();
+        let branch = self.worktree_info.as_ref().map(|w| w.branch.clone());
+        let sandbox = self.sandbox_display();
+        std::thread::Builder::new()
+            .name(format!("finalize-tmux-{}", instance_id))
+            .spawn(move || {
+                if let Err(e) = crate::tmux::env::set_hidden_env(
+                    &session_name,
+                    crate::tmux::env::AOE_INSTANCE_ID_KEY,
+                    &instance_id,
+                ) {
+                    tracing::warn!("Failed to set AOE_INSTANCE_ID in tmux env: {}", e);
+                }
+                crate::tmux::status_bar::apply_all_tmux_options(
+                    &session_name,
+                    &title,
+                    branch.as_deref(),
+                    sandbox.as_ref(),
+                );
+            })
+            .ok();
     }
 
     fn persist_session_id(&self, profile: &str) {
@@ -1690,11 +1709,6 @@ impl Instance {
                 }
             }
         }
-    }
-
-    fn apply_tmux_options(&self) {
-        let name = tmux::Session::generate_name(&self.id, &self.title);
-        self.apply_session_tmux_options(&name, &self.title);
     }
 
     fn apply_terminal_tmux_options(&self) {
@@ -1848,7 +1862,6 @@ impl Instance {
     ) -> Result<()> {
         self.stop_poller();
         self.session_id_poller = None;
-        self.join_deferred_capture();
         self.deferred_capture_handle = None;
         self.capture_gate = None;
 
@@ -1856,30 +1869,19 @@ impl Instance {
 
         if session.exists() {
             session.kill()?;
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
-
-        // Small delay to ensure tmux cleanup
-        std::thread::sleep(std::time::Duration::from_millis(100));
 
         self.start_with_size_opts(size, skip_on_launch)
     }
 
     pub fn kill(&self) -> Result<()> {
         self.stop_poller();
-        self.join_deferred_capture();
         let session = self.tmux_session()?;
         if session.exists() {
             session.kill()?;
         }
         Ok(())
-    }
-
-    fn join_deferred_capture(&self) {
-        if let Some(ref mtx) = self.deferred_capture_handle {
-            if let Some(handle) = mtx.lock().ok().and_then(|mut guard| guard.take()) {
-                let _ = handle.join();
-            }
-        }
     }
 
     /// Stop the session: kill the tmux session and stop the Docker container

@@ -271,7 +271,6 @@ impl HomeView {
             ) {
                 tracing::warn!("Failed to set AOE_INSTANCE_ID for {}: {}", inst.id, e);
             }
-
             // Set if known, clear if not. Pollers re-publish on discovery,
             // so clearing is safe and prevents stale exclusion-set entries.
             if let Some(ref sid) = inst.agent_session_id {

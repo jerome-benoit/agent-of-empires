@@ -44,7 +44,6 @@ impl HomeView {
         let session_id = instance.id.clone();
 
         if is_cross_profile {
-            // Save to target profile's storage
             let target_storage = Storage::new(&target_profile)?;
             let (mut target_instances, target_groups) = target_storage.load_with_groups()?;
             target_instances.push(instance.clone());
