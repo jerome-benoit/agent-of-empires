@@ -70,12 +70,7 @@ impl HomeView {
         if let Some(id) = &self.selected_session {
             let id = id.clone();
 
-            if let Some(inst) = self.instance_map.get_mut(&id) {
-                inst.status = Status::Deleting;
-            }
-            if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
-                inst.status = Status::Deleting;
-            }
+            self.mutate_instance(&id, |inst| inst.status = Status::Deleting);
 
             if let Some(inst) = self.instance_map.get(&id) {
                 let request = DeletionRequest {
@@ -125,16 +120,10 @@ impl HomeView {
                 .collect();
 
             for session_id in sessions_to_delete {
-                // Clear group_path when marking for deletion so these instances
-                // won't cause the group to be recreated during tree rebuilds
-                if let Some(inst) = self.instance_map.get_mut(&session_id) {
+                self.mutate_instance(&session_id, |inst| {
                     inst.status = Status::Deleting;
                     inst.group_path = String::new();
-                }
-                if let Some(inst) = self.instances.iter_mut().find(|i| i.id == session_id) {
-                    inst.status = Status::Deleting;
-                    inst.group_path = String::new();
-                }
+                });
 
                 if let Some(inst) = self.instance_map.get(&session_id) {
                     let delete_worktree = options.delete_worktrees
