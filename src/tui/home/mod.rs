@@ -356,10 +356,7 @@ impl HomeView {
                 self.instance_map.remove(&result.session_id);
                 self.group_tree = GroupTree::new_with_groups(&self.instances, &self.groups);
 
-                if let Err(e) = self
-                    .storage
-                    .save_with_groups(&self.instances, &self.group_tree)
-                {
+                if let Err(e) = self.save() {
                     tracing::error!("Failed to save after deletion: {}", e);
                 }
                 let _ = self.reload();
@@ -488,10 +485,7 @@ impl HomeView {
                         self.group_tree.create_group(&instance.group_path);
                     }
 
-                    if let Err(e) = self
-                        .storage
-                        .save_with_groups(&self.instances, &self.group_tree)
-                    {
+                    if let Err(e) = self.save() {
                         tracing::error!("Failed to save after creation: {}", e);
                     }
                 }
@@ -655,8 +649,7 @@ impl HomeView {
         if let Some(inst) = self.instance_map.get_mut(id) {
             inst.start_terminal_with_size(size)?;
         }
-        self.storage
-            .save_with_groups(&self.instances, &self.group_tree)?;
+        self.save()?;
         Ok(())
     }
 

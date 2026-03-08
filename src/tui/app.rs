@@ -232,6 +232,10 @@ impl App {
             }
         }
 
+        if let Err(e) = self.home.save() {
+            tracing::error!("Failed to save on quit: {}", e);
+        }
+
         Ok(())
     }
 
