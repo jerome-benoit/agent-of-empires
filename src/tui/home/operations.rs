@@ -303,7 +303,6 @@ impl HomeView {
                 }
             }
 
-            // No profile change - update in place
             // Rename tmux session BEFORE mutating the instance, so we can
             // look up the session by its current (old) name.
             let old_title = self.get_instance(&id).map(|i| i.title.clone());
