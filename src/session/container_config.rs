@@ -616,7 +616,7 @@ pub(crate) fn build_container_config(
             let hook_dir = crate::hooks::hook_status_dir(instance_id);
             if let Err(e) = std::fs::create_dir_all(&hook_dir) {
                 tracing::warn!(
-                    "Failed to create hook status dir {}: {}",
+                    "Failed to create hook directory {}: {}",
                     hook_dir.display(),
                     e
                 );

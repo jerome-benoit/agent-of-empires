@@ -111,6 +111,16 @@ mod tests {
     }
 
     #[test]
+    fn test_read_dangling_symlink() {
+        let id = "test_dangling_symlink";
+        let dir = hook_status_dir(id);
+        fs::create_dir_all(&dir).unwrap();
+        std::os::unix::fs::symlink("/nonexistent/target", dir.join("status")).unwrap();
+        assert_eq!(read_hook_status(id), None);
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn test_read_unexpected_content() {
         let id = "test_read_unexpected";
         let dir = setup_status_file(id, "something_else");
