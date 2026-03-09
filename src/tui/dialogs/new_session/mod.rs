@@ -319,7 +319,11 @@ impl NewSessionDialog {
         let yolo_mode = config.session.yolo_mode_default;
 
         // Load extra args and command override for the default tool
-        let selected_tool = available_tools.get(tool_index).copied().unwrap_or("claude");
+        let selected_tool = available_tools
+            .get(tool_index)
+            .or_else(|| available_tools.first())
+            .copied()
+            .unwrap_or("claude");
         let extra_args_value = config
             .session
             .agent_extra_args
@@ -507,6 +511,7 @@ impl NewSessionDialog {
         let selected_tool = self
             .available_tools
             .get(self.tool_index)
+            .or_else(|| self.available_tools.first())
             .copied()
             .unwrap_or("claude");
         self.extra_args = Input::new(
@@ -1059,6 +1064,7 @@ impl NewSessionDialog {
         let tool = self
             .available_tools
             .get(self.tool_index)
+            .or_else(|| self.available_tools.first())
             .copied()
             .unwrap_or("claude");
         self.extra_args = Input::new(

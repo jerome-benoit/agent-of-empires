@@ -659,6 +659,7 @@ impl NewSessionDialog {
         let selected_tool = self
             .available_tools
             .get(self.tool_index)
+            .or_else(|| self.available_tools.first())
             .copied()
             .unwrap_or("claude");
         let title = format!(" Tool Configuration: {} ", selected_tool);
