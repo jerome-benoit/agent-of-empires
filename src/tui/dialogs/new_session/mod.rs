@@ -123,6 +123,7 @@ pub struct NewSessionDialog {
     pub(super) sandbox_image: Input,
     pub(super) docker_available: bool,
     pub(super) yolo_mode: bool,
+    pub(super) yolo_mode_default: bool,
     /// Extra environment entries (session-specific).
     /// `KEY` = pass through, `KEY=VALUE` = set explicitly.
     pub(super) extra_env: Vec<String>,
@@ -369,6 +370,7 @@ impl NewSessionDialog {
             ),
             docker_available,
             yolo_mode,
+            yolo_mode_default: yolo_mode,
             extra_env,
             env_list_expanded: false,
             env_selected_index: 0,
@@ -460,6 +462,14 @@ impl NewSessionDialog {
         self.available_profiles.len() > 1
     }
 
+    /// Whether the currently selected tool is always in YOLO mode (no opt-in needed).
+    fn selected_tool_always_yolo(&self) -> bool {
+        let tool_name = self.available_tools[self.tool_index];
+        crate::agents::get_agent(tool_name)
+            .and_then(|a| a.yolo.as_ref())
+            .is_some_and(|y| matches!(y, crate::agents::YoloMode::AlwaysYolo))
+    }
+
     /// The field index of the path field (shifts based on whether profile picker is visible)
     fn path_field(&self) -> usize {
         if self.has_profile_selection() {
@@ -488,7 +498,8 @@ impl NewSessionDialog {
         };
 
         // Reset sandbox/yolo defaults
-        self.yolo_mode = config.session.yolo_mode_default;
+        self.yolo_mode_default = config.session.yolo_mode_default;
+        self.yolo_mode = self.yolo_mode_default;
         self.sandbox_enabled = self.docker_available && config.sandbox.enabled_by_default;
 
         // Reset sandbox image from resolved config (includes profile overrides)
@@ -569,6 +580,7 @@ impl NewSessionDialog {
             ),
             docker_available: false,
             yolo_mode: false,
+            yolo_mode_default: false,
             extra_env: Vec::new(),
             env_list_expanded: false,
             env_selected_index: 0,
@@ -621,6 +633,7 @@ impl NewSessionDialog {
             ),
             docker_available: false,
             yolo_mode: false,
+            yolo_mode_default: false,
             extra_env: Vec::new(),
             env_list_expanded: false,
             env_selected_index: 0,
@@ -713,7 +726,8 @@ impl NewSessionDialog {
         let has_tool_selection = self.available_tools.len() > 1;
         let has_sandbox = self.docker_available;
         let has_worktree = !self.worktree_branch.value().is_empty();
-        // Field order: [profile], title, path, [tool], yolo, worktree,
+        let has_yolo = !self.selected_tool_always_yolo();
+        // Field order: [profile], title, path, [tool], [yolo], worktree,
         //   [new_branch], [sandbox], group
         // Tool config (extra_args, command_override) is in a Ctrl+P overlay on tool field.
         // Sandbox sub-options are in a separate sandbox_config_mode overlay.
@@ -727,8 +741,14 @@ impl NewSessionDialog {
         } else {
             usize::MAX
         };
-        let yolo_mode_field = fi;
-        let worktree_field = yolo_mode_field + 1;
+        let yolo_mode_field = if has_yolo {
+            let f = fi;
+            fi += 1;
+            f
+        } else {
+            usize::MAX
+        };
+        let worktree_field = fi;
         let new_branch_field = if has_worktree {
             worktree_field + 1
         } else {
@@ -865,11 +885,21 @@ impl NewSessionDialog {
             }
             KeyCode::Left | KeyCode::Right if self.focused_field == tool_field => {
                 self.tool_index = (self.tool_index + 1) % self.available_tools.len();
+                if self.selected_tool_always_yolo() {
+                    self.yolo_mode = true;
+                } else {
+                    self.yolo_mode = self.yolo_mode_default;
+                }
                 self.reload_tool_config();
                 DialogResult::Continue
             }
             KeyCode::Char(' ') if self.focused_field == tool_field => {
                 self.tool_index = (self.tool_index + 1) % self.available_tools.len();
+                if self.selected_tool_always_yolo() {
+                    self.yolo_mode = true;
+                } else {
+                    self.yolo_mode = self.yolo_mode_default;
+                }
                 self.reload_tool_config();
                 DialogResult::Continue
             }
@@ -1082,12 +1112,16 @@ impl NewSessionDialog {
     fn current_input_mut(&mut self) -> &mut Input {
         let has_tool_selection = self.available_tools.len() > 1;
         let has_worktree = !self.worktree_branch.value().is_empty();
+        let has_yolo = !self.selected_tool_always_yolo();
         let base = if self.has_profile_selection() { 1 } else { 0 };
 
-        // Field layout: [profile], title, path, [tool], yolo, worktree,
+        // Field layout: [profile], title, path, [tool], [yolo], worktree,
         //   [new_branch], [sandbox], group
-        let yolo_mode_field = base + 2 + if has_tool_selection { 1 } else { 0 };
-        let worktree_field = yolo_mode_field + 1;
+        let mut fi = base + 2 + if has_tool_selection { 1 } else { 0 };
+        if has_yolo {
+            fi += 1;
+        }
+        let worktree_field = fi;
         let new_branch_field = if has_worktree {
             worktree_field + 1
         } else {
@@ -1138,7 +1172,7 @@ impl NewSessionDialog {
             create_new_branch: self.create_new_branch,
             sandbox: self.sandbox_enabled,
             sandbox_image: self.sandbox_image.value().trim().to_string(),
-            yolo_mode: self.yolo_mode,
+            yolo_mode: self.yolo_mode || self.selected_tool_always_yolo(),
             extra_env: if self.sandbox_enabled {
                 self.extra_env.clone()
             } else {

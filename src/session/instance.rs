@@ -394,7 +394,8 @@ impl Instance {
                         crate::agents::YoloMode::CliFlag(flag) => {
                             format!("{} {}", base_cmd, flag)
                         }
-                        crate::agents::YoloMode::EnvVar(..) => base_cmd,
+                        crate::agents::YoloMode::EnvVar(..)
+                        | crate::agents::YoloMode::AlwaysYolo => base_cmd,
                     }
                 } else {
                     base_cmd
@@ -453,6 +454,7 @@ impl Instance {
                                     crate::agents::YoloMode::EnvVar(key, value) => {
                                         cmd = format!("{}={} {}", key, value, cmd);
                                     }
+                                    crate::agents::YoloMode::AlwaysYolo => {}
                                 }
                             }
                         }
@@ -472,6 +474,7 @@ impl Instance {
                             crate::agents::YoloMode::EnvVar(key, value) => {
                                 cmd = format!("{}={} {}", key, value, cmd);
                             }
+                            crate::agents::YoloMode::AlwaysYolo => {}
                         }
                     }
                 }
@@ -639,7 +642,8 @@ impl Instance {
         // Check hook-based status first (more reliable than tmux pane parsing)
         if let Some(hook_status) = crate::hooks::read_hook_status(&self.id) {
             tracing::trace!("hook status detection '{}': {:?}", self.title, hook_status);
-            self.status = if session.is_pane_dead() {
+            let crashed_to_shell = !self.expects_shell() && session.is_pane_running_shell();
+            self.status = if session.is_pane_dead() || crashed_to_shell {
                 Status::Error
             } else {
                 hook_status
@@ -705,7 +709,8 @@ fn generate_id() -> String {
 fn wrap_command_ignore_suspend(cmd: &str) -> String {
     let shell = super::environment::user_shell();
     let escaped = cmd.replace('\'', "'\\''");
-    format!("{} -c 'stty susp undef; exec env {}'", shell, escaped)
+    // Use login shell (-l) so version-manager PATHs (NVM, etc.) are available.
+    format!("{} -lc 'stty susp undef; exec env {}'", shell, escaped)
 }
 
 #[cfg(test)]
