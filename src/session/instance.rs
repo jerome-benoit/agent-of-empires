@@ -705,11 +705,12 @@ fn generate_id() -> String {
 ///
 /// Uses POSIX-standard `stty susp undef` which works on both Linux and macOS.
 /// Single quotes in `cmd` are escaped with the `'\''` technique to prevent
-/// breaking out of the outer `bash -c '...'` wrapper.
+/// breaking out of the outer single-quoted wrapper.
 fn wrap_command_ignore_suspend(cmd: &str) -> String {
+    let shell = super::environment::user_posix_shell();
     let escaped = cmd.replace('\'', "'\\''");
     // Use login shell (-l) so version-manager PATHs (NVM, etc.) are available.
-    format!("bash -lc 'stty susp undef; exec env {}'", escaped)
+    format!("{} -lc 'stty susp undef; exec env {}'", shell, escaped)
 }
 
 #[cfg(test)]
