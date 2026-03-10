@@ -402,7 +402,8 @@ enum HookTarget<'a> {
     },
 }
 
-/// Build a `Command` for running a hook via `bash -c`.
+/// Build a `Command` for running a hook. Local hooks use the user's `$SHELL`;
+/// container hooks use `bash` since the user shell may not be installed.
 fn build_hook_command(cmd: &str, target: &HookTarget, merge_stderr: bool) -> std::process::Command {
     let shell_cmd = if merge_stderr {
         format!("{} 2>&1", cmd)

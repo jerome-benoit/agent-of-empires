@@ -10,14 +10,17 @@ use super::instance::SandboxInfo;
 pub(crate) const DEFAULT_TERMINAL_ENV_VARS: &[&str] =
     &["TERM", "COLORTERM", "FORCE_COLOR", "NO_COLOR"];
 
-/// Returns the user's login shell from `$SHELL`, falling back to `bash`.
+/// Returns the user's preferred shell from `$SHELL`, falling back to `bash`.
 ///
 /// Used for host-side command wrappers (agent launch, local hook execution)
 /// so that the user's PATH and rc-file sourcing work correctly. Container
 /// contexts should keep using a fixed shell since the user shell may not be
 /// installed inside the image.
 pub(crate) fn user_shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| "bash".to_string())
+    std::env::var("SHELL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "bash".to_string())
 }
 
 /// Shell-escape a value for safe interpolation into a shell command string.
@@ -505,6 +508,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial(shell_env)]
     fn test_user_shell_reads_env() {
         let original = std::env::var("SHELL").ok();
         std::env::set_var("SHELL", "/bin/zsh");
@@ -516,12 +520,25 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial(shell_env)]
     fn test_user_shell_fallback() {
         let original = std::env::var("SHELL").ok();
         std::env::remove_var("SHELL");
         assert_eq!(user_shell(), "bash");
         if let Some(v) = original {
             std::env::set_var("SHELL", v);
+        }
+    }
+
+    #[test]
+    #[serial_test::serial(shell_env)]
+    fn test_user_shell_empty_falls_back() {
+        let original = std::env::var("SHELL").ok();
+        std::env::set_var("SHELL", "  ");
+        assert_eq!(user_shell(), "bash");
+        match original {
+            Some(v) => std::env::set_var("SHELL", v),
+            None => std::env::remove_var("SHELL"),
         }
     }
 }
