@@ -177,6 +177,20 @@ pub const AGENTS: &[AgentDef] = &[
         resume_strategy: ResumeStrategy::Unsupported,
     },
     AgentDef {
+        name: "copilot",
+        binary: "copilot",
+        aliases: &["github-copilot"],
+        detection: DetectionMethod::Which("copilot"),
+        yolo: Some(YoloMode::CliFlag("--yolo")),
+        instruction_flag: None,
+        set_default_command: false,
+        supports_host_launch: true,
+        detect_status: status_detection::detect_copilot_status,
+        container_env: &[("COPILOT_CONFIG_DIR", "/root/.copilot")],
+        hook_config: None,
+        resume_strategy: ResumeStrategy::Unsupported,
+    },
+    AgentDef {
         name: "pi",
         binary: "pi",
         aliases: &[],
@@ -256,6 +270,7 @@ mod tests {
         assert_eq!(get_agent("codex").unwrap().binary, "codex");
         assert_eq!(get_agent("gemini").unwrap().binary, "gemini");
         assert_eq!(get_agent("cursor").unwrap().binary, "agent");
+        assert_eq!(get_agent("copilot").unwrap().binary, "copilot");
         assert_eq!(get_agent("pi").unwrap().binary, "pi");
     }
 
@@ -269,7 +284,7 @@ mod tests {
         let names = agent_names();
         assert_eq!(
             names,
-            vec!["claude", "opencode", "vibe", "codex", "gemini", "cursor", "pi"]
+            vec!["claude", "opencode", "vibe", "codex", "gemini", "cursor", "copilot", "pi"]
         );
     }
 
@@ -281,6 +296,8 @@ mod tests {
         assert_eq!(resolve_tool_name("codex"), Some("codex"));
         assert_eq!(resolve_tool_name("gemini"), Some("gemini"));
         assert_eq!(resolve_tool_name("cursor"), Some("cursor"));
+        assert_eq!(resolve_tool_name("github-copilot"), Some("copilot"));
+        assert_eq!(resolve_tool_name("copilot"), Some("copilot"));
         assert_eq!(resolve_tool_name("pi"), Some("pi"));
         assert_eq!(resolve_tool_name(""), Some("claude"));
         assert_eq!(resolve_tool_name("agent"), Some("cursor"));
@@ -293,13 +310,15 @@ mod tests {
         assert_eq!(settings_index_from_name(Some("claude")), 1);
         assert_eq!(settings_index_from_name(Some("gemini")), 5);
         assert_eq!(settings_index_from_name(Some("cursor")), 6);
-        assert_eq!(settings_index_from_name(Some("pi")), 7);
+        assert_eq!(settings_index_from_name(Some("copilot")), 7);
+        assert_eq!(settings_index_from_name(Some("pi")), 8);
 
         assert_eq!(name_from_settings_index(0), None);
         assert_eq!(name_from_settings_index(1), Some("claude"));
         assert_eq!(name_from_settings_index(5), Some("gemini"));
         assert_eq!(name_from_settings_index(6), Some("cursor"));
-        assert_eq!(name_from_settings_index(7), Some("pi"));
+        assert_eq!(name_from_settings_index(7), Some("copilot"));
+        assert_eq!(name_from_settings_index(8), Some("pi"));
         assert_eq!(name_from_settings_index(99), None);
     }
 
