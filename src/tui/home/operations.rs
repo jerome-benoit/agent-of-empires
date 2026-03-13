@@ -14,7 +14,7 @@ impl HomeView {
         // In unified mode, all instances are loaded, so use them for title dedup.
         // For the target profile, filter to that profile's instances.
         let existing_titles: Vec<&str> = self
-            .instances
+            .instances()
             .iter()
             .filter(|i| i.source_profile == target_profile)
             .map(|i| i.title.as_str())
@@ -46,9 +46,7 @@ impl HomeView {
                 .insert(target_profile.clone(), Storage::new(&target_profile)?);
         }
 
-        self.instances.push(instance.clone());
-        self.instance_map
-            .insert(instance.id.clone(), instance.clone());
+        self.add_instance(instance.clone());
         self.rebuild_group_trees();
         if !instance.group_path.is_empty() {
             if let Some(tree) = self.group_trees.get_mut(&target_profile) {
@@ -128,7 +126,7 @@ impl HomeView {
             let prefix = format!("{}/", group_path);
 
             let sessions_to_delete: Vec<String> = self
-                .instances
+                .instances()
                 .iter()
                 .filter(|i| {
                     (i.group_path == group_path || i.group_path.starts_with(&prefix))
@@ -186,14 +184,14 @@ impl HomeView {
     }
 
     pub(super) fn group_has_managed_worktrees(&self, group_path: &str, prefix: &str) -> bool {
-        self.instances.iter().any(|i| {
+        self.instances().iter().any(|i| {
             (i.group_path == group_path || i.group_path.starts_with(prefix))
                 && i.worktree_info.as_ref().is_some_and(|wt| wt.managed_by_aoe)
         })
     }
 
     pub(super) fn group_has_containers(&self, group_path: &str, prefix: &str) -> bool {
-        self.instances.iter().any(|i| {
+        self.instances().iter().any(|i| {
             (i.group_path == group_path || i.group_path.starts_with(prefix))
                 && i.sandbox_info.as_ref().is_some_and(|s| s.enabled)
         })
@@ -246,7 +244,7 @@ impl HomeView {
 
                     // Get the instance to move
                     let mut instance = self
-                        .instances
+                        .instances()
                         .iter()
                         .find(|i| i.id == id)
                         .cloned()

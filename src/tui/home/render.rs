@@ -140,7 +140,7 @@ impl HomeView {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        if self.instances.is_empty() && !self.has_any_groups() {
+        if self.instances().is_empty() && !self.has_any_groups() {
             let empty_text = vec![
                 Line::from(""),
                 Line::from("No sessions yet").style(Style::default().fg(theme.dimmed)),
@@ -230,21 +230,6 @@ impl HomeView {
 
         let (icon, text, style): (&str, Cow<str>, Style) = match item {
             Item::Group {
-                name,
-                collapsed,
-                session_count,
-                ..
-            } => {
-                let icon = if *collapsed {
-                    ICON_COLLAPSED
-                } else {
-                    ICON_EXPANDED
-                };
-                let text = Cow::Owned(format!("{} ({})", name, session_count));
-                let style = Style::default().fg(theme.group).bold();
-                (icon, text, style)
-            }
-            Item::ProfileHeader {
                 name,
                 collapsed,
                 session_count,
@@ -599,12 +584,6 @@ impl HomeView {
                 collapsed: true, ..
             }) => Some(" Expand "),
             Some(Item::Group {
-                collapsed: false, ..
-            }) => Some(" Collapse "),
-            Some(Item::ProfileHeader {
-                collapsed: true, ..
-            }) => Some(" Expand "),
-            Some(Item::ProfileHeader {
                 collapsed: false, ..
             }) => Some(" Collapse "),
             Some(Item::Session { .. }) => Some(" Attach "),
