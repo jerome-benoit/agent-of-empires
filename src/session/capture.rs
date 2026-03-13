@@ -1,6 +1,7 @@
 //! Session ID capture logic for all supported agent types.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -25,6 +26,22 @@ pub(crate) fn resilient_read_dir(
             .map_err(|e| tracing::debug!("Skipping unreadable entry in {}: {}", dir.display(), e))
             .ok()
     }))
+}
+
+/// Resolve an agent's home directory, checking an optional env var first.
+fn resolve_agent_home(env_var: Option<&str>, default_subdir: &str) -> Result<PathBuf> {
+    if let Some(var) = env_var {
+        if let Ok(val) = std::env::var(var) {
+            return Ok(PathBuf::from(val));
+        }
+    }
+    Ok(dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+        .join(default_subdir))
+}
+
+fn canonicalize_or_raw(path: &str) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path))
 }
 
 /// Validate a captured session ID, logging a warning if it fails.
@@ -301,12 +318,7 @@ pub(crate) fn capture_codex_session_id(
     project_path: &str,
     exclusion: &HashSet<String>,
 ) -> Result<String> {
-    let codex_home = match std::env::var("CODEX_HOME") {
-        Ok(val) => std::path::PathBuf::from(val),
-        Err(_) => dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-            .join(".codex"),
-    };
+    let codex_home = resolve_agent_home(Some("CODEX_HOME"), ".codex")?;
     let sessions_dir = codex_home.join("sessions");
 
     if !sessions_dir.exists() {
@@ -333,8 +345,7 @@ pub(crate) fn capture_codex_session_id(
         )
     });
 
-    let canonical_project = std::fs::canonicalize(project_path)
-        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
+    let canonical_project = canonicalize_or_raw(project_path);
 
     // Prefer the most recent session whose CWD matches the project directory
     let cwd_match = session_entries.iter().find(|(path, _)| {
@@ -422,17 +433,14 @@ pub(crate) fn capture_gemini_session_id(
 ) -> Result<String> {
     use sha2::{Digest, Sha256};
 
-    let gemini_home = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-        .join(".gemini");
+    let gemini_home = resolve_agent_home(None, ".gemini")?;
     let tmp_dir = gemini_home.join("tmp");
 
     if !tmp_dir.exists() {
         anyhow::bail!("Gemini tmp directory not found: {}", tmp_dir.display());
     }
 
-    let canonical_project = std::fs::canonicalize(project_path)
-        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
+    let canonical_project = canonicalize_or_raw(project_path);
     let expected_hash = format!(
         "{:x}",
         Sha256::digest(canonical_project.to_string_lossy().as_bytes())
@@ -549,12 +557,7 @@ pub(crate) fn capture_vibe_session_id(
     project_path: &str,
     exclusion: &HashSet<String>,
 ) -> Result<String> {
-    let vibe_home = match std::env::var("VIBE_HOME") {
-        Ok(val) => std::path::PathBuf::from(val),
-        Err(_) => dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-            .join(".vibe"),
-    };
+    let vibe_home = resolve_agent_home(Some("VIBE_HOME"), ".vibe")?;
     let sessions_dir = vibe_home.join("logs").join("session");
 
     if !sessions_dir.exists() {
@@ -594,8 +597,7 @@ pub(crate) fn capture_vibe_session_id(
 
     candidates.sort_by(|a, b| b.2.cmp(&a.2));
 
-    let canonical_project = std::fs::canonicalize(project_path)
-        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
+    let canonical_project = canonicalize_or_raw(project_path);
 
     let project_match = candidates.iter().find(|(_, meta_path, _)| {
         extract_vibe_cwd_from_meta(meta_path)
