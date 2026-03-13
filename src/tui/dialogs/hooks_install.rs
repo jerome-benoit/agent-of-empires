@@ -23,7 +23,11 @@ impl HooksInstallDialog {
             if let Some(hook_cfg) = &agent.hook_config {
                 settings_paths.push(format!("~/{}", hook_cfg.settings_rel_path));
                 for event in hook_cfg.events {
-                    hook_commands.push((event.name.to_string(), event.status.to_string()));
+                    let label = match event.status {
+                        Some(s) => format!("writes \"{}\"", s),
+                        None => "session lifecycle".to_string(),
+                    };
+                    hook_commands.push((event.name.to_string(), label));
                 }
             }
         }
@@ -92,7 +96,7 @@ impl HooksInstallDialog {
             Style::default().bold(),
         )));
         for (event, status) in &self.hook_commands {
-            lines.push(Line::from(format!("  {} -> writes \"{}\"", event, status)));
+            lines.push(Line::from(format!("  {} -> {}", event, status)));
         }
 
         lines.push(Line::from(""));

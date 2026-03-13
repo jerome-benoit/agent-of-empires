@@ -14,8 +14,10 @@ use anyhow::Result;
 use crate::hooks::hook_status_dir;
 use crate::session::capture::validated_session_id;
 
-/// Look up the AoE status for a hook event name across all agents' registered events.
-fn event_to_status(event: &str) -> Option<&'static str> {
+/// Look up the registered hook event across all agents.
+/// Returns `Some(Some(status))` for status-changing events,
+/// `Some(None)` for lifecycle-only events, and `None` for unknown events.
+fn find_event(event: &str) -> Option<Option<&'static str>> {
     crate::agents::AGENTS
         .iter()
         .filter_map(|a| a.hook_config.as_ref())
@@ -46,7 +48,7 @@ pub fn run() -> Result<()> {
 
     let session_id = payload.get("session_id").and_then(|v| v.as_str());
 
-    let status = match event_to_status(event) {
+    let maybe_status = match find_event(event) {
         Some(s) => s,
         None => return Ok(()),
     };
@@ -56,7 +58,9 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
 
-    let _ = std::fs::write(dir.join("status"), status);
+    if let Some(status) = maybe_status {
+        let _ = std::fs::write(dir.join("status"), status);
+    }
 
     if let Some(sid) = session_id {
         let sid = sid.trim().to_string();
@@ -67,7 +71,6 @@ pub fn run() -> Result<()> {
         }
     }
 
-    // SessionEnd clears the session_id since the session is over
     if event == "SessionEnd" {
         let _ = std::fs::remove_file(dir.join("session_id"));
     }
@@ -81,37 +84,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_event_to_status_running() {
-        assert_eq!(event_to_status("PreToolUse"), Some("running"));
-        assert_eq!(event_to_status("UserPromptSubmit"), Some("running"));
-        assert_eq!(event_to_status("SessionStart"), Some("running"));
+    fn test_status_events_running() {
+        assert_eq!(find_event("PreToolUse"), Some(Some("running")));
+        assert_eq!(find_event("UserPromptSubmit"), Some(Some("running")));
     }
 
     #[test]
-    fn test_event_to_status_idle() {
-        assert_eq!(event_to_status("Stop"), Some("idle"));
-        assert_eq!(event_to_status("SessionEnd"), Some("idle"));
+    fn test_status_events_idle() {
+        assert_eq!(find_event("Stop"), Some(Some("idle")));
     }
 
     #[test]
-    fn test_event_to_status_waiting() {
-        assert_eq!(event_to_status("Notification"), Some("waiting"));
+    fn test_status_events_waiting() {
+        assert_eq!(find_event("Notification"), Some(Some("waiting")));
     }
 
     #[test]
-    fn test_gemini_event_to_status_running() {
-        assert_eq!(event_to_status("BeforeTool"), Some("running"));
-        assert_eq!(event_to_status("BeforeAgent"), Some("running"));
+    fn test_lifecycle_events_no_status() {
+        assert_eq!(find_event("SessionStart"), Some(None));
+        assert_eq!(find_event("SessionEnd"), Some(None));
     }
 
     #[test]
-    fn test_gemini_event_to_status_idle() {
-        assert_eq!(event_to_status("AfterAgent"), Some("idle"));
+    fn test_gemini_status_events() {
+        assert_eq!(find_event("BeforeTool"), Some(Some("running")));
+        assert_eq!(find_event("BeforeAgent"), Some(Some("running")));
+        assert_eq!(find_event("AfterAgent"), Some(Some("idle")));
     }
 
     #[test]
-    fn test_event_to_status_unknown() {
-        assert_eq!(event_to_status("SomeNewEvent"), None);
-        assert_eq!(event_to_status(""), None);
+    fn test_unknown_event() {
+        assert_eq!(find_event("SomeNewEvent"), None);
+        assert_eq!(find_event(""), None);
     }
 }

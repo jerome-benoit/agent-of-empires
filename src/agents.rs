@@ -50,9 +50,10 @@ pub struct HookEvent {
     pub name: &'static str,
     /// Optional matcher pattern (e.g. `"permission_prompt|elicitation_dialog"`).
     pub matcher: Option<&'static str>,
-    /// AoE status string written to the sidecar file when this event fires
-    /// (e.g. `"running"`, `"idle"`, `"waiting"`).
-    pub status: &'static str,
+    /// AoE status to write when this event fires (`"running"`, `"idle"`, `"waiting"`).
+    /// `None` for lifecycle-only events (e.g. `SessionStart`/`SessionEnd`) that
+    /// manage the session_id sidecar without changing the activity status.
+    pub status: Option<&'static str>,
 }
 
 /// Configuration for installing status-detection hooks into an agent's settings file.
@@ -60,7 +61,7 @@ pub struct AgentHookConfig {
     /// Path relative to the home dir where the agent's settings live
     /// (e.g. `.claude/settings.json`).
     pub settings_rel_path: &'static str,
-    /// Hook events to register. Each event maps to an AoE status.
+    /// Hook events to register (status transitions and session lifecycle).
     pub events: &'static [HookEvent],
 }
 
@@ -113,32 +114,32 @@ pub const AGENTS: &[AgentDef] = &[
                 HookEvent {
                     name: "PreToolUse",
                     matcher: None,
-                    status: "running",
+                    status: Some("running"),
                 },
                 HookEvent {
                     name: "UserPromptSubmit",
                     matcher: None,
-                    status: "running",
+                    status: Some("running"),
                 },
                 HookEvent {
                     name: "Stop",
                     matcher: None,
-                    status: "idle",
+                    status: Some("idle"),
                 },
                 HookEvent {
                     name: "Notification",
                     matcher: Some("permission_prompt|elicitation_dialog"),
-                    status: "waiting",
+                    status: Some("waiting"),
                 },
                 HookEvent {
                     name: "SessionStart",
                     matcher: None,
-                    status: "running",
+                    status: None,
                 },
                 HookEvent {
                     name: "SessionEnd",
                     matcher: None,
-                    status: "idle",
+                    status: None,
                 },
             ],
         }),
@@ -208,32 +209,32 @@ pub const AGENTS: &[AgentDef] = &[
                 HookEvent {
                     name: "BeforeTool",
                     matcher: None,
-                    status: "running",
+                    status: Some("running"),
                 },
                 HookEvent {
                     name: "BeforeAgent",
                     matcher: None,
-                    status: "running",
+                    status: Some("running"),
                 },
                 HookEvent {
                     name: "AfterAgent",
                     matcher: None,
-                    status: "idle",
+                    status: Some("idle"),
                 },
                 HookEvent {
                     name: "Notification",
                     matcher: Some("ToolPermission"),
-                    status: "waiting",
+                    status: Some("waiting"),
                 },
                 HookEvent {
                     name: "SessionStart",
                     matcher: None,
-                    status: "running",
+                    status: None,
                 },
                 HookEvent {
                     name: "SessionEnd",
                     matcher: None,
-                    status: "idle",
+                    status: None,
                 },
             ],
         }),
@@ -256,32 +257,32 @@ pub const AGENTS: &[AgentDef] = &[
                 HookEvent {
                     name: "PreToolUse",
                     matcher: None,
-                    status: "running",
+                    status: Some("running"),
                 },
                 HookEvent {
                     name: "UserPromptSubmit",
                     matcher: None,
-                    status: "running",
+                    status: Some("running"),
                 },
                 HookEvent {
                     name: "Stop",
                     matcher: None,
-                    status: "idle",
+                    status: Some("idle"),
                 },
                 HookEvent {
                     name: "Notification",
                     matcher: Some("permission_prompt|elicitation_dialog"),
-                    status: "waiting",
+                    status: Some("waiting"),
                 },
                 HookEvent {
                     name: "SessionStart",
                     matcher: None,
-                    status: "running",
+                    status: None,
                 },
                 HookEvent {
                     name: "SessionEnd",
                     matcher: None,
-                    status: "idle",
+                    status: None,
                 },
             ],
         }),
