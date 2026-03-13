@@ -1552,10 +1552,11 @@ impl Instance {
         // blocking the TUI on subprocess calls.
         let session_name = session_name.to_string();
         let instance_id = self.id.clone();
+        let instance_id_for_log = self.id.clone();
         let title = self.title.clone();
         let branch = self.worktree_info.as_ref().map(|w| w.branch.clone());
         let sandbox = self.sandbox_display();
-        std::thread::Builder::new()
+        match std::thread::Builder::new()
             .name(format!("finalize-tmux-{}", instance_id))
             .spawn(move || {
                 if let Err(e) = crate::tmux::env::set_hidden_env(
@@ -1571,8 +1572,16 @@ impl Instance {
                     branch.as_deref(),
                     sandbox.as_ref(),
                 );
-            })
-            .ok();
+            }) {
+            Ok(_handle) => {}
+            Err(e) => {
+                tracing::error!(
+                    session = %instance_id_for_log,
+                    error = %e,
+                    "Failed to spawn finalize-tmux thread"
+                );
+            }
+        }
     }
 
     fn persist_session_id(&self, profile: &str) {
@@ -1854,6 +1863,14 @@ impl Instance {
 
     pub fn kill(&self) -> Result<()> {
         self.stop_poller();
+        // Join deferred capture thread if still running
+        if let Some(ref handle_arc) = self.deferred_capture_handle {
+            if let Ok(mut handle_opt) = handle_arc.lock() {
+                if let Some(handle) = handle_opt.take() {
+                    let _ = handle.join();
+                }
+            }
+        }
         let session = self.tmux_session()?;
         if session.exists() {
             session.kill()?;
