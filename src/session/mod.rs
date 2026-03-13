@@ -1,6 +1,7 @@
 //! Session management module
 
 pub mod builder;
+pub(crate) mod capture;
 pub mod civilizations;
 pub mod config;
 mod container_config;
@@ -13,6 +14,7 @@ pub mod repo_config;
 mod storage;
 
 pub use crate::sound::{SoundConfig, SoundConfigOverride};
+pub(crate) use capture::is_valid_session_id;
 pub use config::{
     get_claude_config_dir, get_update_settings, load_config, save_config, ClaudeConfig, Config,
     ContainerRuntimeName, DefaultTerminalMode, SandboxConfig, SessionConfig, ThemeConfig,
@@ -21,7 +23,6 @@ pub use config::{
 pub(crate) use environment::user_shell;
 pub use environment::validate_env_entry;
 pub use groups::{flatten_tree, flatten_tree_all_profiles, Group, GroupTree, Item};
-pub(crate) use instance::is_valid_session_id;
 pub use instance::{Instance, SandboxInfo, Status, TerminalInfo, WorktreeInfo};
 pub use profile_config::{
     load_profile_config, merge_configs, resolve_config, save_profile_config,
