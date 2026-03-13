@@ -83,6 +83,10 @@ impl CaptureGate {
     ///
     /// `captured_id` is `Some(id)` on success, `None` if all attempts were exhausted.
     pub fn complete(&self, captured_id: Option<String>) {
+        // Graceful degradation: if the mutex is poisoned, a thread panicked while holding
+        // the lock. Recovering via into_inner() could expose corrupted state. Losing one
+        // capture ID is safer than propagating potentially invalid data. The poller will
+        // timeout (CAPTURE_GATE_TIMEOUT) and proceed without the ID.
         let Ok(mut state) = self.inner.lock() else {
             tracing::warn!("CaptureGate lock poisoned in complete(), captured ID lost");
             return;
@@ -205,6 +209,15 @@ pub enum PollCommand {
 }
 
 /// Manages polling thread lifecycle and inter-thread communication via mpsc channels.
+///
+/// # Cleanup
+///
+/// Cleanup is performed explicitly via `stop()` rather than `Drop` because
+/// the poller thread holds a clone of the command sender. Dropping the
+/// `SessionPoller` without `stop()` causes the thread to exit on the next
+/// `recv_timeout` when it detects channel disconnection, which may take up
+/// to `max_interval` seconds. Callers (Instance::kill, Instance::restart)
+/// call `stop()` explicitly for immediate shutdown.
 pub struct SessionPoller {
     session_name: String,
     cmd_tx: mpsc::Sender<PollCommand>,
