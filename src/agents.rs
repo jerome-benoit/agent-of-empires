@@ -202,7 +202,41 @@ pub const AGENTS: &[AgentDef] = &[
         supports_host_launch: true,
         detect_status: status_detection::detect_gemini_status,
         container_env: &[],
-        hook_config: None,
+        hook_config: Some(AgentHookConfig {
+            settings_rel_path: ".gemini/settings.json",
+            events: &[
+                HookEvent {
+                    name: "BeforeTool",
+                    matcher: None,
+                    status: "running",
+                },
+                HookEvent {
+                    name: "BeforeAgent",
+                    matcher: None,
+                    status: "running",
+                },
+                HookEvent {
+                    name: "AfterAgent",
+                    matcher: None,
+                    status: "idle",
+                },
+                HookEvent {
+                    name: "Notification",
+                    matcher: Some("ToolPermission"),
+                    status: "waiting",
+                },
+                HookEvent {
+                    name: "SessionStart",
+                    matcher: None,
+                    status: "running",
+                },
+                HookEvent {
+                    name: "SessionEnd",
+                    matcher: None,
+                    status: "idle",
+                },
+            ],
+        }),
         resume_strategy: ResumeStrategy::Flag("--resume"),
     },
     AgentDef {

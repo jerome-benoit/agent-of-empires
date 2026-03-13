@@ -1,6 +1,6 @@
 //! Hook handler for agent hook events.
 //!
-//! This command is called by agents (e.g. Claude Code) for every hook event.
+//! This command is called by agents (e.g. Claude Code, Gemini CLI) for every hook event.
 //! It reads the event JSON from stdin, extracts the session_id and status,
 //! and writes them to sidecar files in /tmp/aoe-hooks/{instance_id}/.
 //!
@@ -96,6 +96,17 @@ mod tests {
     #[test]
     fn test_event_to_status_waiting() {
         assert_eq!(event_to_status("Notification"), Some("waiting"));
+    }
+
+    #[test]
+    fn test_gemini_event_to_status_running() {
+        assert_eq!(event_to_status("BeforeTool"), Some("running"));
+        assert_eq!(event_to_status("BeforeAgent"), Some("running"));
+    }
+
+    #[test]
+    fn test_gemini_event_to_status_idle() {
+        assert_eq!(event_to_status("AfterAgent"), Some("idle"));
     }
 
     #[test]
