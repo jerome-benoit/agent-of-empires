@@ -452,7 +452,7 @@ fn test_search_matches_session_title() {
     // The best match should be session2
     let best_idx = env.view.search_matches[0];
     if let Item::Session { id, .. } = &env.view.flat_items[best_idx] {
-        let inst = env.view.instance_map.get(id).unwrap();
+        let inst = env.view.get_instance(id).unwrap();
         assert!(inst.title.contains("session2"));
     }
 }
@@ -693,7 +693,7 @@ fn test_has_dialog_returns_true_for_rename_dialog() {
 #[serial]
 fn test_select_session_by_id() {
     let mut env = create_test_env_with_sessions(3);
-    let session_id = env.view.instances[1].id.clone();
+    let session_id = env.view.instances()[1].id.clone();
 
     assert_eq!(env.view.cursor, 0);
 
@@ -1042,7 +1042,7 @@ fn test_delete_group_with_sessions_updates_groups_field() {
     }
 
     assert!(env.view.selected_group.is_some());
-    let initial_instance_count = env.view.instances.len();
+    let initial_instance_count = env.view.instances().len();
 
     // Delete the group with all sessions
     let options = GroupDeleteOptions {
@@ -1077,7 +1077,7 @@ fn test_delete_group_with_sessions_updates_groups_field() {
     // Verify sessions are marked as deleting
     let deleting_count = env
         .view
-        .instances
+        .instances()
         .iter()
         .filter(|i| i.status == Status::Deleting)
         .count();
@@ -1085,7 +1085,7 @@ fn test_delete_group_with_sessions_updates_groups_field() {
     assert_eq!(deleting_count, 3);
 
     // Instance count should remain the same (they're marked as deleting, not removed yet)
-    assert_eq!(env.view.instances.len(), initial_instance_count);
+    assert_eq!(env.view.instances().len(), initial_instance_count);
 }
 
 #[test]
@@ -1360,7 +1360,7 @@ fn test_group_collapsed_state_saved_to_storage() {
         .unwrap()
         .load_with_groups()
         .unwrap();
-    let fresh_tree = GroupTree::new_with_groups(&env.view.instances, &groups);
+    let fresh_tree = GroupTree::new_with_groups(env.view.instances(), &groups);
     let all_groups = fresh_tree.get_all_groups();
 
     let saved_group = all_groups
@@ -1515,7 +1515,7 @@ fn test_o_key_flat_items_sorted_az() {
             }
             Item::Session { id, .. } => {
                 if in_work_group {
-                    if let Some(inst) = env.view.instance_map.get(id) {
+                    if let Some(inst) = env.view.get_instance(id) {
                         session_titles.push(inst.title.as_str());
                     }
                 }
@@ -1548,7 +1548,7 @@ fn test_o_key_flat_items_sorted_za() {
             }
             Item::Session { id, .. } => {
                 if in_work_group {
-                    if let Some(inst) = env.view.instance_map.get(id) {
+                    if let Some(inst) = env.view.get_instance(id) {
                         session_titles.push(inst.title.as_str());
                     }
                 }
@@ -1582,7 +1582,7 @@ fn test_o_key_flat_items_newest_preserves_insertion_order() {
             }
             Item::Session { id, .. } => {
                 if in_work_group {
-                    if let Some(inst) = env.view.instance_map.get(id) {
+                    if let Some(inst) = env.view.get_instance(id) {
                         session_titles.push(inst.title.as_str());
                     }
                 }
@@ -1638,9 +1638,9 @@ fn test_all_profiles_view_loads_from_multiple_profiles() {
     let tools = AvailableTools::with_tools(&["claude"]);
     let view = HomeView::new(None, tools).unwrap();
 
-    assert_eq!(view.instances.len(), 2);
+    assert_eq!(view.instances().len(), 2);
     let profiles: Vec<&str> = view
-        .instances
+        .instances()
         .iter()
         .map(|i| i.source_profile.as_str())
         .collect();
@@ -1667,9 +1667,9 @@ fn test_filtered_view_loads_single_profile() {
     let tools = AvailableTools::with_tools(&["claude"]);
     let view = HomeView::new(Some("alpha".to_string()), tools).unwrap();
 
-    assert_eq!(view.instances.len(), 1);
-    assert_eq!(view.instances[0].title, "Alpha Session");
-    assert_eq!(view.instances[0].source_profile, "alpha");
+    assert_eq!(view.instances().len(), 1);
+    assert_eq!(view.instances()[0].title, "Alpha Session");
+    assert_eq!(view.instances()[0].source_profile, "alpha");
 }
 
 #[test]
@@ -2025,7 +2025,7 @@ fn test_delete_group_scoped_to_owning_profile() {
 
     // Alpha's instance should be ungrouped, beta's should still be in "work"
     let alpha_inst = view
-        .instances
+        .instances()
         .iter()
         .find(|i| i.source_profile == "alpha")
         .unwrap();
@@ -2034,7 +2034,7 @@ fn test_delete_group_scoped_to_owning_profile() {
         "alpha's instance should be ungrouped"
     );
     let beta_inst = view
-        .instances
+        .instances()
         .iter()
         .find(|i| i.source_profile == "beta")
         .unwrap();

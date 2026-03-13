@@ -140,7 +140,7 @@ impl HomeView {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        if self.instances.is_empty() && !self.has_any_groups() {
+        if self.instances().is_empty() && !self.has_any_groups() {
             let empty_text = vec![
                 Line::from(""),
                 Line::from("No sessions yet").style(Style::default().fg(theme.dimmed)),

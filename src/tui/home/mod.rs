@@ -97,8 +97,8 @@ pub struct HomeView {
     pub(super) storages: HashMap<String, Storage>,
     pub(super) active_profile: Option<String>,
     pub(super) collapsed_profiles: HashSet<String>,
-    pub(super) instances: Vec<Instance>,
-    pub(super) instance_map: HashMap<String, Instance>,
+    instances: Vec<Instance>,
+    instance_map: HashMap<String, Instance>,
     pub(super) group_trees: HashMap<String, GroupTree>,
     pub(super) flat_items: Vec<Item>,
 
@@ -615,6 +615,10 @@ impl HomeView {
 
     pub fn show_changelog(&mut self, from_version: Option<String>) {
         self.changelog_dialog = Some(ChangelogDialog::new(from_version));
+    }
+
+    pub fn instances(&self) -> &[Instance] {
+        &self.instances
     }
 
     pub fn get_instance(&self, id: &str) -> Option<&Instance> {

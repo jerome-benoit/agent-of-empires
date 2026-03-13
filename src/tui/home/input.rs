@@ -473,7 +473,7 @@ impl HomeView {
                     self.update_selected();
                 } else {
                     let existing_titles: Vec<String> =
-                        self.instances.iter().map(|i| i.title.clone()).collect();
+                        self.instances().iter().map(|i| i.title.clone()).collect();
                     let existing_groups: Vec<String> =
                         self.all_groups().iter().map(|g| g.path.clone()).collect();
                     let current_profile = self
