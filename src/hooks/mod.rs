@@ -114,13 +114,19 @@ pub fn install_hooks(settings_path: &Path, events: &[crate::agents::HookEvent]) 
     if !settings.get("hooks").is_some_and(|h| h.is_object()) {
         settings
             .as_object_mut()
-            .unwrap()
+            .ok_or_else(|| anyhow::anyhow!("Settings file root is not a JSON object"))?
             .insert("hooks".to_string(), serde_json::json!({}));
     }
 
-    let settings_hooks = settings.get_mut("hooks").unwrap().as_object_mut().unwrap();
+    let settings_hooks = settings
+        .get_mut("hooks")
+        .and_then(|h| h.as_object_mut())
+        .ok_or_else(|| anyhow::anyhow!("hooks key is not a JSON object"))?;
 
-    for (event_name, aoe_matchers) in aoe_hooks.as_object().unwrap() {
+    let aoe_hooks_obj = aoe_hooks
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("Internal error: built hooks is not a JSON object"))?;
+    for (event_name, aoe_matchers) in aoe_hooks_obj {
         if let Some(existing) = settings_hooks.get_mut(event_name) {
             if let Some(arr) = existing.as_array_mut() {
                 // Remove old AoE entries, then append new ones
@@ -196,7 +202,9 @@ pub fn uninstall_hooks(settings_path: &Path) -> Result<bool> {
     }
 
     if hooks_obj.is_empty() {
-        settings.as_object_mut().unwrap().remove("hooks");
+        if let Some(obj) = settings.as_object_mut() {
+            obj.remove("hooks");
+        }
     }
 
     let formatted = serde_json::to_string_pretty(&settings)?;

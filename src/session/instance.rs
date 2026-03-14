@@ -1115,6 +1115,13 @@ impl Instance {
     ) -> Result<()> {
         self.stop_poller();
         self.session_id_poller = None;
+        if let Some(ref handle_arc) = self.deferred_capture_handle {
+            if let Ok(mut handle_opt) = handle_arc.lock() {
+                if let Some(handle) = handle_opt.take() {
+                    let _ = handle.join();
+                }
+            }
+        }
         self.deferred_capture_handle = None;
         self.capture_gate = None;
 

@@ -212,8 +212,8 @@ pub(crate) fn opencode_poll_fn(
     instance_id: String,
     launch_time_ms: f64,
 ) -> impl Fn() -> Option<String> + Send + 'static {
-    let timing = session_timing();
     move || {
+        let timing = session_timing();
         let exclusion = build_exclusion_set(&instance_id);
         try_capture_opencode_session_id(&project_path, &exclusion, launch_time_ms, &timing)
             .map_err(|e| tracing::debug!("OpenCode poll capture failed: {}", e))

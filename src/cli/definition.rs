@@ -94,7 +94,7 @@ pub enum Commands {
         command: SoundsCommands,
     },
 
-    /// Handle Claude Code hook events (reads JSON from stdin)
+    /// Handle agent hook events (reads JSON from stdin)
     #[command(hide = true)]
     HookHandler,
 

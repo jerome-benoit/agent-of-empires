@@ -60,7 +60,10 @@ pub fn run() -> Result<()> {
 
     let maybe_status = match find_event(event) {
         Some(s) => s,
-        None => return Ok(()),
+        None => {
+            tracing::debug!("Ignoring unrecognised hook event: {:?}", event);
+            return Ok(());
+        }
     };
 
     let dir = hook_status_dir(&instance_id);

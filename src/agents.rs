@@ -96,6 +96,40 @@ pub struct AgentDef {
     pub resume_strategy: ResumeStrategy,
 }
 
+/// Hook events shared by Claude Code and Cursor CLI.
+const CLAUDE_CURSOR_HOOK_EVENTS: &[HookEvent] = &[
+    HookEvent {
+        name: "PreToolUse",
+        matcher: None,
+        status: Some("running"),
+    },
+    HookEvent {
+        name: "UserPromptSubmit",
+        matcher: None,
+        status: Some("running"),
+    },
+    HookEvent {
+        name: "Stop",
+        matcher: None,
+        status: Some("idle"),
+    },
+    HookEvent {
+        name: "Notification",
+        matcher: Some("permission_prompt|elicitation_dialog"),
+        status: Some("waiting"),
+    },
+    HookEvent {
+        name: "SessionStart",
+        matcher: None,
+        status: None,
+    },
+    HookEvent {
+        name: "SessionEnd",
+        matcher: None,
+        status: None,
+    },
+];
+
 pub const AGENTS: &[AgentDef] = &[
     AgentDef {
         name: "claude",
@@ -110,38 +144,7 @@ pub const AGENTS: &[AgentDef] = &[
         container_env: &[("CLAUDE_CONFIG_DIR", "/root/.claude")],
         hook_config: Some(AgentHookConfig {
             settings_rel_path: ".claude/settings.json",
-            events: &[
-                HookEvent {
-                    name: "PreToolUse",
-                    matcher: None,
-                    status: Some("running"),
-                },
-                HookEvent {
-                    name: "UserPromptSubmit",
-                    matcher: None,
-                    status: Some("running"),
-                },
-                HookEvent {
-                    name: "Stop",
-                    matcher: None,
-                    status: Some("idle"),
-                },
-                HookEvent {
-                    name: "Notification",
-                    matcher: Some("permission_prompt|elicitation_dialog"),
-                    status: Some("waiting"),
-                },
-                HookEvent {
-                    name: "SessionStart",
-                    matcher: None,
-                    status: None,
-                },
-                HookEvent {
-                    name: "SessionEnd",
-                    matcher: None,
-                    status: None,
-                },
-            ],
+            events: CLAUDE_CURSOR_HOOK_EVENTS,
         }),
         resume_strategy: ResumeStrategy::FlagPair {
             existing: "--resume",
@@ -253,38 +256,7 @@ pub const AGENTS: &[AgentDef] = &[
         container_env: &[("CURSOR_CONFIG_DIR", "/root/.cursor")],
         hook_config: Some(AgentHookConfig {
             settings_rel_path: ".cursor/settings.json",
-            events: &[
-                HookEvent {
-                    name: "PreToolUse",
-                    matcher: None,
-                    status: Some("running"),
-                },
-                HookEvent {
-                    name: "UserPromptSubmit",
-                    matcher: None,
-                    status: Some("running"),
-                },
-                HookEvent {
-                    name: "Stop",
-                    matcher: None,
-                    status: Some("idle"),
-                },
-                HookEvent {
-                    name: "Notification",
-                    matcher: Some("permission_prompt|elicitation_dialog"),
-                    status: Some("waiting"),
-                },
-                HookEvent {
-                    name: "SessionStart",
-                    matcher: None,
-                    status: None,
-                },
-                HookEvent {
-                    name: "SessionEnd",
-                    matcher: None,
-                    status: None,
-                },
-            ],
+            events: CLAUDE_CURSOR_HOOK_EVENTS,
         }),
         resume_strategy: ResumeStrategy::Unsupported,
     },
