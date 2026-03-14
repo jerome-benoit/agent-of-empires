@@ -8,11 +8,21 @@
 //! no migrations, no profile resolution. Just stdin -> parse -> write files.
 
 use std::io::Read;
+use std::path::Path;
 
 use anyhow::Result;
 
 use crate::hooks::hook_status_dir;
 use crate::session::capture::validated_session_id;
+
+fn atomic_write(path: &Path, contents: &str) -> std::io::Result<()> {
+    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+    let result = std::fs::write(&tmp, contents).and_then(|()| std::fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
 
 /// Look up the registered hook event across all agents.
 /// Returns `Some(Some(status))` for status-changing events,
@@ -59,14 +69,14 @@ pub fn run() -> Result<()> {
     }
 
     if let Some(status) = maybe_status {
-        let _ = std::fs::write(dir.join("status"), status);
+        let _ = atomic_write(&dir.join("status"), status);
     }
 
     if let Some(sid) = session_id {
         let sid = sid.trim().to_string();
         if !sid.is_empty() {
             if let Some(valid_sid) = validated_session_id(sid) {
-                let _ = std::fs::write(dir.join("session_id"), valid_sid);
+                let _ = atomic_write(&dir.join("session_id"), &valid_sid);
             }
         }
     }
