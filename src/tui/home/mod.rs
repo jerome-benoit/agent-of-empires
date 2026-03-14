@@ -542,14 +542,18 @@ impl HomeView {
                 .and_then(|p| p.lock().ok())
                 .and_then(|p| p.try_recv_session_update())
             {
-                updates.push((inst.id.clone(), session_id));
+                if inst.agent_session_id.as_deref() != Some(session_id.as_str()) {
+                    updates.push((inst.id.clone(), session_id));
+                }
                 continue;
             }
 
             // Completed capture gates (deferred capture agents)
             if inst.agent_session_id.is_none() {
                 if let Some(session_id) = inst.capture_gate.as_ref().and_then(|g| g.try_take()) {
-                    updates.push((inst.id.clone(), session_id));
+                    if inst.agent_session_id.as_deref() != Some(session_id.as_str()) {
+                        updates.push((inst.id.clone(), session_id));
+                    }
                     continue;
                 }
             }
