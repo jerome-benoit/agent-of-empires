@@ -94,7 +94,7 @@ fn encode_claude_project_path(project_path: &str) -> String {
 /// modified UUID-named file, filtering out files owned by other AoE instances.
 ///
 /// Used as a fallback when hooks don't fire (e.g. after `/clear` or `/new`).
-pub(crate) fn scan_claude_session_from_disk(
+pub(crate) fn capture_claude_session_id(
     project_path: &str,
     exclusion: &HashSet<String>,
 ) -> Result<String> {
@@ -166,7 +166,7 @@ pub(crate) fn claude_poll_fn(
 ) -> impl Fn() -> Option<String> + Send + 'static {
     move || {
         let exclusion = build_exclusion_set(&instance_id);
-        scan_claude_session_from_disk(&project_path, &exclusion)
+        capture_claude_session_id(&project_path, &exclusion)
             .map_err(|e| tracing::debug!("Claude disk scan failed: {}", e))
             .ok()
     }
@@ -1581,7 +1581,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_scan_claude_session_finds_most_recent() {
+    fn test_capture_claude_session_finds_most_recent() {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("projects").join("-tmp-myproject");
         std::fs::create_dir_all(&project_dir).unwrap();
@@ -1601,7 +1601,7 @@ mod tests {
         let old_val = std::env::var("CLAUDE_CONFIG_DIR").ok();
         std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
 
-        let result = scan_claude_session_from_disk("/tmp/myproject", &HashSet::new());
+        let result = capture_claude_session_id("/tmp/myproject", &HashSet::new());
         assert_eq!(result.unwrap(), uuid_new);
 
         match old_val {
@@ -1612,7 +1612,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_scan_claude_session_respects_exclusion() {
+    fn test_capture_claude_session_respects_exclusion() {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("projects").join("-tmp-myproject");
         std::fs::create_dir_all(&project_dir).unwrap();
@@ -1625,7 +1625,7 @@ mod tests {
 
         let mut exclusion = HashSet::new();
         exclusion.insert(uuid.to_string());
-        let result = scan_claude_session_from_disk("/tmp/myproject", &exclusion);
+        let result = capture_claude_session_id("/tmp/myproject", &exclusion);
         assert!(result.is_err(), "Excluded session should not be returned");
 
         match old_val {
@@ -1636,7 +1636,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_scan_claude_session_skips_agent_files() {
+    fn test_capture_claude_session_skips_agent_files() {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("projects").join("-tmp-myproject");
         std::fs::create_dir_all(&project_dir).unwrap();
@@ -1650,7 +1650,7 @@ mod tests {
         let old_val = std::env::var("CLAUDE_CONFIG_DIR").ok();
         std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
 
-        let result = scan_claude_session_from_disk("/tmp/myproject", &HashSet::new());
+        let result = capture_claude_session_id("/tmp/myproject", &HashSet::new());
         assert!(result.is_err(), "Agent files should not be picked up");
 
         match old_val {
@@ -1661,7 +1661,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_scan_claude_session_rejects_stale() {
+    fn test_capture_claude_session_rejects_stale() {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("projects").join("-tmp-myproject");
         std::fs::create_dir_all(&project_dir).unwrap();
@@ -1677,7 +1677,7 @@ mod tests {
         let old_val = std::env::var("CLAUDE_CONFIG_DIR").ok();
         std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
 
-        let result = scan_claude_session_from_disk("/tmp/myproject", &HashSet::new());
+        let result = capture_claude_session_id("/tmp/myproject", &HashSet::new());
         assert!(result.is_err(), "Stale session file should be rejected");
         assert!(
             result.unwrap_err().to_string().contains("stale"),
@@ -1692,7 +1692,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_scan_claude_session_empty_dir() {
+    fn test_capture_claude_session_empty_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("projects").join("-tmp-myproject");
         std::fs::create_dir_all(&project_dir).unwrap();
@@ -1700,7 +1700,7 @@ mod tests {
         let old_val = std::env::var("CLAUDE_CONFIG_DIR").ok();
         std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
 
-        let result = scan_claude_session_from_disk("/tmp/myproject", &HashSet::new());
+        let result = capture_claude_session_id("/tmp/myproject", &HashSet::new());
         assert!(result.is_err(), "Empty dir should return error");
 
         match old_val {
