@@ -528,11 +528,12 @@ impl HomeView {
         false
     }
 
-    /// Apply any pending session ID updates from background pollers and
-    /// completed capture gates.
+    /// Apply any pending session ID updates from background pollers,
+    /// completed capture gates, and hook sidecars.
     /// Returns true if any instance was updated.
     pub fn apply_session_id_updates(&mut self) -> bool {
         let mut updates: Vec<(String, String)> = Vec::new();
+
         for inst in &self.instances {
             // Poller channel (Claude, OpenCode)
             if let Some((_id, session_id)) = inst
@@ -549,6 +550,7 @@ impl HomeView {
             if inst.agent_session_id.is_none() {
                 if let Some(session_id) = inst.capture_gate.as_ref().and_then(|g| g.try_take()) {
                     updates.push((inst.id.clone(), session_id));
+                    continue;
                 }
             }
 
@@ -562,6 +564,7 @@ impl HomeView {
                             "Updating session_id from hook sidecar"
                         );
                         updates.push((inst.id.clone(), hook_session_id));
+                        continue;
                     }
                 }
             }

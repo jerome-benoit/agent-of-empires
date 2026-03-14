@@ -69,6 +69,109 @@ pub(crate) fn generate_claude_session_id() -> String {
     Uuid::new_v4().to_string()
 }
 
+/// Encode a project path into Claude Code's directory naming convention.
+///
+/// Claude stores per-project data under `~/.claude/projects/{encoded}/` where
+/// non-alphanumeric characters (except `-`) are replaced with `-`.
+/// For example: `/Users/foo/bar` becomes `-Users-foo-bar`.
+fn encode_claude_project_path(project_path: &str) -> String {
+    project_path
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// Scan Claude Code's project directory for the most recently active session.
+///
+/// Claude stores conversation files as `{uuid}.jsonl` under
+/// `~/.claude/projects/{encoded-path}/`. This function finds the most recently
+/// modified UUID-named file, filtering out files owned by other AoE instances.
+///
+/// Used as a fallback when hooks don't fire (e.g. after `/clear` or `/new`).
+pub(crate) fn scan_claude_session_from_disk(
+    project_path: &str,
+    exclusion: &HashSet<String>,
+) -> Result<String> {
+    let claude_home = resolve_agent_home(Some("CLAUDE_CONFIG_DIR"), ".claude")?;
+    let canonical = canonicalize_or_raw(project_path);
+    let dir_name = encode_claude_project_path(&canonical.to_string_lossy());
+    let project_dir = claude_home.join("projects").join(&dir_name);
+
+    if !project_dir.is_dir() {
+        anyhow::bail!(
+            "Claude projects directory not found: {}",
+            project_dir.display()
+        );
+    }
+
+    let mut best: Option<(String, std::time::SystemTime)> = None;
+
+    for entry in resilient_read_dir(&project_dir)? {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let stem = match path.file_stem().and_then(|s| s.to_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        // Skip non-UUID files (e.g. agent-*.jsonl for subagents)
+        if Uuid::parse_str(stem).is_err() {
+            continue;
+        }
+
+        if exclusion.contains(stem) {
+            continue;
+        }
+
+        let modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
+        if best.as_ref().map_or(true, |(_, t)| modified > *t) {
+            best = Some((stem.to_string(), modified));
+        }
+    }
+
+    let (session_id, modified) =
+        best.ok_or_else(|| anyhow::anyhow!("No Claude session files found"))?;
+
+    // Only accept sessions modified within the last 5 minutes to avoid adopting
+    // stale files from previous sessions.
+    let age = modified.elapsed().unwrap_or(Duration::from_secs(u64::MAX));
+    if age > Duration::from_secs(5 * 60) {
+        anyhow::bail!("Most recent Claude session file is stale ({age:?} old)");
+    }
+
+    Ok(session_id)
+}
+
+/// Create a polling closure for Claude Code that scans project session files.
+///
+/// Each invocation rebuilds the exclusion set from other AoE instances and
+/// scans `~/.claude/projects/{encoded-path}/` for the most recently modified
+/// UUID-named `.jsonl` file. The poller's adaptive interval handles rate
+/// limiting: under stable conditions it backs off to 60s.
+pub(crate) fn claude_poll_fn(
+    project_path: String,
+    instance_id: String,
+) -> impl Fn() -> Option<String> + Send + 'static {
+    move || {
+        let exclusion = build_exclusion_set(&instance_id);
+        scan_claude_session_from_disk(&project_path, &exclusion)
+            .map_err(|e| tracing::debug!("Claude disk scan failed: {}", e))
+            .ok()
+    }
+}
+
 /// Create a polling closure for OpenCode that re-runs `try_capture_opencode_session_id`.
 ///
 /// Each invocation rebuilds the exclusion set from other AoE instances and invokes
@@ -1411,5 +1514,159 @@ mod tests {
             result.is_none(),
             "Non-existent container should return None"
         );
+    }
+
+    #[test]
+    fn test_encode_claude_project_path_basic() {
+        assert_eq!(
+            encode_claude_project_path("/Users/foo/bar"),
+            "-Users-foo-bar"
+        );
+    }
+
+    #[test]
+    fn test_encode_claude_project_path_preserves_alphanumeric_and_dash() {
+        assert_eq!(
+            encode_claude_project_path("my-project-123"),
+            "my-project-123"
+        );
+    }
+
+    #[test]
+    fn test_encode_claude_project_path_replaces_special_chars() {
+        assert_eq!(
+            encode_claude_project_path("/home/user/my project (copy)"),
+            "-home-user-my-project--copy-"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_scan_claude_session_finds_most_recent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("projects").join("-tmp-myproject");
+        std::fs::create_dir_all(&project_dir).unwrap();
+
+        let uuid_old = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let uuid_new = "11111111-2222-3333-4444-555555555555";
+        let old_file = project_dir.join(format!("{uuid_old}.jsonl"));
+        let new_file = project_dir.join(format!("{uuid_new}.jsonl"));
+
+        std::fs::write(&old_file, "old data\n").unwrap();
+        // Set old file's mtime to 10 minutes ago
+        let ten_min_ago = std::time::SystemTime::now() - Duration::from_secs(600);
+        filetime::set_file_mtime(&old_file, filetime::FileTime::from_system_time(ten_min_ago))
+            .unwrap();
+        std::fs::write(&new_file, "new data\n").unwrap();
+
+        let old_val = std::env::var("CLAUDE_CONFIG_DIR").ok();
+        std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
+
+        let result = scan_claude_session_from_disk("/tmp/myproject", &HashSet::new());
+        assert_eq!(result.unwrap(), uuid_new);
+
+        match old_val {
+            Some(v) => std::env::set_var("CLAUDE_CONFIG_DIR", v),
+            None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_scan_claude_session_respects_exclusion() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("projects").join("-tmp-myproject");
+        std::fs::create_dir_all(&project_dir).unwrap();
+
+        let uuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        std::fs::write(project_dir.join(format!("{uuid}.jsonl")), "data\n").unwrap();
+
+        let old_val = std::env::var("CLAUDE_CONFIG_DIR").ok();
+        std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
+
+        let mut exclusion = HashSet::new();
+        exclusion.insert(uuid.to_string());
+        let result = scan_claude_session_from_disk("/tmp/myproject", &exclusion);
+        assert!(result.is_err(), "Excluded session should not be returned");
+
+        match old_val {
+            Some(v) => std::env::set_var("CLAUDE_CONFIG_DIR", v),
+            None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_scan_claude_session_skips_agent_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("projects").join("-tmp-myproject");
+        std::fs::create_dir_all(&project_dir).unwrap();
+
+        std::fs::write(
+            project_dir.join("agent-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl"),
+            "subagent data\n",
+        )
+        .unwrap();
+
+        let old_val = std::env::var("CLAUDE_CONFIG_DIR").ok();
+        std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
+
+        let result = scan_claude_session_from_disk("/tmp/myproject", &HashSet::new());
+        assert!(result.is_err(), "Agent files should not be picked up");
+
+        match old_val {
+            Some(v) => std::env::set_var("CLAUDE_CONFIG_DIR", v),
+            None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_scan_claude_session_rejects_stale() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("projects").join("-tmp-myproject");
+        std::fs::create_dir_all(&project_dir).unwrap();
+
+        let uuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let file = project_dir.join(format!("{uuid}.jsonl"));
+        std::fs::write(&file, "old data\n").unwrap();
+
+        // Set mtime to 10 minutes ago (beyond 5-minute threshold)
+        let stale_time = std::time::SystemTime::now() - Duration::from_secs(600);
+        filetime::set_file_mtime(&file, filetime::FileTime::from_system_time(stale_time)).unwrap();
+
+        let old_val = std::env::var("CLAUDE_CONFIG_DIR").ok();
+        std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
+
+        let result = scan_claude_session_from_disk("/tmp/myproject", &HashSet::new());
+        assert!(result.is_err(), "Stale session file should be rejected");
+        assert!(
+            result.unwrap_err().to_string().contains("stale"),
+            "Error should mention staleness"
+        );
+
+        match old_val {
+            Some(v) => std::env::set_var("CLAUDE_CONFIG_DIR", v),
+            None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_scan_claude_session_empty_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("projects").join("-tmp-myproject");
+        std::fs::create_dir_all(&project_dir).unwrap();
+
+        let old_val = std::env::var("CLAUDE_CONFIG_DIR").ok();
+        std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
+
+        let result = scan_claude_session_from_disk("/tmp/myproject", &HashSet::new());
+        assert!(result.is_err(), "Empty dir should return error");
+
+        match old_val {
+            Some(v) => std::env::set_var("CLAUDE_CONFIG_DIR", v),
+            None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
+        }
     }
 }

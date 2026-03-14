@@ -19,7 +19,7 @@ use super::poller::SessionPoller;
 
 use crate::session::capture::{
     build_exclusion_set, capture_codex_session_id, capture_from_container, capture_from_host,
-    capture_gemini_session_id, capture_vibe_session_id, generate_claude_session_id,
+    capture_gemini_session_id, capture_vibe_session_id, claude_poll_fn, generate_claude_session_id,
     is_valid_session_id, opencode_poll_fn, session_timing, try_capture_opencode_session_id,
     validated_session_id,
 };
@@ -340,12 +340,8 @@ impl Instance {
     }
 
     /// Whether this agent uses a session ID poller for live tracking.
-    ///
-    /// Claude is excluded: `~/.claude/debug/latest` is a global symlink shared
-    /// across all instances, so it cannot reliably identify which project owns
-    /// the session. Its pre-launch UUID via `--session-id` is authoritative.
     pub fn supports_session_poller(&self) -> bool {
-        matches!(self.tool.as_str(), "opencode")
+        matches!(self.tool.as_str(), "claude" | "opencode")
     }
 
     /// Whether this agent creates its own session on startup, requiring
@@ -1048,7 +1044,7 @@ impl Instance {
         let initial_known = self.agent_session_id.clone();
 
         let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = match tool {
-            // Claude excluded: see supports_session_poller() for rationale.
+            "claude" => Box::new(claude_poll_fn(self.project_path.clone(), self.id.clone())),
             "opencode" => Box::new(opencode_poll_fn(
                 self.project_path.clone(),
                 self.id.clone(),
