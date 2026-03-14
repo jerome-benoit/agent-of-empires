@@ -172,6 +172,45 @@ pub(crate) fn claude_poll_fn(
     }
 }
 
+/// Polling closure for Codex CLI that re-runs filesystem capture.
+pub(crate) fn codex_poll_fn(
+    project_path: String,
+    instance_id: String,
+) -> impl Fn() -> Option<String> + Send + 'static {
+    move || {
+        let exclusion = build_exclusion_set(&instance_id);
+        capture_codex_session_id(&project_path, &exclusion)
+            .map_err(|e| tracing::debug!("Codex poll capture failed: {}", e))
+            .ok()
+    }
+}
+
+/// Polling closure for Gemini CLI that re-runs filesystem capture.
+pub(crate) fn gemini_poll_fn(
+    project_path: String,
+    instance_id: String,
+) -> impl Fn() -> Option<String> + Send + 'static {
+    move || {
+        let exclusion = build_exclusion_set(&instance_id);
+        capture_gemini_session_id(&project_path, &exclusion)
+            .map_err(|e| tracing::debug!("Gemini poll capture failed: {}", e))
+            .ok()
+    }
+}
+
+/// Polling closure for Vibe (Mistral) that re-runs filesystem capture.
+pub(crate) fn vibe_poll_fn(
+    project_path: String,
+    instance_id: String,
+) -> impl Fn() -> Option<String> + Send + 'static {
+    move || {
+        let exclusion = build_exclusion_set(&instance_id);
+        capture_vibe_session_id(&project_path, &exclusion)
+            .map_err(|e| tracing::debug!("Vibe poll capture failed: {}", e))
+            .ok()
+    }
+}
+
 /// Create a polling closure for OpenCode that re-runs `try_capture_opencode_session_id`.
 ///
 /// Each invocation rebuilds the exclusion set from other AoE instances and invokes

@@ -19,9 +19,9 @@ use super::poller::SessionPoller;
 
 use crate::session::capture::{
     build_exclusion_set, capture_codex_session_id, capture_from_container, capture_from_host,
-    capture_gemini_session_id, capture_vibe_session_id, claude_poll_fn, generate_claude_session_id,
-    is_valid_session_id, opencode_poll_fn, session_timing, try_capture_opencode_session_id,
-    validated_session_id,
+    capture_gemini_session_id, capture_vibe_session_id, claude_poll_fn, codex_poll_fn,
+    gemini_poll_fn, generate_claude_session_id, is_valid_session_id, opencode_poll_fn,
+    session_timing, try_capture_opencode_session_id, validated_session_id, vibe_poll_fn,
 };
 
 fn default_true() -> bool {
@@ -341,7 +341,10 @@ impl Instance {
 
     /// Whether this agent uses a session ID poller for live tracking.
     pub fn supports_session_poller(&self) -> bool {
-        matches!(self.tool.as_str(), "claude" | "opencode")
+        matches!(
+            self.tool.as_str(),
+            "claude" | "opencode" | "codex" | "gemini" | "vibe"
+        )
     }
 
     /// Whether this agent creates its own session on startup, requiring
@@ -1045,6 +1048,9 @@ impl Instance {
 
         let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = match tool {
             "claude" => Box::new(claude_poll_fn(self.project_path.clone(), self.id.clone())),
+            "codex" => Box::new(codex_poll_fn(self.project_path.clone(), self.id.clone())),
+            "gemini" => Box::new(gemini_poll_fn(self.project_path.clone(), self.id.clone())),
+            "vibe" => Box::new(vibe_poll_fn(self.project_path.clone(), self.id.clone())),
             "opencode" => Box::new(opencode_poll_fn(
                 self.project_path.clone(),
                 self.id.clone(),
