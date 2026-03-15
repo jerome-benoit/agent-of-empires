@@ -20,26 +20,18 @@ pub use status_file::{
 /// Base directory for all AoE hook status files.
 pub(crate) const HOOK_STATUS_BASE: &str = "/tmp/aoe-hooks";
 
-/// Marker substrings that identify AoE-managed hooks in settings.json.
-/// Any hook command containing ANY of these strings is considered ours.
-/// The first entry is the legacy shell one-liner marker (path-based).
-/// The second entry matches the binary hook-handler command format.
-const AOE_HOOK_MARKERS: &[&str] = &["aoe-hooks", "hook-handler"];
+/// Matches legacy shell one-liners (containing "aoe-hooks" path) and the
+/// current binary format (command ending with "hook-handler" subcommand).
+fn is_aoe_hook_command(cmd: &str) -> bool {
+    cmd.contains("aoe-hooks") || cmd.ends_with("hook-handler")
+}
 
 /// Resolve the absolute canonicalized path to the running `aoe` binary.
-///
-/// Uses `std::env::current_exe()` to get the binary path and `std::fs::canonicalize()`
-/// to resolve symlinks and relative components. Returns `None` if resolution fails.
 pub(crate) fn resolve_aoe_binary_path() -> Option<String> {
     std::env::current_exe()
         .ok()
         .and_then(|path| std::fs::canonicalize(&path).ok())
         .and_then(|path| path.to_str().map(|s| s.to_string()))
-}
-
-/// Check if a command string is an AoE-managed hook.
-fn is_aoe_hook_command(cmd: &str) -> bool {
-    AOE_HOOK_MARKERS.iter().any(|marker| cmd.contains(marker))
 }
 
 /// Build the command string that invokes the `aoe hook-handler` binary.
