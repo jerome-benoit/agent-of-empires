@@ -671,7 +671,7 @@ pub(crate) fn build_container_config(
             // NOTE: Sandboxed sessions have limited hook support. The hooks are installed
             // with absolute paths to the host's `aoe` binary (e.g., "/usr/local/bin/aoe hook-handler").
             // These paths do not exist inside the Docker container, so hook commands will fail
-            // silently when fired by Claude Code inside the container.
+            // silently when fired by the agent inside the container.
             //
             // This is acceptable because:
             // 1. Hooks are fire-and-forget; Claude Code doesn't block on failures
