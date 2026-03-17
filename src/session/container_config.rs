@@ -674,7 +674,7 @@ pub(crate) fn build_container_config(
             // silently when fired by the agent inside the container.
             //
             // This is acceptable because:
-            // 1. Hooks are fire-and-forget; Claude Code doesn't block on failures
+            // 1. Hooks are fire-and-forget; agent doesn't block on failures
             // 2. The hook status directory (/tmp/aoe-hooks/{instance_id}/) IS mounted into the
             //    container, so if hooks worked, they would write to the correct shared location
             // 3. Host-side hooks (from the user's non-sandboxed settings.json) still fire when
