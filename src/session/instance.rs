@@ -24,10 +24,6 @@ use crate::session::capture::{
     session_timing, try_capture_opencode_session_id, validated_session_id, vibe_poll_fn,
 };
 
-fn default_true() -> bool {
-    true
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerminalInfo {
     #[serde(default)]
@@ -56,8 +52,6 @@ pub struct WorktreeInfo {
     pub main_repo_path: String,
     pub managed_by_aoe: bool,
     pub created_at: DateTime<Utc>,
-    #[serde(default = "default_true")]
-    pub cleanup_on_delete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1495,7 +1489,6 @@ mod tests {
             main_repo_path: "/home/user/repo".to_string(),
             managed_by_aoe: true,
             created_at: Utc::now(),
-            cleanup_on_delete: true,
         };
 
         let json = serde_json::to_string(&info).unwrap();
@@ -1504,15 +1497,6 @@ mod tests {
         assert_eq!(info.branch, deserialized.branch);
         assert_eq!(info.main_repo_path, deserialized.main_repo_path);
         assert_eq!(info.managed_by_aoe, deserialized.managed_by_aoe);
-        assert_eq!(info.cleanup_on_delete, deserialized.cleanup_on_delete);
-    }
-
-    #[test]
-    fn test_worktree_info_default_cleanup_on_delete() {
-        // Deserialize without cleanup_on_delete field - should default to true
-        let json = r#"{"branch":"test","main_repo_path":"/path","managed_by_aoe":true,"created_at":"2024-01-01T00:00:00Z"}"#;
-        let info: WorktreeInfo = serde_json::from_str(json).unwrap();
-        assert!(info.cleanup_on_delete);
     }
 
     // Tests for SandboxInfo
@@ -1593,7 +1577,6 @@ mod tests {
             main_repo_path: "/tmp/main".to_string(),
             managed_by_aoe: true,
             created_at: Utc::now(),
-            cleanup_on_delete: true,
         });
 
         let json = serde_json::to_string(&inst).unwrap();
