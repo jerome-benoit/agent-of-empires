@@ -146,6 +146,8 @@ pub struct Instance {
     #[serde(skip)]
     pub(crate) deferred_capture_handle: Option<Arc<Mutex<Option<std::thread::JoinHandle<()>>>>>,
     #[serde(skip)]
+    pub(crate) deferred_capture_shutdown: Option<Arc<std::sync::atomic::AtomicBool>>,
+    #[serde(skip)]
     pub(crate) capture_gate: Option<Arc<CaptureGate>>,
 }
 
@@ -323,6 +325,7 @@ impl Instance {
             last_error: None,
             session_id_poller: None,
             deferred_capture_handle: None,
+            deferred_capture_shutdown: None,
             capture_gate: None,
         }
     }
@@ -853,7 +856,24 @@ impl Instance {
             persist_session_to_storage(profile, &self.id, sid);
         }
     }
+}
 
+/// Sleep for `duration` in 200ms increments, returning `true` if shutdown was requested.
+fn sleep_check_shutdown(flag: &std::sync::atomic::AtomicBool, duration: Duration) -> bool {
+    let step = Duration::from_millis(200);
+    let mut remaining = duration;
+    while remaining > Duration::ZERO {
+        if flag.load(std::sync::atomic::Ordering::Relaxed) {
+            return true;
+        }
+        let sleep_time = remaining.min(step);
+        std::thread::sleep(sleep_time);
+        remaining = remaining.saturating_sub(sleep_time);
+    }
+    flag.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+impl Instance {
     /// Spawn a background thread to capture the session ID after the agent starts.
     ///
     /// Some agents (OpenCode, Codex, Gemini, Vibe) create their own sessions on
@@ -867,6 +887,9 @@ impl Instance {
         if !self.supports_deferred_capture() {
             return;
         }
+
+        let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let shutdown_flag = Arc::clone(&shutdown);
 
         let gate = Arc::new(CaptureGate::new());
         let gate_for_thread = Arc::clone(&gate);
@@ -890,11 +913,20 @@ impl Instance {
             .name(format!("deferred-capture-{}", instance_id))
             .spawn(move || {
                 let timing = session_timing();
-                std::thread::sleep(Duration::from_secs(
-                    timing.deferred_capture_initial_delay_secs,
-                ));
+                if sleep_check_shutdown(
+                    &shutdown_flag,
+                    Duration::from_secs(timing.deferred_capture_initial_delay_secs),
+                ) {
+                    gate_for_thread.complete(None);
+                    return;
+                }
 
                 for attempt in 1..=timing.deferred_capture_max_attempts {
+                    if shutdown_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                        gate_for_thread.complete(None);
+                        return;
+                    }
+
                     let exclusion = build_exclusion_set(&instance_id);
 
                     let captured = if is_sandboxed {
@@ -928,9 +960,13 @@ impl Instance {
                             timing.deferred_capture_max_attempts,
                             instance_id
                         );
-                        std::thread::sleep(Duration::from_secs(
-                            timing.deferred_capture_retry_delay_secs,
-                        ));
+                        if sleep_check_shutdown(
+                            &shutdown_flag,
+                            Duration::from_secs(timing.deferred_capture_retry_delay_secs),
+                        ) {
+                            gate_for_thread.complete(None);
+                            return;
+                        }
                     }
                 }
 
@@ -943,6 +979,7 @@ impl Instance {
             }) {
             Ok(handle) => {
                 self.deferred_capture_handle = Some(Arc::new(Mutex::new(Some(handle))));
+                self.deferred_capture_shutdown = Some(shutdown);
             }
             Err(e) => {
                 tracing::error!(
@@ -1115,6 +1152,9 @@ impl Instance {
     ) -> Result<()> {
         self.stop_poller();
         self.session_id_poller = None;
+        if let Some(ref flag) = self.deferred_capture_shutdown {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         if let Some(ref handle_arc) = self.deferred_capture_handle {
             if let Ok(mut handle_opt) = handle_arc.lock() {
                 if let Some(handle) = handle_opt.take() {
@@ -1123,6 +1163,7 @@ impl Instance {
             }
         }
         self.deferred_capture_handle = None;
+        self.deferred_capture_shutdown = None;
         self.capture_gate = None;
 
         let session = self.tmux_session()?;
@@ -1137,7 +1178,9 @@ impl Instance {
 
     pub fn kill(&self) -> Result<()> {
         self.stop_poller();
-        // Join deferred capture thread if still running
+        if let Some(ref flag) = self.deferred_capture_shutdown {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         if let Some(ref handle_arc) = self.deferred_capture_handle {
             if let Ok(mut handle_opt) = handle_arc.lock() {
                 if let Some(handle) = handle_opt.take() {
