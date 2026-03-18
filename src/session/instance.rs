@@ -152,7 +152,7 @@ fn apply_yolo_mode(cmd: &mut String, yolo: &crate::agents::YoloMode, is_sandboxe
             *cmd = format!("{} {}", cmd, flag);
         }
         crate::agents::YoloMode::EnvVar(key, value) if !is_sandboxed => {
-            *cmd = format!("{}={} {}", key, value, cmd);
+            *cmd = format_env_var_prefix(key, value, cmd);
         }
         crate::agents::YoloMode::EnvVar(..) | crate::agents::YoloMode::AlwaysYolo => {}
     }
@@ -1301,6 +1301,16 @@ fn generate_id() -> String {
     Uuid::new_v4().to_string().replace("-", "")[..16].to_string()
 }
 
+/// Format an environment variable assignment as a shell-safe command prefix.
+///
+/// Uses `shell_escape` (double-quote escaping) so the value is preserved
+/// verbatim when parsed by the inner `bash -c '...'` shell created by
+/// `wrap_command_ignore_suspend`.
+fn format_env_var_prefix(key: &str, value: &str, cmd: &str) -> String {
+    let escaped = shell_escape(value);
+    format!("{}={} {}", key, escaped, cmd)
+}
+
 /// Wrap a command to disable Ctrl-Z (SIGTSTP) suspension.
 ///
 /// When running agents directly as tmux session commands (without a parent shell),
@@ -1371,6 +1381,30 @@ mod tests {
         inst.yolo_mode = true;
         assert!(inst.is_yolo_mode());
         assert!(!inst.is_sandboxed());
+    }
+
+    #[test]
+    fn test_yolo_envvar_command_is_quoted() {
+        // EnvVar values containing JSON must be shell-escaped to prevent
+        // the inner bash from expanding special characters ({, *, ").
+        let result = format_env_var_prefix("OPENCODE_PERMISSION", r#"{"*":"allow"}"#, "opencode");
+        assert_eq!(
+            result,
+            r#"OPENCODE_PERMISSION="{\"*\":\"allow\"}" opencode"#
+        );
+    }
+
+    #[test]
+    fn test_yolo_envvar_survives_suspend_wrapper() {
+        // The full chain: format_env_var_prefix -> wrap_command_ignore_suspend
+        // must preserve the JSON value through both quoting layers.
+        let cmd = format_env_var_prefix("OPENCODE_PERMISSION", r#"{"*":"allow"}"#, "opencode");
+        let wrapped = wrap_command_ignore_suspend(&cmd);
+        assert!(
+            wrapped.contains(r#"OPENCODE_PERMISSION="{\"*\":\"allow\"}" opencode"#),
+            "wrapped command should contain the escaped env var assignment: {}",
+            wrapped,
+        );
     }
 
     // Additional tests for is_sandboxed
