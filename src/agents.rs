@@ -51,6 +51,8 @@ pub struct HookEvent {
     /// Optional matcher pattern (e.g. `"permission_prompt|elicitation_dialog"`).
     pub matcher: Option<&'static str>,
     /// AoE status to write when this event fires (`"running"`, `"idle"`, `"waiting"`).
+    /// `None` for lifecycle-only events (e.g. `SessionStart`/`SessionEnd`) that
+    /// are declared for future use but skipped by shell one-liner hooks.
     pub status: Option<&'static str>,
 }
 
