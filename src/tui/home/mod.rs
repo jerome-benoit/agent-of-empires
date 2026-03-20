@@ -336,9 +336,6 @@ impl HomeView {
             }
 
             if inst.supports_session_poller() && inst.session_id_poller.is_none() {
-                // Reset so the poller rediscovers from scratch (stale IDs
-                // would poison the exclusion set).
-                inst.agent_session_id = None;
                 inst.maybe_start_poller();
             }
         }
@@ -499,8 +496,7 @@ impl HomeView {
         false
     }
 
-    /// Apply any pending session ID updates from background pollers,
-    /// completed capture gates, and hook sidecars.
+    /// Apply any pending session ID updates from background pollers.
     /// Returns true if any instance was updated.
     pub fn apply_session_id_updates(&mut self) -> bool {
         let mut updates: Vec<(String, String)> = Vec::new();
