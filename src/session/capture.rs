@@ -183,6 +183,7 @@ pub(crate) fn claude_poll_fn(
         capture_claude_session_id(&project_path, &exclusion)
             .map_err(|e| tracing::debug!("Claude disk scan failed: {}", e))
             .ok()
+            .and_then(validated_session_id)
     }
 }
 
@@ -196,6 +197,7 @@ pub(crate) fn codex_poll_fn(
         capture_codex_session_id(&project_path, &exclusion)
             .map_err(|e| tracing::debug!("Codex poll capture failed: {}", e))
             .ok()
+            .and_then(validated_session_id)
     }
 }
 
@@ -209,6 +211,7 @@ pub(crate) fn gemini_poll_fn(
         capture_gemini_session_id(&project_path, &exclusion)
             .map_err(|e| tracing::debug!("Gemini poll capture failed: {}", e))
             .ok()
+            .and_then(validated_session_id)
     }
 }
 
@@ -222,6 +225,7 @@ pub(crate) fn vibe_poll_fn(
         capture_vibe_session_id(&project_path, &exclusion)
             .map_err(|e| tracing::debug!("Vibe poll capture failed: {}", e))
             .ok()
+            .and_then(validated_session_id)
     }
 }
 
@@ -236,6 +240,7 @@ pub(crate) fn opencode_poll_fn(
         try_capture_opencode_session_id(&project_path, &exclusion, launch_time_ms)
             .map_err(|e| tracing::debug!("OpenCode poll capture failed: {}", e))
             .ok()
+            .and_then(validated_session_id)
     }
 }
 
@@ -261,29 +266,36 @@ pub(crate) fn build_exclusion_set(current_instance_id: &str) -> HashSet<String> 
     };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut excluded = HashSet::new();
+    let aoe_sessions: Vec<&str> = stdout
+        .lines()
+        .filter(|name| name.starts_with(crate::tmux::SESSION_PREFIX))
+        .collect();
 
-    for session_name in stdout.lines() {
-        if !session_name.starts_with(crate::tmux::SESSION_PREFIX) {
-            continue;
-        }
-
-        let owner =
-            crate::tmux::env::get_hidden_env(session_name, crate::tmux::env::AOE_INSTANCE_ID_KEY);
-
-        if owner.as_deref() == Some(current_instance_id) {
-            continue;
-        }
-
-        if let Some(captured) = crate::tmux::env::get_hidden_env(
-            session_name,
-            crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
-        ) {
-            excluded.insert(captured);
-        }
+    if aoe_sessions.is_empty() {
+        return HashSet::new();
     }
 
-    excluded
+    let instance_ids = crate::tmux::env::get_hidden_env_batch(
+        &aoe_sessions,
+        crate::tmux::env::AOE_INSTANCE_ID_KEY,
+    );
+
+    let other_sessions: Vec<&str> = instance_ids
+        .iter()
+        .filter(|(_, owner)| owner.as_deref() != Some(current_instance_id))
+        .map(|(name, _)| name.as_str())
+        .collect();
+
+    if other_sessions.is_empty() {
+        return HashSet::new();
+    }
+
+    let captured_ids = crate::tmux::env::get_hidden_env_batch(
+        &other_sessions,
+        crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
+    );
+
+    captured_ids.into_iter().filter_map(|(_, id)| id).collect()
 }
 
 /// Filter, sort, and deduplicate OpenCode sessions by project directory.

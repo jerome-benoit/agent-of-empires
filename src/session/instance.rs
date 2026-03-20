@@ -802,6 +802,17 @@ impl Instance {
 
     /// Post-launch setup: persist state, start pollers, and apply tmux options.
     fn finalize_launch(&mut self, session_name: &str, profile: &str) {
+        // Publish AOE_INSTANCE_ID synchronously so that build_exclusion_set
+        // (called from the poller on its first tick) can correctly identify
+        // this session as "self" and avoid self-excluding its own captured ID.
+        if let Err(e) = crate::tmux::env::set_hidden_env(
+            session_name,
+            crate::tmux::env::AOE_INSTANCE_ID_KEY,
+            &self.id,
+        ) {
+            tracing::warn!("Failed to set AOE_INSTANCE_ID in tmux env: {}", e);
+        }
+
         self.persist_session_id(profile);
         let poller_launch_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -812,30 +823,26 @@ impl Instance {
         self.status = Status::Starting;
         self.last_start_time = Some(std::time::Instant::now());
 
-        // Apply tmux env and status bar options in a background thread to avoid
-        // blocking the TUI on subprocess calls.
+        // Apply status bar options in a background thread to avoid blocking
+        // the TUI on the multiple tmux subprocess calls they require.
         let session_name = session_name.to_string();
-        let instance_id = self.id.clone();
         let instance_id_for_log = self.id.clone();
         let title = self.title.clone();
         let branch = self.worktree_info.as_ref().map(|w| w.branch.clone());
         let sandbox = self.sandbox_display();
         match std::thread::Builder::new()
-            .name(format!("finalize-tmux-{}", instance_id))
+            .name(format!("finalize-tmux-{}", instance_id_for_log))
             .spawn(move || {
-                if let Err(e) = crate::tmux::env::set_hidden_env(
-                    &session_name,
-                    crate::tmux::env::AOE_INSTANCE_ID_KEY,
-                    &instance_id,
-                ) {
-                    tracing::warn!("Failed to set AOE_INSTANCE_ID in tmux env: {}", e);
+                if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    crate::tmux::status_bar::apply_all_tmux_options(
+                        &session_name,
+                        &title,
+                        branch.as_deref(),
+                        sandbox.as_ref(),
+                    );
+                })) {
+                    tracing::error!("finalize-tmux thread panicked: {:?}", panic);
                 }
-                crate::tmux::status_bar::apply_all_tmux_options(
-                    &session_name,
-                    &title,
-                    branch.as_deref(),
-                    sandbox.as_ref(),
-                );
             }) {
             Ok(_handle) => {}
             Err(e) => {

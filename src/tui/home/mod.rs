@@ -509,6 +509,10 @@ impl HomeView {
                 .and_then(|p| p.lock().ok())
                 .and_then(|p| p.try_recv_session_update())
             {
+                let Some(session_id) = crate::session::capture::validated_session_id(session_id)
+                else {
+                    continue;
+                };
                 if inst.agent_session_id.as_deref() != Some(session_id.as_str()) {
                     updates.push((inst.id.clone(), session_id));
                 }
