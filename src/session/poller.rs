@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::sync::mpsc::RecvTimeoutError;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -52,6 +52,7 @@ const POLL_BACKOFF_FACTOR: f64 = 1.5;
 const POLL_STABLE_THRESHOLD: u32 = 3;
 
 /// Timeout for deferred capture completion, with margin for retry delays.
+#[allow(dead_code)]
 const CAPTURE_GATE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Synchronization gate between deferred capture and polling threads.
@@ -218,11 +219,9 @@ pub enum PollCommand {
 /// `cmd_tx` sender is dropped too and `recv_timeout` returns `Disconnected`
 /// immediately -- so in the common case the thread exits promptly.
 ///
-/// However, if the thread is blocked on `CaptureGate::wait` (up to
-/// `CAPTURE_GATE_TIMEOUT`), the channel disconnection is not checked until
-/// that wait completes. `stop()` sends an explicit `PollCommand::Stop` and
-/// joins the thread, providing a deterministic shutdown path for callers
-/// like `Instance::kill` and `Instance::restart`.
+/// `stop()` sends an explicit `PollCommand::Stop` and joins the thread,
+/// providing a deterministic shutdown path for callers like `Instance::kill`
+/// and `Instance::restart`.
 pub struct SessionPoller {
     session_name: String,
     cmd_tx: mpsc::Sender<PollCommand>,
@@ -258,10 +257,6 @@ impl SessionPoller {
 
     /// Start the polling thread with the given callbacks.
     ///
-    /// When `capture_gate` is `Some`, the thread blocks until the deferred capture
-    /// completes, then uses the captured ID as its initial known value. This
-    /// prevents concurrent storage writes between the capture and poller threads.
-    ///
     /// Returns `true` if the thread was successfully spawned, `false` if the
     /// poller was already started, the thread budget was exhausted, or spawning failed.
     pub fn start(
@@ -270,7 +265,6 @@ impl SessionPoller {
         poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static>,
         on_change: Box<dyn Fn(&str) + Send + 'static>,
         initial_known: Option<String>,
-        capture_gate: Option<Arc<CaptureGate>>,
     ) -> bool {
         let cmd_rx = match self.cmd_rx.take() {
             Some(rx) => rx,
@@ -309,16 +303,6 @@ impl SessionPoller {
                 let _guard = _guard;
 
                 let mut last_known = initial_known;
-                let had_gate = capture_gate.is_some();
-
-                if let Some(gate) = capture_gate {
-                    tracing::debug!("Poller for {} waiting on capture gate", instance_id);
-                    let captured = gate.wait(CAPTURE_GATE_TIMEOUT);
-                    if let Some(ref id) = captured {
-                        tracing::debug!("Poller for {} received captured ID: {}", instance_id, id);
-                    }
-                    last_known = last_known.or(captured);
-                }
 
                 let mut interval = AdaptiveInterval::new(
                     POLL_INITIAL_INTERVAL,
@@ -327,16 +311,13 @@ impl SessionPoller {
                     POLL_STABLE_THRESHOLD,
                 );
 
-                // Immediate first poll for sessions without a capture gate
-                // (e.g. pre-existing sessions loaded from disk)
-                if !had_gate {
-                    if let Some(new_id) = poll_fn() {
-                        if last_known.as_deref() != Some(&new_id) {
-                            on_change(&new_id);
-                            let _ = result_tx.send((instance_id.clone(), new_id.clone()));
-                            last_known = Some(new_id);
-                            interval.record_change();
-                        }
+                // Immediate first poll (e.g. pre-existing sessions loaded from disk)
+                if let Some(new_id) = poll_fn() {
+                    if last_known.as_deref() != Some(&new_id) {
+                        on_change(&new_id);
+                        let _ = result_tx.send((instance_id.clone(), new_id.clone()));
+                        last_known = Some(new_id);
+                        interval.record_change();
                     }
                 }
 
@@ -425,6 +406,7 @@ impl Default for SessionPoller {
 mod tests {
     use super::*;
     use serial_test::serial;
+    use std::sync::Arc;
 
     #[test]
     fn test_adaptive_interval_initial() {
@@ -594,7 +576,6 @@ mod tests {
             poll_fn,
             on_change,
             Some("id-1".to_string()),
-            None,
         );
 
         // Force polls via PollNow (the default interval is 2s, too slow for tests)
@@ -632,7 +613,7 @@ mod tests {
         let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(|_| {});
 
         let mut poller = SessionPoller::new("test-session".to_string());
-        poller.start("test-pollnow".to_string(), poll_fn, on_change, None, None);
+        poller.start("test-pollnow".to_string(), poll_fn, on_change, None);
 
         std::thread::sleep(Duration::from_millis(50));
         poller.poll_now();
@@ -661,7 +642,6 @@ mod tests {
             Box::new(|| Some("id".to_string())),
             Box::new(|_| {}),
             None,
-            None,
         );
 
         assert!(
@@ -688,7 +668,6 @@ mod tests {
             }),
             Box::new(|_| {}),
             None,
-            None,
         );
 
         assert!(poller.is_running(), "poller should be running after start");
@@ -711,7 +690,6 @@ mod tests {
                 Some("id".to_string())
             }),
             Box::new(|_| {}),
-            None,
             None,
         );
 
@@ -836,10 +814,7 @@ mod tests {
     }
 
     #[test]
-    fn test_poller_with_capture_gate() {
-        let gate = Arc::new(CaptureGate::new());
-        let gate_clone = Arc::clone(&gate);
-
+    fn test_poller_starts_polling_immediately() {
         let poll_count = Arc::new(Mutex::new(0u32));
         let poll_count_clone = poll_count.clone();
 
@@ -852,29 +827,17 @@ mod tests {
         let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(|_| {});
 
         let mut poller = SessionPoller::new("test-session".to_string());
-        poller.start(
-            "test-gate".to_string(),
-            poll_fn,
-            on_change,
-            None,
-            Some(gate_clone),
-        );
-
-        std::thread::sleep(Duration::from_millis(100));
-        let count_before = *poll_count.lock().unwrap();
-
-        gate.complete(Some("ses_captured".to_string()));
+        poller.start("test-immediate".to_string(), poll_fn, on_change, None);
 
         std::thread::sleep(Duration::from_millis(300));
         poller.poll_now();
         std::thread::sleep(Duration::from_millis(100));
 
-        let count_after = *poll_count.lock().unwrap();
+        let count = *poll_count.lock().unwrap();
         assert!(
-            count_after > count_before,
-            "poller should have started polling after gate opened (before={}, after={})",
-            count_before,
-            count_after
+            count > 0,
+            "poller should have started polling immediately (count={})",
+            count
         );
 
         poller.stop();

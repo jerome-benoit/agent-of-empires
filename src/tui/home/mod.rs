@@ -325,9 +325,7 @@ impl HomeView {
             }
         }
 
-        // Recover session IDs for pre-existing sessions: pollers for Claude/OpenCode,
-        // retroactive capture for others.
-        let mut recovered_session_id = false;
+        // Recover session IDs for pre-existing sessions via pollers.
         for inst in &mut view.instances {
             let has_live_tmux = inst
                 .tmux_session()
@@ -337,35 +335,11 @@ impl HomeView {
                 continue;
             }
 
-            if inst.supports_session_poller() {
-                if inst.session_id_poller.is_none() {
-                    // Reset so the poller rediscovers from scratch (stale IDs
-                    // would poison the exclusion set).
-                    inst.agent_session_id = None;
-                    inst.maybe_start_poller();
-                }
-            } else if inst.supports_deferred_capture() && inst.agent_session_id.is_none() {
-                if let Some(id) = inst.try_retroactive_capture() {
-                    // Publish so build_exclusion_set() excludes this ID.
-                    let tmux_name = inst
-                        .tmux_session()
-                        .map(|s| s.name().to_string())
-                        .unwrap_or_default();
-                    if !tmux_name.is_empty() {
-                        let _ = crate::tmux::env::set_hidden_env(
-                            &tmux_name,
-                            crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
-                            &id,
-                        );
-                    }
-                    inst.agent_session_id = Some(id);
-                    recovered_session_id = true;
-                }
-            }
-        }
-        if recovered_session_id {
-            if let Err(e) = view.save() {
-                tracing::warn!("Failed to save retroactively captured session IDs: {}", e);
+            if inst.supports_session_poller() && inst.session_id_poller.is_none() {
+                // Reset so the poller rediscovers from scratch (stale IDs
+                // would poison the exclusion set).
+                inst.agent_session_id = None;
+                inst.maybe_start_poller();
             }
         }
         view.instance_map = view
@@ -405,12 +379,9 @@ impl HomeView {
                     inst.last_error_check = prev.last_error_check;
                     inst.last_start_time = prev.last_start_time;
                     inst.session_id_poller = prev.session_id_poller.clone();
-                    inst.deferred_capture_handle = prev.deferred_capture_handle.clone();
-                    inst.deferred_capture_shutdown = prev.deferred_capture_shutdown.clone();
-                    inst.capture_gate = prev.capture_gate.clone();
                     // Use in-memory session_id if present; fallback to disk.
-                    // In-memory state takes priority over disk: the poller or
-                    // deferred capture may have updated the ID since last save.
+                    // In-memory state takes priority over disk: the poller
+                    // may have updated the ID since last save.
                     inst.agent_session_id = prev
                         .agent_session_id
                         .clone()
@@ -546,16 +517,6 @@ impl HomeView {
                     updates.push((inst.id.clone(), session_id));
                 }
                 continue;
-            }
-
-            // Completed capture gates (deferred capture agents)
-            if inst.agent_session_id.is_none() {
-                if let Some(session_id) = inst.capture_gate.as_ref().and_then(|g| g.try_take()) {
-                    if inst.agent_session_id.as_deref() != Some(session_id.as_str()) {
-                        updates.push((inst.id.clone(), session_id));
-                    }
-                    continue;
-                }
             }
         }
 

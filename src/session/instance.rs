@@ -2,7 +2,6 @@
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -14,14 +13,13 @@ use crate::tmux;
 
 use super::container_config;
 use super::environment::{build_docker_env_args, shell_escape};
-use super::poller::CaptureGate;
 use super::poller::SessionPoller;
 
 use crate::session::capture::{
-    build_exclusion_set, capture_codex_session_id, capture_from_container, capture_from_host,
-    capture_gemini_session_id, capture_vibe_session_id, claude_poll_fn, codex_poll_fn,
-    gemini_poll_fn, generate_claude_session_id, is_valid_session_id, opencode_poll_fn,
-    session_timing, try_capture_opencode_session_id, validated_session_id, vibe_poll_fn,
+    build_exclusion_set, capture_codex_session_id, capture_gemini_session_id,
+    capture_vibe_session_id, claude_poll_fn, codex_poll_fn, gemini_poll_fn,
+    generate_claude_session_id, is_valid_session_id, opencode_poll_fn,
+    try_capture_opencode_session_id, validated_session_id, vibe_poll_fn,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,12 +163,6 @@ pub struct Instance {
     pub last_error: Option<String>,
     #[serde(skip)]
     pub session_id_poller: Option<Arc<Mutex<SessionPoller>>>,
-    #[serde(skip)]
-    pub(crate) deferred_capture_handle: Option<Arc<Mutex<Option<std::thread::JoinHandle<()>>>>>,
-    #[serde(skip)]
-    pub(crate) deferred_capture_shutdown: Option<Arc<std::sync::atomic::AtomicBool>>,
-    #[serde(skip)]
-    pub(crate) capture_gate: Option<Arc<CaptureGate>>,
 }
 
 /// Append yolo-mode flags or environment variables to a launch command.
@@ -347,9 +339,6 @@ impl Instance {
             last_start_time: None,
             last_error: None,
             session_id_poller: None,
-            deferred_capture_handle: None,
-            deferred_capture_shutdown: None,
-            capture_gate: None,
         }
     }
 
@@ -375,23 +364,6 @@ impl Instance {
             self.tool.as_str(),
             "claude" | "opencode" | "codex" | "gemini" | "vibe"
         )
-    }
-
-    /// Whether this agent creates its own session on startup, requiring
-    /// post-launch ID capture.
-    ///
-    /// Derived from the agent's `ResumeStrategy`: agents with `Flag` or
-    /// `Subcommand` strategies create their own sessions (OpenCode, Codex,
-    /// Gemini, Vibe). Claude uses `FlagPair` with a pre-launch UUID, and
-    /// Cursor has `Unsupported` -- neither needs deferred capture.
-    pub fn supports_deferred_capture(&self) -> bool {
-        use crate::agents::{get_agent, ResumeStrategy};
-        get_agent(&self.tool).is_some_and(|a| {
-            matches!(
-                a.resume_strategy,
-                ResumeStrategy::Flag(_) | ResumeStrategy::Subcommand(_)
-            )
-        })
     }
 
     /// Acquire a pre-launch session ID for the agent.
@@ -440,12 +412,7 @@ impl Instance {
     pub(crate) fn try_retroactive_capture(&self) -> Option<String> {
         let exclusion = build_exclusion_set(&self.id);
         let result = match self.tool.as_str() {
-            "opencode" => {
-                let timing = session_timing();
-                // Single attempt with no time filter -- this runs synchronously
-                // before the agent starts, so we only do one quick probe.
-                try_capture_opencode_session_id(&self.project_path, &exclusion, 0.0, &timing).ok()
-            }
+            "opencode" => try_capture_opencode_session_id(&self.project_path, &exclusion, 0.0).ok(),
             "codex" => capture_codex_session_id(&self.project_path, &exclusion).ok(),
             "gemini" => capture_gemini_session_id(&self.project_path, &exclusion).ok(),
             "vibe" => capture_vibe_session_id(&self.project_path, &exclusion).ok(),
@@ -836,7 +803,6 @@ impl Instance {
     /// Post-launch setup: persist state, start pollers, and apply tmux options.
     fn finalize_launch(&mut self, session_name: &str, profile: &str) {
         self.persist_session_id(profile);
-        self.deferred_capture_session_id();
         let poller_launch_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as f64)
@@ -889,142 +855,7 @@ impl Instance {
     }
 }
 
-/// Sleep for `duration` in 200ms increments, returning `true` if shutdown was requested.
-fn sleep_check_shutdown(flag: &std::sync::atomic::AtomicBool, duration: Duration) -> bool {
-    let step = Duration::from_millis(200);
-    let mut remaining = duration;
-    while remaining > Duration::ZERO {
-        if flag.load(std::sync::atomic::Ordering::Relaxed) {
-            return true;
-        }
-        let sleep_time = remaining.min(step);
-        std::thread::sleep(sleep_time);
-        remaining = remaining.saturating_sub(sleep_time);
-    }
-    flag.load(std::sync::atomic::Ordering::Relaxed)
-}
-
 impl Instance {
-    /// Spawn a background thread to capture the session ID after the agent starts.
-    ///
-    /// Some agents (OpenCode, Codex, Gemini, Vibe) create their own sessions on
-    /// launch, so the ID cannot be known in advance. This method polls the agent's
-    /// CLI or filesystem until a session appears, then signals the `CaptureGate`
-    /// so the poller can propagate it through the channel to the TUI thread.
-    fn deferred_capture_session_id(&mut self) {
-        if self.agent_session_id.is_some() {
-            return;
-        }
-        if !self.supports_deferred_capture() {
-            return;
-        }
-
-        let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let shutdown_flag = Arc::clone(&shutdown);
-
-        let gate = Arc::new(CaptureGate::new());
-        let gate_for_thread = Arc::clone(&gate);
-        self.capture_gate = Some(gate);
-
-        let instance_id = self.id.clone();
-        let tool = self.tool.clone();
-        let project_path = self.project_path.clone();
-        let is_sandboxed = self.is_sandboxed();
-        let tmux_session_name = self
-            .tmux_session()
-            .map(|s| s.name().to_string())
-            .unwrap_or_default();
-
-        let launch_time_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as f64)
-            .unwrap_or(0.0);
-
-        match std::thread::Builder::new()
-            .name(format!("deferred-capture-{}", instance_id))
-            .spawn(move || {
-                let timing = session_timing();
-                if sleep_check_shutdown(
-                    &shutdown_flag,
-                    Duration::from_secs(timing.deferred_capture_initial_delay_secs),
-                ) {
-                    gate_for_thread.complete(None);
-                    return;
-                }
-
-                for attempt in 1..=timing.deferred_capture_max_attempts {
-                    if shutdown_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                        gate_for_thread.complete(None);
-                        return;
-                    }
-
-                    let exclusion = build_exclusion_set(&instance_id);
-
-                    let captured = if is_sandboxed {
-                        capture_from_container(&instance_id, &tool, &exclusion)
-                    } else {
-                        capture_from_host(&tool, &project_path, &exclusion, launch_time_ms, &timing)
-                    };
-
-                    if let Some(ref session_id) = captured {
-                        tracing::debug!(
-                            "Deferred capture succeeded for {} (attempt {}): {}",
-                            instance_id,
-                            attempt,
-                            session_id
-                        );
-                        if !tmux_session_name.is_empty() {
-                            if let Err(e) =
-                                publish_session_to_tmux_env(&tmux_session_name, session_id)
-                            {
-                                tracing::warn!("{}", e);
-                            }
-                        }
-                        gate_for_thread.complete(Some(session_id.clone()));
-                        return;
-                    }
-
-                    if attempt < timing.deferred_capture_max_attempts {
-                        tracing::debug!(
-                            "Deferred capture attempt {}/{} found nothing for {}, retrying",
-                            attempt,
-                            timing.deferred_capture_max_attempts,
-                            instance_id
-                        );
-                        if sleep_check_shutdown(
-                            &shutdown_flag,
-                            Duration::from_secs(timing.deferred_capture_retry_delay_secs),
-                        ) {
-                            gate_for_thread.complete(None);
-                            return;
-                        }
-                    }
-                }
-
-                tracing::debug!(
-                    "Deferred capture exhausted all {} attempts for {}",
-                    timing.deferred_capture_max_attempts,
-                    instance_id
-                );
-                gate_for_thread.complete(None);
-            }) {
-            Ok(handle) => {
-                self.deferred_capture_handle = Some(Arc::new(Mutex::new(Some(handle))));
-                self.deferred_capture_shutdown = Some(shutdown);
-            }
-            Err(e) => {
-                tracing::error!(
-                    session = %self.id,
-                    error = %e,
-                    "Failed to spawn deferred session capture thread"
-                );
-                if let Some(ref gate) = self.capture_gate {
-                    gate.complete(None);
-                }
-            }
-        }
-    }
-
     fn apply_terminal_tmux_options(&self) {
         let name = tmux::TerminalSession::generate_name(&self.id, &self.title);
         self.apply_session_tmux_options(&name, &format!("{} (terminal)", self.title));
@@ -1143,13 +974,7 @@ impl Instance {
             }
         });
 
-        if poller.start(
-            instance_id.clone(),
-            poll_fn,
-            on_change,
-            initial_known,
-            self.capture_gate.clone(),
-        ) {
+        if poller.start(instance_id.clone(), poll_fn, on_change, initial_known) {
             self.session_id_poller = Some(Arc::new(Mutex::new(poller)));
         } else {
             tracing::warn!(
@@ -1184,19 +1009,6 @@ impl Instance {
     ) -> Result<()> {
         self.stop_poller();
         self.session_id_poller = None;
-        if let Some(ref flag) = self.deferred_capture_shutdown {
-            flag.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
-        if let Some(ref handle_arc) = self.deferred_capture_handle {
-            if let Ok(mut handle_opt) = handle_arc.lock() {
-                if let Some(handle) = handle_opt.take() {
-                    let _ = handle.join();
-                }
-            }
-        }
-        self.deferred_capture_handle = None;
-        self.deferred_capture_shutdown = None;
-        self.capture_gate = None;
 
         let session = self.tmux_session()?;
 
@@ -1210,16 +1022,6 @@ impl Instance {
 
     pub fn kill(&self) -> Result<()> {
         self.stop_poller();
-        if let Some(ref flag) = self.deferred_capture_shutdown {
-            flag.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
-        if let Some(ref handle_arc) = self.deferred_capture_handle {
-            if let Ok(mut handle_opt) = handle_arc.lock() {
-                if let Some(handle) = handle_opt.take() {
-                    let _ = handle.join();
-                }
-            }
-        }
         let session = self.tmux_session()?;
         if session.exists() {
             session.kill()?;

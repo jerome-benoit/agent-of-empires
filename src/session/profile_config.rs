@@ -159,27 +159,6 @@ pub struct SessionConfigOverride {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_command_override: Option<HashMap<String, String>>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub opencode_max_retry_attempts: Option<u32>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub opencode_retry_delay_secs: Option<u64>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub opencode_command_timeout_secs: Option<u64>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub opencode_capture_deadline_secs: Option<u64>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deferred_capture_initial_delay_secs: Option<u64>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deferred_capture_max_attempts: Option<u32>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deferred_capture_retry_delay_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -341,27 +320,6 @@ pub fn apply_session_overrides(
     }
     if let Some(ref overrides) = source.agent_command_override {
         target.agent_command_override = overrides.clone();
-    }
-    if let Some(v) = source.opencode_max_retry_attempts {
-        target.opencode_max_retry_attempts = v;
-    }
-    if let Some(v) = source.opencode_retry_delay_secs {
-        target.opencode_retry_delay_secs = v;
-    }
-    if let Some(v) = source.opencode_command_timeout_secs {
-        target.opencode_command_timeout_secs = v;
-    }
-    if let Some(v) = source.opencode_capture_deadline_secs {
-        target.opencode_capture_deadline_secs = v;
-    }
-    if let Some(v) = source.deferred_capture_initial_delay_secs {
-        target.deferred_capture_initial_delay_secs = v;
-    }
-    if let Some(v) = source.deferred_capture_max_attempts {
-        target.deferred_capture_max_attempts = v;
-    }
-    if let Some(v) = source.deferred_capture_retry_delay_secs {
-        target.deferred_capture_retry_delay_secs = v;
     }
 }
 

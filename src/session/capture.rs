@@ -11,8 +11,6 @@ use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use uuid::Uuid;
 
-use crate::containers::DockerContainer;
-
 /// Iterate directory entries, silently skipping unreadable ones.
 ///
 /// Wraps `std::fs::read_dir` and filters out individual entry errors (e.g.
@@ -55,13 +53,6 @@ pub(crate) fn validated_session_id(id: String) -> Option<String> {
         tracing::warn!("Captured session ID failed validation: {:?}", id);
         None
     }
-}
-
-/// Load session timing configuration from disk (or fall back to defaults).
-pub(crate) fn session_timing() -> super::config::SessionConfig {
-    super::config::Config::load()
-        .map(|c| c.session)
-        .unwrap_or_default()
 }
 
 /// Generate a new UUID v4 for a Claude Code session.
@@ -241,9 +232,8 @@ pub(crate) fn opencode_poll_fn(
     launch_time_ms: f64,
 ) -> impl Fn() -> Option<String> + Send + 'static {
     move || {
-        let timing = session_timing();
         let exclusion = build_exclusion_set(&instance_id);
-        try_capture_opencode_session_id(&project_path, &exclusion, launch_time_ms, &timing)
+        try_capture_opencode_session_id(&project_path, &exclusion, launch_time_ms)
             .map_err(|e| tracing::debug!("OpenCode poll capture failed: {}", e))
             .ok()
     }
@@ -353,70 +343,18 @@ pub(crate) fn filter_agent_sessions<'a>(
     matching
 }
 
-/// Capture session ID from OpenCode CLI with retry logic.
-///
-/// Retries with configurable attempts, delays, and an overall deadline (see
-/// `SessionConfig`). Each attempt runs `opencode session list --format json`
-/// and selects the best match by project directory and update time.
-///
-/// # Errors
-///
-/// Returns an error if all attempts fail due to:
-/// - The `opencode` command cannot be spawned
-/// - The command execution fails before completing
-/// - The command times out after 5 seconds
-/// - The command exits with a non-zero status code
-/// - The JSON output cannot be parsed
-/// - No sessions are found in the response
-fn capture_opencode_session_id(
-    project_path: &str,
-    exclusion: &HashSet<String>,
-    launch_time_ms: f64,
-    timing: &super::config::SessionConfig,
-) -> Result<String> {
-    let deadline =
-        std::time::Instant::now() + Duration::from_secs(timing.opencode_capture_deadline_secs);
-    let mut last_err = None;
-
-    for attempt in 0..timing.opencode_max_retry_attempts {
-        if attempt > 0 {
-            let retry_delay = Duration::from_secs(timing.opencode_retry_delay_secs);
-            if std::time::Instant::now() + retry_delay > deadline {
-                break;
-            }
-            std::thread::sleep(retry_delay);
-            tracing::debug!(
-                "Retrying OpenCode session capture (attempt {})",
-                attempt + 1
-            );
-        }
-
-        match try_capture_opencode_session_id(project_path, exclusion, launch_time_ms, timing) {
-            Ok(id) => return Ok(id),
-            Err(e) => {
-                tracing::debug!(
-                    "OpenCode session capture attempt {} failed: {}",
-                    attempt + 1,
-                    e
-                );
-                last_err = Some(e);
-            }
-        }
-    }
-
-    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("OpenCode session capture timed out")))
-}
+/// Timeout for each `opencode session list` subprocess call (seconds).
+const OPENCODE_COMMAND_TIMEOUT_SECS: u64 = 5;
 
 /// Single attempt to capture an OpenCode session ID.
 ///
-/// Spawns `opencode session list --format json` with a configurable timeout
-/// (`opencode_command_timeout_secs`), parses the JSON, and selects the best
-/// matching session based on project directory and update time.
+/// Spawns `opencode session list --format json` with a fixed timeout,
+/// parses the JSON, and selects the best matching session based on project
+/// directory and update time.
 pub(crate) fn try_capture_opencode_session_id(
     project_path: &str,
     exclusion: &HashSet<String>,
     launch_time_ms: f64,
-    timing: &super::config::SessionConfig,
 ) -> Result<String> {
     let child = std::process::Command::new("opencode")
         .args(["session", "list", "--format", "json"])
@@ -433,7 +371,7 @@ pub(crate) fn try_capture_opencode_session_id(
         let _ = tx.send(child.wait_with_output());
     });
 
-    let output = match rx.recv_timeout(Duration::from_secs(timing.opencode_command_timeout_secs)) {
+    let output = match rx.recv_timeout(Duration::from_secs(OPENCODE_COMMAND_TIMEOUT_SECS)) {
         Ok(Ok(out)) => out,
         Ok(Err(e)) => return Err(anyhow::anyhow!("Failed to execute opencode: {}", e)),
         Err(_) => {
@@ -821,112 +759,6 @@ pub(crate) fn is_valid_session_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
-}
-
-/// Dispatch agent-specific session ID capture from the host filesystem.
-///
-/// Tries each supported agent's capture strategy in order, returning the first
-/// successfully captured session ID, or `None` if no agent produced a result.
-pub(crate) fn capture_from_host(
-    tool: &str,
-    project_path: &str,
-    exclusion: &HashSet<String>,
-    launch_time_ms: f64,
-    timing: &super::config::SessionConfig,
-) -> Option<String> {
-    let captured = match tool {
-        "opencode" => capture_opencode_session_id(project_path, exclusion, launch_time_ms, timing)
-            .map_err(|e| tracing::debug!("Deferred host capture (opencode): {}", e))
-            .ok(),
-        "codex" => capture_codex_session_id(project_path, exclusion)
-            .map_err(|e| tracing::debug!("Deferred host capture (codex): {}", e))
-            .ok(),
-        "gemini" => capture_gemini_session_id(project_path, exclusion)
-            .map_err(|e| tracing::debug!("Deferred host capture (gemini): {}", e))
-            .ok(),
-        "vibe" => capture_vibe_session_id(project_path, exclusion)
-            .map_err(|e| tracing::debug!("Deferred host capture (vibe): {}", e))
-            .ok(),
-        _ => None,
-    };
-    captured.and_then(validated_session_id)
-}
-
-pub(crate) fn capture_from_container(
-    instance_id: &str,
-    tool: &str,
-    exclusion: &HashSet<String>,
-) -> Option<String> {
-    let container = DockerContainer::from_session_id(instance_id);
-    if !container.is_running().unwrap_or(false) {
-        tracing::debug!(
-            "Container not running for deferred capture: {}",
-            instance_id
-        );
-        return None;
-    }
-
-    match tool {
-        "opencode" => {
-            let output = container
-                .exec(&["opencode", "session", "list", "--format", "json"])
-                .map_err(|e| tracing::debug!("Deferred container exec (opencode): {}", e))
-                .ok()?;
-
-            if !output.status.success() {
-                return None;
-            }
-
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let trimmed = stdout.trim();
-            if trimmed.is_empty() {
-                return None;
-            }
-            let session_entries: Vec<serde_json::Value> = serde_json::from_str(trimmed)
-                .map_err(|e| tracing::debug!("Deferred container JSON parse: {}", e))
-                .ok()?;
-
-            let matching = filter_agent_sessions(&session_entries, None, exclusion, None);
-            matching
-                .first()
-                .and_then(|s| s["id"].as_str())
-                .map(|s| s.to_string())
-        }
-        "codex" => {
-            let output = container
-                .exec(&[
-                    "sh",
-                    "-c",
-                    "SESS_DIR=\"${CODEX_HOME:-$HOME/.codex}/sessions\"; find \"$SESS_DIR\" -name '*.jsonl' -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-",
-                ])
-                .map_err(|e| tracing::debug!("Deferred container exec (codex): {}", e))
-                .ok()?;
-
-            if !output.status.success() {
-                return None;
-            }
-
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let uuid = stdout
-                .lines()
-                .next()
-                .filter(|line| !line.is_empty())
-                .and_then(|path| {
-                    extract_codex_uuid_from_filename(std::path::Path::new(path.trim()))
-                });
-
-            uuid.filter(|id| !exclusion.contains(id))
-        }
-        _ => {
-            tracing::debug!(
-                "Container capture not implemented for agent {:?}, instance {}",
-                tool,
-                instance_id
-            );
-            None
-        }
-    }
-    .and_then(validated_session_id)
 }
 
 #[cfg(test)]
@@ -1523,55 +1355,12 @@ mod tests {
 
     #[test]
     fn test_opencode_capture_respects_command_timeout() {
-        use super::super::config::SessionConfig;
-        let mut config = SessionConfig::default();
-        config.opencode_command_timeout_secs = 1;
-        config.opencode_max_retry_attempts = 1;
-
         let result = try_capture_opencode_session_id(
             "/tmp/nonexistent-project-xyz-12345",
             &HashSet::new(),
             0.0,
-            &config,
         );
         let _ = result;
-    }
-
-    #[test]
-    fn test_opencode_capture_deadline_exhaustion() {
-        use super::super::config::SessionConfig;
-        let mut config = SessionConfig::default();
-        config.opencode_command_timeout_secs = 1;
-        config.opencode_max_retry_attempts = 100;
-        config.opencode_capture_deadline_secs = 1;
-
-        let start = std::time::Instant::now();
-        let result = capture_opencode_session_id(
-            "/tmp/nonexistent-project-xyz-12345",
-            &HashSet::new(),
-            0.0,
-            &config,
-        );
-        let elapsed = start.elapsed();
-        assert!(
-            elapsed.as_secs() < 10,
-            "Capture should respect deadline, not exhaust all retries: elapsed={elapsed:?}"
-        );
-        let _ = result;
-    }
-
-    #[test]
-    #[ignore]
-    fn test_container_capture_not_running() {
-        let result = capture_from_container(
-            "nonexistent-container-id-xyz-12345",
-            "claude",
-            &HashSet::new(),
-        );
-        assert!(
-            result.is_none(),
-            "Non-existent container should return None"
-        );
     }
 
     #[test]
