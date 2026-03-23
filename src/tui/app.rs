@@ -87,9 +87,9 @@ impl App {
         // Check if we need to show welcome or changelog dialogs
         let mut config = load_config()?.unwrap_or_default();
 
-        // Load theme from config, defaulting to phosphor if empty
+        // Load theme from config, defaulting to empire if empty
         let theme_name = if config.theme.name.is_empty() {
-            "phosphor"
+            "empire"
         } else {
             &config.theme.name
         };
@@ -408,8 +408,8 @@ impl App {
                     .is_some_and(|i| !i.is_empty());
 
                 if has_instruction
-                    && !crate::agents::get_agent(&instance.tool)
-                        .is_some_and(|a| a.instruction_flag.is_some())
+                    && crate::agents::get_agent(&instance.tool)
+                        .is_none_or(|a| a.instruction_flag.is_none())
                 {
                     let config = load_config()?.unwrap_or_default();
                     if !config.app_state.has_seen_custom_instruction_warning {

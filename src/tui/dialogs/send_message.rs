@@ -3,7 +3,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
-use tui_textarea::TextArea;
+use ratatui_textarea::TextArea;
 
 use super::DialogResult;
 use crate::tui::styles::Theme;
@@ -62,6 +62,7 @@ impl SendMessageDialog {
 
         let block = Block::default()
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.accent))
             .title(format!(" > {} ", self.session_title))
             .title_style(Style::default().fg(theme.accent).bold())
