@@ -3634,9 +3634,8 @@ mod tests {
             Some(v) => std::env::set_var("HOME", v),
             None => std::env::remove_var("HOME"),
         }
-        match old_xdg {
-            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
-            None => {}
+        if let Some(v) = old_xdg {
+            std::env::set_var("XDG_DATA_HOME", v);
         }
     }
 
@@ -3672,9 +3671,8 @@ mod tests {
         let result = opencode_db_path().unwrap();
         assert_eq!(result, channel_db);
 
-        match old_db {
-            Some(v) => std::env::set_var("OPENCODE_DB", v),
-            None => {}
+        if let Some(v) = old_db {
+            std::env::set_var("OPENCODE_DB", v);
         }
         match old_xdg {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),
@@ -3703,9 +3701,8 @@ mod tests {
         let result = opencode_db_path().unwrap();
         assert_eq!(result, channel, "should pick the most recently modified DB");
 
-        match old_db {
-            Some(v) => std::env::set_var("OPENCODE_DB", v),
-            None => {}
+        if let Some(v) = old_db {
+            std::env::set_var("OPENCODE_DB", v);
         }
         match old_xdg {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),
