@@ -22,7 +22,7 @@ fn contains_approval_prompt(text_lower: &str, extra: &[&str]) -> bool {
 fn matches_input_prompt(non_empty_lines: &[&str], take_n: usize, tool_prompts: &[&str]) -> bool {
     for line in non_empty_lines.iter().rev().take(take_n) {
         let clean_line = strip_ansi(line).trim().to_string();
-        if clean_line == ">" || clean_line == "> " {
+        if clean_line == ">" {
             return true;
         }
         if tool_prompts.iter().any(|p| clean_line == *p) {
@@ -487,6 +487,8 @@ pub fn detect_pi_status(raw_content: &str) -> Status {
         return Status::Running;
     }
 
+    // Check for input prompt before activity indicators: words like
+    // "reading" or "writing" linger in scrollback after the agent finishes.
     if matches_input_prompt(&non_empty_lines, 5, &["pi>"]) {
         return Status::Waiting;
     }
