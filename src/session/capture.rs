@@ -1760,11 +1760,14 @@ fn read_hermes_sessions_from_sqlite(db_path: &Path) -> Result<Vec<String>> {
         )
         .context("Hermes sessions table schema mismatch")?;
 
-    let ids: Vec<String> = stmt
+    let rows = stmt
         .query_map([], |row| row.get(0))
-        .context("Failed to query Hermes sessions table")?
-        .filter_map(|r| r.ok())
-        .collect();
+        .context("Failed to query Hermes sessions table")?;
+
+    let mut ids: Vec<String> = Vec::new();
+    for row in rows {
+        ids.push(row.context("Failed to read Hermes session row")?);
+    }
 
     Ok(ids)
 }
