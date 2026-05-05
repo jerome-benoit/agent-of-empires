@@ -28,10 +28,7 @@ fn matches_input_prompt(non_empty_lines: &[&str], take_n: usize, tool_prompts: &
         if tool_prompts.iter().any(|p| clean_line == *p) {
             return true;
         }
-        if clean_line.starts_with("> ")
-            && !clean_line.to_lowercase().contains("esc")
-            && clean_line.len() < 100
-        {
+        if clean_line.starts_with("> ") && !clean_line.contains("esc") && clean_line.len() < 100 {
             return true;
         }
     }
