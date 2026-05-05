@@ -222,7 +222,7 @@ async fn download_tarball(
             cb(downloaded, total);
         }
     }
-    file.flush().await?;
+    file.sync_all().await?;
     Ok(())
 }
 
