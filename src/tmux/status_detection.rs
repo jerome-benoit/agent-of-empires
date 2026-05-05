@@ -228,7 +228,7 @@ pub fn detect_opencode_status(raw_content: &str) -> Status {
     if has_completion {
         for line in non_empty_lines.iter().rev().take(10) {
             let clean = strip_ansi(line).trim().to_string();
-            if clean == ">" || clean == "> " || clean == ">>" {
+            if clean == ">" || clean == ">>" {
                 return Status::Waiting;
             }
         }
@@ -605,9 +605,11 @@ pub fn detect_gemini_status(raw_content: &str) -> Status {
         return Status::Waiting;
     }
 
+    // Gemini's input prompt is a bare `>` with nothing after it, so we don't
+    // share matches_input_prompt (which also fires on `> something` lines).
     for line in non_empty_lines.iter().rev().take(10) {
         let clean_line = strip_ansi(line).trim().to_string();
-        if clean_line == ">" || clean_line == "> " {
+        if clean_line == ">" {
             return Status::Waiting;
         }
     }
