@@ -1,7 +1,7 @@
 //! Self-update: detect install method, perform update.
 
 use anyhow::{Context, Result};
-use std::io::{ErrorKind, Write};
+use std::io::ErrorKind;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -197,6 +197,8 @@ async fn download_tarball(
     dest: &Path,
     mut on_progress: Option<&mut dyn FnMut(u64, Option<u64>)>,
 ) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+
     let client = reqwest::Client::builder()
         .user_agent("agent-of-empires")
         .timeout(std::time::Duration::from_secs(300))
@@ -207,19 +209,20 @@ async fn download_tarball(
     }
     let total = response.content_length();
     let mut stream = response.bytes_stream();
-    let mut file = std::fs::File::create(dest)
+    let mut file = tokio::fs::File::create(dest)
+        .await
         .with_context(|| format!("creating download file at {}", dest.display()))?;
     let mut downloaded: u64 = 0;
     use futures_util::StreamExt;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
-        file.write_all(&chunk)?;
+        file.write_all(&chunk).await?;
         downloaded += chunk.len() as u64;
         if let Some(cb) = on_progress.as_deref_mut() {
             cb(downloaded, total);
         }
     }
-    file.sync_all()?;
+    file.flush().await?;
     Ok(())
 }
 

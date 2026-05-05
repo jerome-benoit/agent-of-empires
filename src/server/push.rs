@@ -293,13 +293,13 @@ impl SubscriptionStore {
         let all: Vec<Subscription> = self.subs.read().await.values().cloned().collect();
         let body = serde_json::to_string_pretty(&all)?;
         let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, &body)?;
+        tokio::fs::write(&tmp, &body).await?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+            tokio::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600)).await?;
         }
-        std::fs::rename(&tmp, &self.path)?;
+        tokio::fs::rename(&tmp, &self.path).await?;
         Ok(())
     }
 }
