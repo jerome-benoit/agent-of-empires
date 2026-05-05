@@ -1725,25 +1725,48 @@ pub(crate) fn capture_hermes_session_id(
     let hermes_home = resolve_agent_home(Some("HERMES_HOME"), ".hermes")?;
     let db_path = hermes_home.join("state.db");
 
+    let ids = read_hermes_sessions_from_sqlite(&db_path)?;
+
+    ids.into_iter()
+        .find(|id| !exclusion.contains(id))
+        .ok_or_else(|| anyhow::anyhow!("No active Hermes session found"))
+}
+
+/// Read active CLI session IDs from Hermes's SQLite state database.
+///
+/// Returns session IDs ordered by most recent first. An `Err` means the DB
+/// is unreadable (missing, locked, schema mismatch); the poller will retry
+/// on the next tick.
+fn read_hermes_sessions_from_sqlite(db_path: &Path) -> Result<Vec<String>> {
+    use rusqlite::{Connection, OpenFlags};
+
     if !db_path.exists() {
-        anyhow::bail!("Hermes state.db not found: {}", db_path.display());
+        anyhow::bail!("Hermes state.db not found at {}", db_path.display());
     }
 
-    let mut cmd = std::process::Command::new("sqlite3");
-    cmd.args([
-        "-cmd",
-        ".timeout 1000",
-        db_path.to_string_lossy().as_ref(),
-        "SELECT id FROM sessions WHERE source='cli' AND ended_at IS NULL ORDER BY started_at DESC LIMIT 10;",
-    ]);
+    let conn = Connection::open_with_flags(
+        db_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .with_context(|| format!("Failed to open Hermes state.db at {}", db_path.display()))?;
+    conn.busy_timeout(Duration::from_millis(100))
+        .context("Failed to set Hermes DB busy timeout")?;
 
-    let stdout_bytes = run_with_timeout(
-        cmd,
-        Duration::from_secs(HERMES_COMMAND_TIMEOUT_SECS),
-        "sqlite3 (hermes session scan)",
-    )?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id FROM sessions \
+             WHERE source='cli' AND ended_at IS NULL \
+             ORDER BY started_at DESC LIMIT 10",
+        )
+        .context("Hermes sessions table schema mismatch")?;
 
-    select_hermes_session(&stdout_bytes, exclusion)
+    let ids: Vec<String> = stmt
+        .query_map([], |row| row.get(0))
+        .context("Failed to query Hermes sessions table")?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(ids)
 }
 
 /// Capture a Hermes session ID from inside a Docker container.
@@ -3322,17 +3345,13 @@ mod tests {
     fn test_capture_hermes_basic() {
         let tmp = tempfile::tempdir().unwrap();
         let db_path = tmp.path().join("state.db");
-        let create_output = std::process::Command::new("sqlite3")
-            .arg(&db_path)
-            .arg("CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, started_at REAL, ended_at REAL);")
-            .output()
-            .unwrap();
-        assert!(create_output.status.success());
-        std::process::Command::new("sqlite3")
-            .arg(&db_path)
-            .arg("INSERT INTO sessions VALUES ('20260429_193246_adcddd','cli',1000.0,NULL);")
-            .output()
-            .unwrap();
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, started_at REAL, ended_at REAL);
+             INSERT INTO sessions VALUES ('20260429_193246_adcddd','cli',1000.0,NULL);",
+        )
+        .unwrap();
+        drop(conn);
         unsafe { std::env::set_var("HERMES_HOME", tmp.path()) };
         let exclusion = HashSet::new();
         let result = capture_hermes_session_id(".", &exclusion).unwrap();
@@ -3345,16 +3364,13 @@ mod tests {
     fn test_capture_hermes_excludes_ended() {
         let tmp = tempfile::tempdir().unwrap();
         let db_path = tmp.path().join("state.db");
-        std::process::Command::new("sqlite3")
-            .arg(&db_path)
-            .arg("CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, started_at REAL, ended_at REAL);")
-            .output()
-            .unwrap();
-        std::process::Command::new("sqlite3")
-            .arg(&db_path)
-            .arg("INSERT INTO sessions VALUES ('ended_session','cli',1000.0,123456.0);")
-            .output()
-            .unwrap();
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, started_at REAL, ended_at REAL);
+             INSERT INTO sessions VALUES ('ended_session','cli',1000.0,123456.0);",
+        )
+        .unwrap();
+        drop(conn);
         unsafe { std::env::set_var("HERMES_HOME", tmp.path()) };
         let result = capture_hermes_session_id(".", &HashSet::new());
         assert!(result.is_err());
@@ -3366,16 +3382,13 @@ mod tests {
     fn test_capture_hermes_excludes_non_cli() {
         let tmp = tempfile::tempdir().unwrap();
         let db_path = tmp.path().join("state.db");
-        std::process::Command::new("sqlite3")
-            .arg(&db_path)
-            .arg("CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, started_at REAL, ended_at REAL);")
-            .output()
-            .unwrap();
-        std::process::Command::new("sqlite3")
-            .arg(&db_path)
-            .arg("INSERT INTO sessions VALUES ('telegram_session','telegram',1000.0,NULL);")
-            .output()
-            .unwrap();
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, started_at REAL, ended_at REAL);
+             INSERT INTO sessions VALUES ('telegram_session','telegram',1000.0,NULL);",
+        )
+        .unwrap();
+        drop(conn);
         unsafe { std::env::set_var("HERMES_HOME", tmp.path()) };
         let result = capture_hermes_session_id(".", &HashSet::new());
         assert!(result.is_err());
@@ -3387,16 +3400,14 @@ mod tests {
     fn test_capture_hermes_exclusion_set() {
         let tmp = tempfile::tempdir().unwrap();
         let db_path = tmp.path().join("state.db");
-        std::process::Command::new("sqlite3")
-            .arg(&db_path)
-            .arg("CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, started_at REAL, ended_at REAL);")
-            .output()
-            .unwrap();
-        std::process::Command::new("sqlite3")
-            .arg(&db_path)
-            .arg("INSERT INTO sessions VALUES ('first_session','cli',2000.0,NULL); INSERT INTO sessions VALUES ('second_session','cli',1000.0,NULL);")
-            .output()
-            .unwrap();
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, started_at REAL, ended_at REAL);
+             INSERT INTO sessions VALUES ('first_session','cli',2000.0,NULL);
+             INSERT INTO sessions VALUES ('second_session','cli',1000.0,NULL);",
+        )
+        .unwrap();
+        drop(conn);
         unsafe { std::env::set_var("HERMES_HOME", tmp.path()) };
         let mut exclusion = HashSet::new();
         exclusion.insert("first_session".to_string());
