@@ -825,10 +825,13 @@ pub async fn test(
             // Best-effort GC; the result still reports gone=1 even if GC
             // races with a re-subscribe (that's what the generation
             // counter in gc_stale prevents).
-            let _ = push
+            if let Err(e) = push
                 .store
                 .gc_stale(&body.endpoint, subscription.generation)
-                .await;
+                .await
+            {
+                tracing::warn!("Failed to GC stale push subscription: {e}");
+            }
         }
     }
     Ok(Json(result))
