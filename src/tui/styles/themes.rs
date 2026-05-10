@@ -338,6 +338,44 @@ impl Theme {
             sandbox: Color::Rgb(189, 147, 249),
         }
     }
+
+    /// Rosé Pine theme
+    /// Official palette: https://rosepinetheme.com/palette/ingredients/
+    pub fn rose_pine() -> Self {
+        Self {
+            background: Color::Rgb(25, 23, 36),
+            border: Color::Rgb(82, 79, 103),
+            terminal_border: Color::Rgb(156, 207, 216),
+            selection: Color::Rgb(33, 32, 46),
+            session_selection: Color::Rgb(64, 61, 82),
+
+            title: Color::Rgb(196, 167, 231),
+            text: Color::Rgb(224, 222, 244),
+            dimmed: Color::Rgb(110, 106, 134),
+            hint: Color::Rgb(144, 140, 170),
+
+            running: Color::Rgb(156, 207, 216),
+            waiting: Color::Rgb(246, 193, 119),
+            fresh_idle: Color::Rgb(235, 188, 186),
+            idle: Color::Rgb(110, 106, 134),
+            error: Color::Rgb(235, 111, 146),
+            terminal_active: Color::Rgb(156, 207, 216),
+
+            group: Color::Rgb(224, 222, 244),
+            search: Color::Rgb(246, 193, 119),
+            accent: Color::Rgb(235, 188, 186),
+
+            diff_add: Color::Rgb(156, 207, 216),
+            diff_delete: Color::Rgb(235, 111, 146),
+            diff_modified: Color::Rgb(246, 193, 119),
+            diff_header: Color::Rgb(49, 116, 143),
+
+            help_key: Color::Rgb(246, 193, 119),
+
+            branch: Color::Rgb(49, 116, 143),
+            sandbox: Color::Rgb(144, 140, 170),
+        }
+    }
 }
 
 /// Serde helper for Color as hex string (#rrggbb)
