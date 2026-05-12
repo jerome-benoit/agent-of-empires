@@ -17,9 +17,6 @@ pub struct Config {
     pub theme: ThemeConfig,
 
     #[serde(default)]
-    pub claude: ClaudeConfig,
-
-    #[serde(default)]
     pub updates: UpdatesConfig,
 
     #[serde(default)]
@@ -203,6 +200,11 @@ pub struct AppStateConfig {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_by: Option<GroupByMode>,
+
+    /// Last directory the user navigated to in the new-session dir picker.
+    /// Restored on subsequent opens so users don't re-navigate every time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_browse_dir: Option<PathBuf>,
 }
 
 /// Session-related configuration defaults
@@ -428,12 +430,6 @@ fn default_idle_decay_minutes() -> u64 {
     0
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ClaudeConfig {
-    #[serde(default)]
-    pub config_dir: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdatesConfig {
     #[serde(default = "default_true")]
@@ -492,6 +488,15 @@ pub struct WorktreeConfig {
     /// Supports {branch} and {session-id} placeholders.
     #[serde(default = "default_workspace_template")]
     pub workspace_path_template: String,
+
+    /// Run `git submodule update --init --recursive` after creating a worktree
+    /// when the checkout contains a `.gitmodules` file. Defaults to true to
+    /// preserve the behavior introduced in #942. Disable for repos with large
+    /// or deeply-nested submodule trees that you don't need inside agent
+    /// sessions; new sessions then finish creating instead of stalling in
+    /// `Creating…` while submodules clone.
+    #[serde(default = "default_true")]
+    pub init_submodules: bool,
 }
 
 impl Default for WorktreeConfig {
@@ -504,6 +509,7 @@ impl Default for WorktreeConfig {
             show_branch_in_tui: true,
             delete_branch_on_cleanup: false,
             workspace_path_template: default_workspace_template(),
+            init_submodules: true,
         }
     }
 }
@@ -811,18 +817,6 @@ pub fn get_update_settings() -> UpdatesConfig {
     Config::load_or_warn().updates
 }
 
-pub fn get_claude_config_dir() -> Option<PathBuf> {
-    let config = Config::load_or_warn();
-    config.claude.config_dir.map(|s| {
-        if let Some(stripped) = s.strip_prefix("~/") {
-            if let Some(home) = dirs::home_dir() {
-                return home.join(stripped);
-            }
-        }
-        PathBuf::from(s)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1027,6 +1021,10 @@ mod tests {
         assert_eq!(wt.path_template, "../{repo-name}-worktrees/{branch}");
         assert!(wt.auto_cleanup);
         assert!(wt.show_branch_in_tui);
+        assert!(
+            wt.init_submodules,
+            "init_submodules must default to true to preserve #942 behavior"
+        );
     }
 
     #[test]
@@ -1036,12 +1034,25 @@ mod tests {
             path_template = "/custom/{branch}"
             auto_cleanup = false
             show_branch_in_tui = false
+            init_submodules = false
         "#;
         let wt: WorktreeConfig = toml::from_str(toml).unwrap();
         assert!(wt.enabled);
         assert_eq!(wt.path_template, "/custom/{branch}");
         assert!(!wt.auto_cleanup);
         assert!(!wt.show_branch_in_tui);
+        assert!(!wt.init_submodules);
+    }
+
+    #[test]
+    fn test_worktree_config_init_submodules_defaults_when_absent() {
+        // Configs predating this option must continue to recursively init
+        // submodules (preserve #942 behavior) when upgrading.
+        let toml = r#"
+            enabled = true
+        "#;
+        let wt: WorktreeConfig = toml::from_str(toml).unwrap();
+        assert!(wt.init_submodules);
     }
 
     // Tests for SandboxConfig
@@ -1128,20 +1139,6 @@ mod tests {
         assert_eq!(sb.extra_volumes, vec!["/data:/data:ro"]);
         assert_eq!(sb.volume_ignores, vec!["node_modules"]);
         assert_eq!(sb.port_mappings, vec!["3000:3000"]);
-    }
-
-    // Tests for ClaudeConfig
-    #[test]
-    fn test_claude_config_default() {
-        let cc = ClaudeConfig::default();
-        assert!(cc.config_dir.is_none());
-    }
-
-    #[test]
-    fn test_claude_config_deserialize() {
-        let toml = r#"config_dir = "/custom/claude""#;
-        let cc: ClaudeConfig = toml::from_str(toml).unwrap();
-        assert_eq!(cc.config_dir, Some("/custom/claude".to_string()));
     }
 
     // Tests for AppStateConfig

@@ -12,6 +12,7 @@ use super::cockpit::CockpitCommands;
 use super::group::GroupCommands;
 use super::init::InitArgs;
 use super::list::ListArgs;
+use super::logs::LogsArgs;
 use super::profile::ProfileCommands;
 use super::project::ProjectCommands;
 use super::remove::RemoveArgs;
@@ -25,6 +26,8 @@ use super::theme::ThemeCommands;
 use super::tmux::TmuxCommands;
 use super::uninstall::UninstallArgs;
 use super::update::UpdateArgs;
+#[cfg(feature = "serve")]
+use super::url::UrlArgs;
 use super::worktree::WorktreeCommands;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -61,6 +64,9 @@ pub enum Commands {
     /// List all sessions
     #[command(alias = "ls")]
     List(ListArgs),
+
+    /// View AoE log files (debug.log, serve.log) with a pretty viewer
+    Logs(LogsArgs),
 
     /// Remove a session
     #[command(alias = "rm")]
@@ -123,6 +129,10 @@ pub enum Commands {
     /// Start a web dashboard for remote session access
     #[cfg(feature = "serve")]
     Serve(ServeArgs),
+
+    /// Print the current dashboard URL of a running `aoe serve` daemon
+    #[cfg(feature = "serve")]
+    Url(UrlArgs),
 
     /// Cockpit (ACP-based native agent rendering) management.
     #[cfg(feature = "serve")]

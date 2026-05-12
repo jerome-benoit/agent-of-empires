@@ -21,9 +21,6 @@ pub struct ProfileConfig {
     pub theme: Option<ThemeConfigOverride>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub claude: Option<ClaudeConfigOverride>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updates: Option<UpdatesConfigOverride>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -80,12 +77,6 @@ pub struct ThemeConfigOverride {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ClaudeConfigOverride {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub config_dir: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdatesConfigOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check_enabled: Option<bool>,
@@ -119,6 +110,9 @@ pub struct WorktreeConfigOverride {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_path_template: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub init_submodules: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -272,7 +266,6 @@ pub fn get_profile_config_path(profile: &str) -> Result<std::path::PathBuf> {
 /// Check if a profile has any overrides set
 pub fn profile_has_overrides(config: &ProfileConfig) -> bool {
     config.theme.is_some()
-        || config.claude.is_some()
         || config.updates.is_some()
         || config.worktree.is_some()
         || config.sandbox.is_some()
@@ -376,6 +369,9 @@ pub fn apply_worktree_overrides(
     if let Some(ref workspace_path_template) = source.workspace_path_template {
         target.workspace_path_template = workspace_path_template.clone();
     }
+    if let Some(init_submodules) = source.init_submodules {
+        target.init_submodules = init_submodules;
+    }
 }
 
 /// Apply hooks config overrides to a target config.
@@ -452,12 +448,6 @@ pub fn merge_configs(mut global: Config, profile: &ProfileConfig) -> Config {
         }
     }
 
-    if let Some(ref claude_override) = profile.claude {
-        if claude_override.config_dir.is_some() {
-            global.claude.config_dir = claude_override.config_dir.clone();
-        }
-    }
-
     if let Some(ref updates_override) = profile.updates {
         if let Some(check_enabled) = updates_override.check_enabled {
             global.updates.check_enabled = check_enabled;
@@ -521,29 +511,6 @@ pub fn merge_configs(mut global: Config, profile: &ProfileConfig) -> Config {
     global
 }
 
-/// Validate a path exists (for config_dir validation)
-pub fn validate_path_exists(path: &str) -> Result<(), String> {
-    if path.is_empty() {
-        return Ok(());
-    }
-
-    let expanded = if let Some(stripped) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            home.join(stripped)
-        } else {
-            return Err("Cannot expand home directory".to_string());
-        }
-    } else {
-        std::path::PathBuf::from(path)
-    };
-
-    if expanded.exists() {
-        Ok(())
-    } else {
-        Err(format!("Path does not exist: {}", path))
-    }
-}
-
 /// Validate Docker volume format (host:container[:options])
 pub fn validate_volume_format(volume: &str) -> Result<(), String> {
     if volume.is_empty() {
@@ -593,7 +560,6 @@ mod tests {
     fn test_profile_config_default() {
         let config = ProfileConfig::default();
         assert!(config.theme.is_none());
-        assert!(config.claude.is_none());
         assert!(config.updates.is_none());
         assert!(config.worktree.is_none());
         assert!(config.sandbox.is_none());

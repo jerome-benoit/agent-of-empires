@@ -9,6 +9,7 @@ This document contains the help content for the `aoe` command-line program.
 * [`aoe agents`↴](#aoe-agents)
 * [`aoe init`↴](#aoe-init)
 * [`aoe list`↴](#aoe-list)
+* [`aoe logs`↴](#aoe-logs)
 * [`aoe remove`↴](#aoe-remove)
 * [`aoe send`↴](#aoe-send)
 * [`aoe status`↴](#aoe-status)
@@ -52,6 +53,7 @@ This document contains the help content for the `aoe` command-line program.
 * [`aoe theme export`↴](#aoe-theme-export)
 * [`aoe theme dir`↴](#aoe-theme-dir)
 * [`aoe serve`↴](#aoe-serve)
+* [`aoe url`↴](#aoe-url)
 * [`aoe cockpit`↴](#aoe-cockpit)
 * [`aoe cockpit doctor`↴](#aoe-cockpit-doctor)
 * [`aoe cockpit agents`↴](#aoe-cockpit-agents)
@@ -75,6 +77,7 @@ Run without arguments to launch the TUI dashboard.
 * `agents` — List supported agents and their install status
 * `init` — Initialize .agent-of-empires/config.toml in a repository
 * `list` — List all sessions
+* `logs` — View AoE log files (debug.log, serve.log) with a pretty viewer
 * `remove` — Remove a session
 * `send` — Send a message to a running agent session
 * `status` — Show session status summary
@@ -87,6 +90,7 @@ Run without arguments to launch the TUI dashboard.
 * `sounds` — Manage sound effects for agent state transitions
 * `theme` — Manage color themes (list, export, customize)
 * `serve` — Start a web dashboard for remote session access
+* `url` — Print the current dashboard URL of a running `aoe serve` daemon
 * `cockpit` — Cockpit (ACP-based native agent rendering) management
 * `uninstall` — Uninstall Agent of Empires
 * `update` — Update aoe to the latest release
@@ -121,6 +125,7 @@ Add a new session
 * `-b`, `--new-branch` — Create a new branch (use with --worktree)
 * `-r`, `--repo <EXTRA_REPOS>` — Additional repositories for multi-repo workspace (use with --worktree)
 * `--project <PROJECTS>` — Names of registered projects to include as extra repos (use with --worktree). Resolves against the union of global + profile project registries
+* `--no-submodules` — Skip `git submodule update --init --recursive` after creating the worktree, overriding the `worktree.init_submodules` config (default true). Useful for repos with large or deeply nested submodule trees that you don't need inside the agent session
 * `-s`, `--sandbox` — Run session in a container sandbox
 * `--sandbox-image <SANDBOX_IMAGE>` — Custom container image for sandbox (implies --sandbox)
 * `-y`, `--yolo` — Enable YOLO mode (skip permission prompts)
@@ -166,6 +171,24 @@ List all sessions
 
 * `--json` — Output as JSON
 * `--all` — List sessions from all profiles
+
+
+
+## `aoe logs`
+
+View AoE log files (debug.log, serve.log) with a pretty viewer
+
+**Usage:** `aoe logs [OPTIONS]`
+
+###### **Options:**
+
+* `--debug` — View debug.log (default)
+* `--serve` — View serve.log (daemon stdout/stderr)
+* `--all` — View both debug.log and serve.log, merged by timestamp
+* `-f`, `--follow` — Live-tail the log
+* `-n`, `--lines <N>` — Show only the last N lines (fallback viewers; lnav handles its own)
+* `--no-pager` — Skip viewer detection; write plain log to stdout
+* `--path` — Print the resolved log file path(s) and exit (no viewing)
 
 
 
@@ -769,6 +792,20 @@ Start a web dashboard for remote session access
 * `--daemon` — Run as a background daemon (detach from terminal)
 * `--stop` — Stop a running daemon
 * `--passphrase <PASSPHRASE>` — Require a passphrase for login (second-factor auth). Can also be set via AOE_SERVE_PASSPHRASE environment variable
+* `--open` — Open the dashboard URL in the default browser once the server is ready. Ignored under --daemon, --remote, SSH (SSH_CONNECTION/SSH_TTY), or when no display server is reachable on Linux/BSD
+
+
+
+## `aoe url`
+
+Print the current dashboard URL of a running `aoe serve` daemon
+
+**Usage:** `aoe url [OPTIONS]`
+
+###### **Options:**
+
+* `--all` — Print every labeled URL (Tailscale / LAN / localhost) on its own line. The primary URL is printed first as `primary\t<url>`; alternates use `<label>\t<url>`. The tab-separated format makes the output easy to parse from shell scripts
+* `--token-only` — Print only the auth token from the primary URL's `?token=` query parameter. Useful for scripted login flows or pasting into the PWA. Exits non-zero when the URL has no token (e.g. `--no-auth` server)
 
 
 

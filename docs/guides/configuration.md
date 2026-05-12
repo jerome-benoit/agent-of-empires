@@ -35,7 +35,10 @@ All settings below can also be edited from the TUI settings screen (press `s` or
 | Variable | Description |
 |----------|-------------|
 | `AGENT_OF_EMPIRES_PROFILE` | Default profile to use |
-| `AGENT_OF_EMPIRES_DEBUG` | Enable debug logging to `debug.log` in app data dir (`1` to enable) |
+| `AGENT_OF_EMPIRES_DEBUG` | Enable debug logging to `debug.log` in app data dir (`1` to enable). Legacy alias for `AOE_LOG_LEVEL=debug`. |
+| `AOE_LOG_LEVEL` | File log level: `trace`, `debug`, `info`, `warn`, `error`. Applies to `agent_of_empires`, `cockpit`, and `terminal` targets. |
+| `AOE_ACP_TRACE` | Add the ACP framework's raw JSON-RPC firehose to `debug.log` (`1` to enable). Very chatty; useful for chasing schema mismatches. |
+| `AOE_TERMINAL_TRACE` | Add per-message byte tracing for the web terminal WebSocket relay to `debug.log` (`1` to enable). Bumps the `terminal` target to `trace`, surfacing every PTY read/write and every WS send/recv. Spammy under load (a busy claude session emits thousands of frames/min); use only when chasing terminal disconnect bugs. |
 
 ## Theme
 
@@ -105,6 +108,7 @@ bare_repo_path_template = "./{branch}"
 auto_cleanup = true
 show_branch_in_tui = true
 delete_branch_on_cleanup = false
+init_submodules = true
 ```
 
 | Option | Default | Description |
@@ -115,6 +119,7 @@ delete_branch_on_cleanup = false
 | `auto_cleanup` | `true` | Prompt to remove worktree when deleting a session |
 | `show_branch_in_tui` | `true` | Display branch name in the TUI session list |
 | `delete_branch_on_cleanup` | `false` | Also delete the git branch when removing a worktree |
+| `init_submodules` | `true` | Run `git submodule update --init --recursive` after creating a worktree; set to `false` (or pass `--no-submodules` to `aoe add`) to skip submodule init for repos with large or deeply-nested submodule trees |
 
 **Template variables:**
 
@@ -203,17 +208,6 @@ notify_in_cli = true
 | `auto_update` | `false` | Automatically install updates |
 | `check_interval_hours` | `24` | Hours between update checks |
 | `notify_in_cli` | `true` | Show update notifications in CLI output |
-
-## Claude
-
-```toml
-[claude]
-config_dir = "~/.claude"
-```
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `config_dir` | (none) | Custom Claude Code config directory. Supports `~/` prefix. |
 
 ## Profiles
 
