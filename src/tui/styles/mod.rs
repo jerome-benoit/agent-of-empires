@@ -203,6 +203,7 @@ mod tests {
         assert!(BUILTIN_THEMES.contains(&"tokyo-night-storm"));
         assert!(BUILTIN_THEMES.contains(&"catppuccin-latte"));
         assert!(BUILTIN_THEMES.contains(&"dracula"));
+        assert!(BUILTIN_THEMES.contains(&"rose-pine"));
     }
 
     #[test]
