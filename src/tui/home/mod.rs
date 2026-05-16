@@ -1403,7 +1403,7 @@ impl HomeView {
     /// during the implicit respawn so the caller can toast the user about
     /// the lost history; `None` otherwise.
     pub fn execute_send_message(&mut self, session_id: &str, message: &str) -> Option<String> {
-        let outcome = self.try_mutate_instance(session_id, |inst| {
+        let outcome = self.try_mutate_instance_writeback_on_err(session_id, |inst| {
             inst.ensure_pane_ready().map_err(Into::into)
         });
         let stale_sid = match outcome {
@@ -1564,6 +1564,34 @@ impl HomeView {
         Ok(None)
     }
 
+    /// Like `try_mutate_instance`, but writes the mutated clone back even
+    /// when `f` returns `Err`.
+    ///
+    /// Required for callers of `Instance::restart_with_size_opts` /
+    /// `ensure_pane_ready`, because the resume-fallback cascade mutates
+    /// `agent_session_id` and `retroactive_capture_excludes` BEFORE
+    /// returning `Err` on Tier-2 failure. The default `try_mutate_instance`
+    /// drops the mutated clone on `Err`, leaving the live entry with the
+    /// stale sid in memory while disk has been cleared. Subsequent restarts
+    /// then loop indefinitely on the same bad sid (the TUI's `reload()`
+    /// merge prefers in-memory, so even the 5s disk refresh does not
+    /// recover). This helper preserves the cascade's partial mutations so
+    /// the live state stays consistent with disk.
+    pub(super) fn try_mutate_instance_writeback_on_err<T>(
+        &mut self,
+        id: &str,
+        f: impl FnOnce(&mut Instance) -> anyhow::Result<T>,
+    ) -> anyhow::Result<Option<T>> {
+        if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
+            let mut updated = inst.clone();
+            let result = f(&mut updated);
+            *inst = updated.clone();
+            self.instance_map.insert(id.to_string(), updated);
+            return result.map(Some);
+        }
+        Ok(None)
+    }
+
     pub fn set_instance_error(&mut self, id: &str, error: Option<String>) {
         self.mutate_instance(id, |inst| inst.last_error = error);
     }
@@ -1584,8 +1612,9 @@ impl HomeView {
         size: Option<(u16, u16)>,
         skip_on_launch: bool,
     ) -> anyhow::Result<crate::session::StartOutcome> {
-        let outcome =
-            self.try_mutate_instance(id, |inst| inst.restart_with_size_opts(size, skip_on_launch))?;
+        let outcome = self.try_mutate_instance_writeback_on_err(id, |inst| {
+            inst.restart_with_size_opts(size, skip_on_launch)
+        })?;
         outcome.ok_or_else(|| anyhow::anyhow!("session not found: {}", id))
     }
 

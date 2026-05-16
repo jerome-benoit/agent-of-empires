@@ -63,8 +63,13 @@ pub enum StartOutcome {
     /// fresh start succeeded. Caller should surface this: the user's prior
     /// conversation is gone. `stale_sid` is the sid that was cleared.
     Restarted { stale_sid: String },
-    /// No resume was attempted (no prior sid, agent doesn't support resume,
-    /// or sid was invalid). Started cleanly.
+    /// No resume cascade ran. Either no prior sid, the agent doesn't support
+    /// resume, the sid was invalid, the session is cockpit-mode (no tmux
+    /// pane), or the tmux session was already alive when entered (so
+    /// `start_with_size_opts` was a no-op and the probe had nothing to
+    /// detect). The pane is alive on return; whether a fresh launch
+    /// actually occurred this call depends on the caller having killed
+    /// any pre-existing pane first.
     Fresh,
 }
 
@@ -365,6 +370,14 @@ pub struct Instance {
     /// doesn't re-import the same bad sid via filesystem scan (opencode db,
     /// vibe meta.json, codex state, etc., all keep the bad session's row
     /// after the crash for several minutes).
+    ///
+    /// `#[serde(skip)]` is intentional. If the daemon dies between the
+    /// cascade clearing the on-disk sid and the on-disk artifact decaying
+    /// (~5-10 min), the next launch starts with this set empty and the
+    /// freshly-spawned poller can re-import the bad sid once. The next
+    /// `start_with_resume_fallback` then re-runs the cascade and clears it
+    /// again. Self-healing within one cycle; persisting a TTL set isn't
+    /// worth the schema cost.
     #[serde(skip)]
     pub(crate) retroactive_capture_excludes: HashSet<String>,
 }
@@ -1674,6 +1687,14 @@ impl Instance {
     /// time (handles Node.js agents that `exec` to `node` before crashing
     /// on a bad sid), or charitably on full timeout for slow-start agents.
     /// `pane_dead` is the unambiguous signal we trust to fire the cascade.
+    ///
+    /// For instances using a shell-wrapper command (`/bin/sh -c '...'`,
+    /// agent-override scripts), `is_pane_running_shell` stays true for the
+    /// entire probe and the post-shell grace shortcut never fires. Such
+    /// instances rely exclusively on `pane_dead` -- if the wrapper exits
+    /// when the agent crashes, the cascade fires correctly; if the wrapper
+    /// holds the pane open past the agent crash (e.g., trailing `sleep`),
+    /// the cascade misses it. Pathological shape; not worth special-casing.
     fn probe_settle(
         &self,
         max: std::time::Duration,
@@ -1738,16 +1759,20 @@ impl Instance {
         size: Option<(u16, u16)>,
         skip_on_launch: bool,
     ) -> Result<StartOutcome> {
-        #[cfg(feature = "serve")]
-        if self.cockpit_mode {
-            self.start_with_size_opts(size, skip_on_launch)?;
-            return Ok(StartOutcome::Fresh);
-        }
-
+        // Clear stale Status::Error before any early-return so cockpit and
+        // non-cockpit paths behave consistently. Without this, a cockpit
+        // session entering with Status::Error keeps the error chip after a
+        // user-initiated restart.
         if self.status == Status::Error {
             self.status = Status::Idle;
             self.last_error = None;
             self.last_error_check = None;
+        }
+
+        #[cfg(feature = "serve")]
+        if self.cockpit_mode {
+            self.start_with_size_opts(size, skip_on_launch)?;
+            return Ok(StartOutcome::Fresh);
         }
 
         let attempting_resume = should_attempt_resume(self.agent_session_id.as_deref(), &self.tool);

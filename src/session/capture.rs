@@ -171,6 +171,18 @@ fn read_claude_json_session_id(project_path: &Path) -> Option<String> {
 }
 
 /// Polling closure for Claude Code session tracking on the host filesystem.
+///
+/// Unlike the other agents' poll factories, this one does not take an
+/// `extra_excludes` parameter. Claude generates a fresh UUID at launch
+/// time (`generate_claude_session_id`) and the disk scan filters by file
+/// mtime against `should_attempt_resume`'s 5-minute window, so the
+/// resume-fallback cascade's just-cleared sid would be filtered out by
+/// the existing freshness check before reaching this closure. The
+/// defense-in-depth check in `apply_session_id_updates`
+/// (`tui/home/mod.rs`) guards against any edge case where a stale sid
+/// slips through. If you ever add a second consumer of the poller
+/// channel that bypasses that path, you must replicate the
+/// `retroactive_capture_excludes` filter here.
 pub(crate) fn claude_poll_fn(project_path: String) -> impl Fn() -> Option<String> + Send + 'static {
     move || {
         capture_claude_session_id(&project_path)

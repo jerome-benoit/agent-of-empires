@@ -1170,6 +1170,11 @@ fn apply_post_restart_sync(live: &mut Instance, started: &Instance) {
 ///
 /// Read-only: in read-only mode, the endpoint may report `alive` but will
 /// refuse to kill+restart a session. Returns 403 when a restart is needed.
+///
+/// Latency: the synchronous restart path includes Tier-1 probe (up to ~1s
+/// to detect a pane crash) plus, if the cascade fires, kill_clean + Tier-2
+/// spawn + Tier-2 probe grace (up to another ~3s). HTTP clients should
+/// budget ~3s worst-case for cold-start cascade scenarios.
 pub async fn ensure_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1270,16 +1275,27 @@ pub async fn ensure_session(
     }
 
     let restart_result = tokio::task::spawn_blocking(
-        move || -> anyhow::Result<(Instance, crate::session::StartOutcome)> {
+        move || -> Result<(Instance, crate::session::StartOutcome), Box<(Instance, anyhow::Error)>> {
             let mut inst = instance;
             // Use kill_clean (vs bare tmux kill) so a remain-on-exit dead
             // pane is respawned-then-killed; bare kill races against the
             // session cache on macOS and can leave the corpse pane behind,
             // which then trips the next start_with_resume_fallback's
             // `pane_was_preexisting` short-circuit. See `Instance::kill_clean`.
-            inst.kill_clean()?;
-            let outcome = inst.start_with_resume_fallback(None, false)?;
-            Ok((inst, outcome))
+            if let Err(e) = inst.kill_clean() {
+                return Err(Box::new((inst, e)));
+            }
+            // Surface the moved Instance on the Err arm so the caller can
+            // sync the cascade-cleared `agent_session_id` and updated
+            // `retroactive_capture_excludes` back to live state. Otherwise
+            // the live entry retains the stale sid in memory while disk has
+            // already been cleared, and subsequent calls within the
+            // `status_poll_loop` reload window (~2s) keep re-attempting
+            // resume with the bad sid. See `apply_post_restart_sync`.
+            match inst.start_with_resume_fallback(None, false) {
+                Ok(outcome) => Ok((inst, outcome)),
+                Err(e) => Err(Box::new((inst, e))),
+            }
         },
     )
     .await;
@@ -1304,11 +1320,13 @@ pub async fn ensure_session(
             }
             (StatusCode::OK, Json(body)).into_response()
         }
-        Ok(Err(e)) => {
+        Ok(Err(boxed)) => {
+            let (started, e) = *boxed;
             let msg = e.to_string();
             tracing::warn!("ensure_session restart failed for {id}: {msg}");
             let mut instances = state.instances.write().await;
             if let Some(inst) = instances.iter_mut().find(|i| i.id == id) {
+                apply_post_restart_sync(inst, &started);
                 inst.status = crate::session::Status::Error;
                 inst.last_error = Some(msg.clone());
             }
@@ -2551,28 +2569,44 @@ pub async fn send_message(
     let message = req.message;
     let revive = req.revive;
     let send_result = tokio::task::spawn_blocking(
-        move || -> Result<(EnsureReadyOutcome, Instance), SendKeysError> {
+        move || -> Result<(EnsureReadyOutcome, Instance), Box<(Instance, SendKeysError)>> {
             // Revive the pane before sending. Without this, a send to a dead
             // pane silently writes keystrokes to a corpse with no agent.
             // Skipped when the caller opts out via `revive: false`.
+            //
+            // The closure surfaces `inst_owned` on BOTH arms so the caller
+            // can sync the cascade-cleared `agent_session_id` and updated
+            // `retroactive_capture_excludes` back to live state on Err.
+            // Otherwise a Tier-2 cascade failure leaves the live entry with
+            // a stale sid in memory while disk is already cleared, and
+            // subsequent sends keep re-attempting resume with the bad sid.
             let mut inst_owned = instance;
             let outcome = if revive {
-                inst_owned.ensure_pane_ready().map_err(|e| match e {
-                    EnsureReadyError::Transient(s) => SendKeysError::Transient(s),
-                    EnsureReadyError::CockpitMode => SendKeysError::CockpitMode,
-                    EnsureReadyError::Tmux(e) => SendKeysError::Tmux(e),
-                })?
+                match inst_owned.ensure_pane_ready() {
+                    Ok(o) => o,
+                    Err(e) => {
+                        let mapped = match e {
+                            EnsureReadyError::Transient(s) => SendKeysError::Transient(s),
+                            EnsureReadyError::CockpitMode => SendKeysError::CockpitMode,
+                            EnsureReadyError::Tmux(e) => SendKeysError::Tmux(e),
+                        };
+                        return Err(Box::new((inst_owned, mapped)));
+                    }
+                }
             } else {
                 EnsureReadyOutcome::AlreadyAlive
             };
-            let tmux_session = inst_owned.tmux_session().map_err(SendKeysError::Tmux)?;
+            let tmux_session = match inst_owned.tmux_session() {
+                Ok(s) => s,
+                Err(e) => return Err(Box::new((inst_owned, SendKeysError::Tmux(e)))),
+            };
             if !tmux_session.exists() {
-                return Err(SendKeysError::NotRunning);
+                return Err(Box::new((inst_owned, SendKeysError::NotRunning)));
             }
             let delay = crate::agents::send_keys_enter_delay(&tool);
-            tmux_session
-                .send_keys_with_delay(&message, delay)
-                .map_err(SendKeysError::Tmux)?;
+            if let Err(e) = tmux_session.send_keys_with_delay(&message, delay) {
+                return Err(Box::new((inst_owned, SendKeysError::Tmux(e))));
+            }
             Ok((outcome, inst_owned))
         },
     )
@@ -2624,31 +2658,54 @@ pub async fn send_message(
             }
             (StatusCode::OK, Json(body)).into_response()
         }
-        Ok(Err(SendKeysError::NotRunning)) => (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({"error": "session_not_running"})),
-        )
-            .into_response(),
-        Ok(Err(SendKeysError::Transient(status))) => (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({
-                "error": "session_transient",
-                "status": format!("{status:?}"),
-            })),
-        )
-            .into_response(),
-        Ok(Err(SendKeysError::CockpitMode)) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "cockpit_mode_unsupported"})),
-        )
-            .into_response(),
-        Ok(Err(SendKeysError::Tmux(e))) => {
-            tracing::error!("send_message: tmux error for {id}: {e}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "tmux_error"})),
-            )
-                .into_response()
+        Ok(Err(boxed)) => {
+            let (started, send_err) = *boxed;
+            match send_err {
+                SendKeysError::NotRunning => (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({"error": "session_not_running"})),
+                )
+                    .into_response(),
+                SendKeysError::Transient(status) => (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({
+                        "error": "session_transient",
+                        "status": format!("{status:?}"),
+                    })),
+                )
+                    .into_response(),
+                SendKeysError::CockpitMode => (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "cockpit_mode_unsupported"})),
+                )
+                    .into_response(),
+                SendKeysError::Tmux(e) => {
+                    tracing::error!("send_message: tmux error for {id}: {e}");
+                    let msg = e.to_string();
+                    // Sync cascade-mutated fields back to live state. Only
+                    // the Tmux variant routes through `ensure_pane_ready` ->
+                    // cascade, so this is the sole arm where `started` may
+                    // carry the cleared sid + updated excludes. The other
+                    // variants leave `started` untouched and don't need a
+                    // sync (and a sync would clobber the live `last_error`
+                    // with `started.last_error = None`). Mirror
+                    // `ensure_session`'s Err arm: sync, then override
+                    // `status` and `last_error` so observers don't see
+                    // `Status::Starting` (set by `finalize_launch` before
+                    // Tier-2 bail) on a broken session.
+                    let mut instances = state.instances.write().await;
+                    if let Some(i) = instances.iter_mut().find(|i| i.id == id) {
+                        apply_post_restart_sync(i, &started);
+                        i.status = crate::session::Status::Error;
+                        i.last_error = Some(msg);
+                    }
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": "tmux_error"})),
+                    )
+                        .into_response()
+                }
+            }
         }
         Err(e) => {
             tracing::error!("send_message: blocking task panicked for {id}: {e}");
