@@ -1524,18 +1524,19 @@ impl HomeView {
     /// Like `mutate_instance`, but for fallible operations. Clones the entry,
     /// applies `f` to the clone, and writes back to both collections only on
     /// success -- neither collection is modified on error.
-    pub(super) fn try_mutate_instance(
+    pub(super) fn try_mutate_instance<T>(
         &mut self,
         id: &str,
-        f: impl FnOnce(&mut Instance) -> anyhow::Result<()>,
-    ) -> anyhow::Result<()> {
+        f: impl FnOnce(&mut Instance) -> anyhow::Result<T>,
+    ) -> anyhow::Result<Option<T>> {
         if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
             let mut updated = inst.clone();
-            f(&mut updated)?;
+            let out = f(&mut updated)?;
             *inst = updated.clone();
             self.instance_map.insert(id.to_string(), updated);
+            return Ok(Some(out));
         }
-        Ok(())
+        Ok(None)
     }
 
     pub fn set_instance_error(&mut self, id: &str, error: Option<String>) {
@@ -1557,8 +1558,10 @@ impl HomeView {
         id: &str,
         size: Option<(u16, u16)>,
         skip_on_launch: bool,
-    ) -> anyhow::Result<()> {
-        self.try_mutate_instance(id, |inst| inst.restart_with_size_opts(size, skip_on_launch))
+    ) -> anyhow::Result<crate::session::StartOutcome> {
+        let outcome =
+            self.try_mutate_instance(id, |inst| inst.restart_with_size_opts(size, skip_on_launch))?;
+        outcome.ok_or_else(|| anyhow::anyhow!("session not found: {}", id))
     }
 
     pub fn select_session_by_id(&mut self, session_id: &str) {
@@ -1612,5 +1615,6 @@ impl HomeView {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
         self.try_mutate_instance(id, |inst| inst.start_container_terminal_with_size(size))
+            .map(|_| ())
     }
 }

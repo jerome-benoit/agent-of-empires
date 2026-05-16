@@ -332,7 +332,7 @@ async fn restart_all_sessions(profile: &str, parallel: usize) -> Result<()> {
                 .expect("semaphore not closed");
             let title = inst.title.clone();
             let res = tokio::task::spawn_blocking(move || {
-                let result = inst.restart_with_size(size);
+                let result = inst.restart_with_size(size).map(|_| ());
                 (inst, result)
             })
             .await;
@@ -425,13 +425,23 @@ async fn restart_session(profile: &str, args: SessionIdArgs) -> Result<()> {
     // so restart-time config resolution honors the right profile's overrides.
     instances[idx].source_profile = profile.to_string();
     bail_if_cockpit(&instances[idx], "restart")?;
-    instances[idx].restart_with_size(crate::terminal::get_size())?;
+    let outcome = instances[idx].restart_with_size(crate::terminal::get_size())?;
     let title = instances[idx].title.clone();
 
     let group_tree = GroupTree::new_with_groups(&instances, &groups);
     storage.save_with_groups(&instances, &group_tree)?;
 
-    println!("✓ Restarted session: {}", title);
+    match outcome {
+        crate::session::StartOutcome::Restarted { stale_sid } => {
+            println!(
+                "✓ Restarted session: {} (resume failed for sid {}; started fresh, prior history not loaded)",
+                title, stale_sid
+            );
+        }
+        crate::session::StartOutcome::Resumed | crate::session::StartOutcome::Fresh => {
+            println!("✓ Restarted session: {}", title);
+        }
+    }
     Ok(())
 }
 

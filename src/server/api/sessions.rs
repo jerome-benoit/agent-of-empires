@@ -1268,28 +1268,38 @@ pub async fn ensure_session(
         }
     }
 
-    let restart_result = tokio::task::spawn_blocking(move || -> anyhow::Result<Instance> {
-        let tmux_session = instance.tmux_session()?;
-        if tmux_session.exists() {
-            let _ = tmux_session.kill();
-        }
-        let mut inst = instance;
-        inst.start_with_size_opts(None, false)?;
-        Ok(inst)
-    })
+    let restart_result = tokio::task::spawn_blocking(
+        move || -> anyhow::Result<(Instance, crate::session::StartOutcome)> {
+            let tmux_session = instance.tmux_session()?;
+            if tmux_session.exists() {
+                let _ = tmux_session.kill();
+            }
+            let mut inst = instance;
+            let outcome = inst.start_with_resume_fallback(None, false)?;
+            Ok((inst, outcome))
+        },
+    )
     .await;
 
     match restart_result {
-        Ok(Ok(started)) => {
+        Ok(Ok((started, outcome))) => {
             let mut instances = state.instances.write().await;
             if let Some(inst) = instances.iter_mut().find(|i| i.id == id) {
                 apply_post_restart_sync(inst, &started);
             }
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({"status": "restarted"})),
-            )
-                .into_response()
+            let resume_outcome = match &outcome {
+                crate::session::StartOutcome::Resumed => "resumed",
+                crate::session::StartOutcome::Restarted { .. } => "restarted",
+                crate::session::StartOutcome::Fresh => "fresh",
+            };
+            let mut body = serde_json::json!({
+                "status": "restarted",
+                "resume_outcome": resume_outcome,
+            });
+            if let crate::session::StartOutcome::Restarted { stale_sid } = &outcome {
+                body["stale_session_id"] = serde_json::Value::String(stale_sid.clone());
+            }
+            (StatusCode::OK, Json(body)).into_response()
         }
         Ok(Err(e)) => {
             let msg = e.to_string();

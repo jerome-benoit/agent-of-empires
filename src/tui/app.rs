@@ -1115,23 +1115,31 @@ impl App {
 
             self.home
                 .set_instance_status(session_id, crate::session::Status::Starting);
-            if let Err(e) =
-                self.home
-                    .restart_instance_with_size_opts(session_id, size, skip_on_launch)
+            match self
+                .home
+                .restart_instance_with_size_opts(session_id, size, skip_on_launch)
             {
-                let err_str = e.to_string();
-                self.home
-                    .set_instance_error(session_id, Some(err_str.clone()));
-                self.home
-                    .set_instance_status(session_id, crate::session::Status::Error);
-                // Without a toast, set_instance_error + Status::Error are
-                // invisible to the user: the TUI redraws on home as if Enter
-                // did nothing. Toast text is single-line; the bar truncates
-                // at terminal width without us needing to pre-clip.
-                self.update_status = Some(UpdateStatus::transient(format!(
-                    "restart failed: {err_str}"
-                )));
-                return Ok(());
+                Err(e) => {
+                    let err_str = e.to_string();
+                    self.home
+                        .set_instance_error(session_id, Some(err_str.clone()));
+                    self.home
+                        .set_instance_status(session_id, crate::session::Status::Error);
+                    // Without a toast, set_instance_error + Status::Error are
+                    // invisible to the user: the TUI redraws on home as if Enter
+                    // did nothing. Toast text is single-line; the bar truncates
+                    // at terminal width without us needing to pre-clip.
+                    self.update_status = Some(UpdateStatus::transient(format!(
+                        "restart failed: {err_str}"
+                    )));
+                    return Ok(());
+                }
+                Ok(crate::session::StartOutcome::Restarted { stale_sid }) => {
+                    self.update_status = Some(UpdateStatus::transient(format!(
+                        "Resume failed for sid {stale_sid}; started fresh (history not loaded)"
+                    )));
+                }
+                Ok(_) => {}
             }
             self.home.set_instance_error(session_id, None);
         }
