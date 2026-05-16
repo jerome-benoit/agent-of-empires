@@ -634,7 +634,7 @@ pub(crate) fn compose_exclusion(
 /// the resume-fallback cascade's just-crashed sid) should use
 /// [`compose_exclusion`] instead, which composes this function with the
 /// per-instance exclusion list.
-pub(crate) fn build_exclusion_set(current_instance_id: &str) -> HashSet<String> {
+fn build_exclusion_set(current_instance_id: &str) -> HashSet<String> {
     let output = match std::process::Command::new("tmux")
         .args(["list-sessions", "-F", "#{session_name}"])
         .output()
