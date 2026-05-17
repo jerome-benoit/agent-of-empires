@@ -1198,6 +1198,7 @@ fn apply_cascade_state_sync(live: &mut Instance, started: &Instance) {
 ///     fast (`pane_dead`/`!exists` is unambiguous), then `kill_clean`
 ///     (~100ms macOS grace) + Tier-2 tmux spawn + up to another
 ///     `RESUME_PROBE_MAX`.
+///
 /// HTTP clients should budget ~6-7s worst-case for the full Tier-1 +
 /// Tier-2 cascade and configure timeouts accordingly.
 pub async fn ensure_session(
@@ -2696,10 +2697,16 @@ pub async fn send_message(
                 }
             });
             let mut body = serde_json::json!({"sent": true});
-            if let EnsureReadyOutcome::Respawned {
-                stale_sid: Some(sid),
-            } = outcome
-            {
+            let stale_sid = match &outcome {
+                EnsureReadyOutcome::Respawned {
+                    stale_sid: Some(sid),
+                }
+                | EnsureReadyOutcome::Started {
+                    stale_sid: Some(sid),
+                } => Some(sid.clone()),
+                _ => None,
+            };
+            if let Some(sid) = stale_sid {
                 body["stale_session_id"] = serde_json::Value::String(sid);
             }
             (StatusCode::OK, Json(body)).into_response()

@@ -189,7 +189,7 @@ fn read_claude_json_session_id(project_path: &Path) -> Option<String> {
 ///    still-fresh stale `<stale_sid>.jsonl`) is caught here.
 ///
 /// The 5-minute mtime check inside `capture_claude_session_id` is an
-/// upper bound on staleness, NOT a stale-sid filter -- a just-crashed
+/// upper bound on staleness, not a stale-sid filter; a just-crashed
 /// `<stale_sid>.jsonl` has a fresh mtime and passes that check.
 ///
 /// Serve-only mode never drains `result_rx` (the only consumer of

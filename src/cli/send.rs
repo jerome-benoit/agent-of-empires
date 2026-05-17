@@ -51,8 +51,16 @@ pub async fn run(profile: &str, args: SendArgs) -> Result<()> {
                         stale_history_suffix(&sid),
                     );
                 }
-                Ok(EnsureReadyOutcome::Started) => {
+                Ok(EnsureReadyOutcome::Started { stale_sid: None }) => {
                     eprintln!("  (started stopped session before send)");
+                }
+                Ok(EnsureReadyOutcome::Started {
+                    stale_sid: Some(sid),
+                }) => {
+                    eprintln!(
+                        "  (started stopped session before send){}",
+                        stale_history_suffix(&sid),
+                    );
                 }
                 Ok(EnsureReadyOutcome::AlreadyAlive) => {}
                 Err(EnsureReadyError::Transient(status)) => {

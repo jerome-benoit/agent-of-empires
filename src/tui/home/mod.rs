@@ -1409,6 +1409,9 @@ impl HomeView {
         let stale_sid = match outcome {
             Ok(Some(EnsureReadyOutcome::Respawned {
                 stale_sid: Some(sid),
+            }))
+            | Ok(Some(EnsureReadyOutcome::Started {
+                stale_sid: Some(sid),
             })) => Some(sid),
             Ok(_) => None,
             Err(err) => {

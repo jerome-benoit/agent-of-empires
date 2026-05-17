@@ -122,8 +122,12 @@ pub enum EnsureReadyOutcome {
     /// respawn, meaning the agent's prior conversation is gone; callers should
     /// surface this so the user understands why history disappeared.
     Respawned { stale_sid: Option<String> },
-    /// Tmux session did not exist and was started from scratch.
-    Started,
+    /// Tmux session did not exist and was started from scratch via the
+    /// resume-fallback cascade. `stale_sid` is `Some` when the cascade
+    /// fired during this start (sid was on disk from a prior run, the
+    /// agent crashed on it, and we cleared it before retrying), with the
+    /// same surface-to-user contract as `Respawned`.
+    Started { stale_sid: Option<String> },
 }
 
 /// Errors `ensure_pane_ready` can return. Separating transient lifecycle
@@ -1852,7 +1856,7 @@ impl Instance {
         // Defense in depth: every current caller runs `kill_clean()` (or
         // its equivalent) first, so this is normally false. It can still
         // be true if `kill_clean` raced the macOS tmux session cache
-        // (see `Instance::kill_clean` doc) -- in that case
+        // (see `Instance::kill_clean` doc): in that case
         // `start_with_size_opts` no-ops, the probe would have nothing to
         // detect, and reporting `Fresh` is the least-wrong outcome
         // (returning `Resumed` would mean lying about a `--resume <sid>`
@@ -1999,9 +2003,20 @@ impl Instance {
         }
         let session = self.tmux_session().map_err(EnsureReadyError::Tmux)?;
         if !session.exists() {
-            self.start_with_size(None).map_err(EnsureReadyError::Tmux)?;
+            // Route fresh starts through the cascade so a stale sid loaded
+            // from disk that crashes the agent on launch is detected,
+            // cleared, and retried. Without this, `aoe send` after a tmux
+            // server kill or reboot resurrects the same bad sid the
+            // restart paths exist to recover from.
+            let outcome = self
+                .start_with_resume_fallback(None, false)
+                .map_err(EnsureReadyError::Tmux)?;
             self.wait_for_pane_ready(&session);
-            return Ok(EnsureReadyOutcome::Started);
+            let stale_sid = match outcome {
+                StartOutcome::Restarted { stale_sid } => Some(stale_sid),
+                StartOutcome::Resumed | StartOutcome::Fresh => None,
+            };
+            return Ok(EnsureReadyOutcome::Started { stale_sid });
         }
         if session.is_pane_dead() {
             let outcome = self
@@ -3726,32 +3741,22 @@ mod tests {
             assert_eq!(loaded[0].agent_session_id, None);
         }
 
+        #[cfg(feature = "serve")]
         #[test]
         #[serial]
         fn restart_outcome_for_cockpit_session_is_fresh() {
-            #[cfg(feature = "serve")]
-            {
-                if std::process::Command::new("tmux")
-                    .arg("-V")
-                    .output()
-                    .is_err()
-                {
-                    eprintln!("tmux not available; skipping");
-                    return;
-                }
-                let temp = tempdir().unwrap();
-                std::env::set_var("HOME", temp.path());
-                #[cfg(target_os = "linux")]
-                std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+            let temp = tempdir().unwrap();
+            std::env::set_var("HOME", temp.path());
+            #[cfg(target_os = "linux")]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
-                let mut inst = Instance::new("cockpit_test", "/tmp/x");
-                inst.cockpit_mode = true;
-                inst.agent_session_id = Some("11111111-1111-1111-1111-111111111111".to_string());
-                inst.tool = "claude".to_string();
+            let mut inst = Instance::new("cockpit_test", "/tmp/x");
+            inst.cockpit_mode = true;
+            inst.agent_session_id = Some("11111111-1111-1111-1111-111111111111".to_string());
+            inst.tool = "claude".to_string();
 
-                let outcome = inst.start_with_resume_fallback(None, true).unwrap();
-                assert_eq!(outcome, StartOutcome::Fresh);
-            }
+            let outcome = inst.start_with_resume_fallback(None, true).unwrap();
+            assert_eq!(outcome, StartOutcome::Fresh);
         }
 
         #[test]
