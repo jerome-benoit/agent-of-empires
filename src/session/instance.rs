@@ -1807,10 +1807,24 @@ impl Instance {
         size: Option<(u16, u16)>,
         skip_on_launch: bool,
     ) -> Result<StartOutcome> {
-        // Clear stale Status::Error before any early-return so cockpit and
-        // non-cockpit paths behave consistently. Without this, a cockpit
-        // session entering with Status::Error keeps the error chip after a
-        // user-initiated restart.
+        // Clear stale Status::Error before any early-return so all restart
+        // paths (REST `ensure_session`, TUI Enter/restart, CLI `aoe session
+        // restart [id|--all]`) behave consistently. Pre-cascade only REST
+        // had a pre-restart reset (still inlined at
+        // `src/server/api/sessions.rs::ensure_session`, sets
+        // `status=Starting`, `last_error=None`); hoisting the reset here
+        // is a deliberate UX broadening so a TUI/CLI restart on a session
+        // sitting in `Status::Error` no longer leaves the error chip up
+        // after a successful relaunch, and cockpit-mode short-circuit
+        // sessions get the same treatment.
+        //
+        // `last_error_check` is cleared alongside `last_error` to mirror
+        // how the field is otherwise managed: `update_status` writes both
+        // together when transitioning into Error (see the write sites
+        // gated on the 30s rate-limit). The clear is functionally inert
+        // today because the only reader is gated on `status == Error` and
+        // we just left Error, but the symmetry is intentional defense
+        // against a future read site that drops that gate.
         if self.status == Status::Error {
             self.status = Status::Idle;
             self.last_error = None;
