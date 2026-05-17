@@ -528,12 +528,28 @@ fn clear_session_id_on_disk(profile: &str, instance_id: &str) {
     //   2. `persist_session_to_storage` (called from `finalize_launch`).
     //   3. Server `ensure_session` / `send_message` -> `storage.save`,
     //      both inside `tokio::task::spawn_blocking`.
+    //   4. CLI `aoe session restart --all` (`src/cli/session.rs::restart_all_sessions`):
+    //      up to `--parallel` workers spawned via `tokio::task::JoinSet` +
+    //      `tokio::sync::Semaphore`, each running the cascade inside
+    //      `spawn_blocking` on its own cloned Instance.
     //
     // In the TUI path, `start_with_resume_fallback` runs on the main
     // thread between ticks, so (1) cannot interleave. (2) is sequential
     // within the same thread (cascade calls clear, then start_with_size_opts
     // -> finalize_launch -> persist). In the server path the per-instance
-    // `instance_lock` mutex serializes (3) for the same session.
+    // `instance_lock` mutex serializes (3) for the same session; it does
+    // NOT cover (4), which runs out-of-process from the daemon.
+    //
+    // Path (4) has NO equivalent serializer. Two workers Tier-1-crashing
+    // concurrently can interleave their load-modify-save cycles here:
+    // worker B loads before A saves, then B's save resurrects the bad sid
+    // A just cleared. Steady-state disk converges because the parent
+    // reconciles via `storage.save_with_groups` after the JoinSet drains
+    // (`src/cli/session.rs::restart_all_sessions`, post-loop save). The
+    // residual hazard is daemon death between any worker's clear and that
+    // post-join reconcile: the next launch may then re-`--resume` a sid
+    // one worker thought it had cleared, in which case the cascade fires
+    // again on next start (not corruption, just an extra cascade pass).
     //
     // Stopping `session_id_poller` (done at the cascade call site) is NOT
     // what prevents the race: the poller's `on_change` callback only
@@ -545,7 +561,10 @@ fn clear_session_id_on_disk(profile: &str, instance_id: &str) {
     // Storage::save is non-atomic (fs::write, not tempfile::persist), so
     // any concurrent save would corrupt or silently lose one party's
     // update. A future hardening is to make `Storage::save` atomic via
-    // an atomic-rename helper.
+    // an atomic-rename helper. Note that atomic rename does NOT close
+    // path (4)'s race: the lost-update is a load-modify-save interleave,
+    // independent of the save's atomicity. Closing (4) durably would
+    // require a cross-worker mutex on the per-profile file.
 
     let storage = match super::storage::Storage::new(profile) {
         Ok(s) => s,
