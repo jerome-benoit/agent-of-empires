@@ -1715,6 +1715,10 @@ impl Instance {
     /// when the agent crashes, the cascade fires correctly; if the wrapper
     /// holds the pane open past the agent crash (e.g., trailing `sleep`),
     /// the cascade misses it. Pathological shape; not worth special-casing.
+    ///
+    /// Latency consequence: shell-wrapper instances therefore burn the full
+    /// `RESUME_PROBE_MAX` on every healthy resume. Real agents settle in
+    /// ~`RESUME_PROBE_POST_SHELL_GRACE` (~500ms).
     fn probe_settle(
         &self,
         max: std::time::Duration,
@@ -1766,9 +1770,14 @@ impl Instance {
     ///      `Status::Error` + `last_error` path takes over.
     ///
     /// Latency: only fires the probe when `--resume <sid>` is being passed
-    /// to a freshly-created tmux session. Healthy resumes pay
-    /// `RESUME_PROBE_POST_SHELL_GRACE` (~500ms) once on cold start; warm
-    /// sessions and non-resume launches pay nothing.
+    /// to a freshly-created tmux session. Healthy resumes on real agents
+    /// pay `RESUME_PROBE_POST_SHELL_GRACE` (~500ms) once on cold start;
+    /// warm sessions and non-resume launches pay nothing. Shell-wrapper
+    /// command overrides pay the full `RESUME_PROBE_MAX` (~3s) on every
+    /// healthy resume because `is_pane_running_shell` never clears for
+    /// them; see `probe_settle`. When the cascade fires, add `kill_clean`
+    /// (~100ms macOS grace) + Tier-2 spawn + a second `RESUME_PROBE_MAX`
+    /// window: ~6-7s total worst-case.
     ///
     /// Cockpit-mode sessions short-circuit (no tmux pane to probe).
     /// `StartOutcome::Fresh` is honest there: cockpit's resume concept lives
@@ -1922,6 +1931,14 @@ impl Instance {
     /// On `Started` / `Respawned`, polls briefly so keystrokes don't race the
     /// agent's startup splash. Best-effort: returns after the timeout even if
     /// the pane is still settling.
+    ///
+    /// Latency: `AlreadyAlive` is ~tmux RTT. The `Respawned` path routes
+    /// through `restart_with_size` -> `start_with_resume_fallback`, which
+    /// on a dead resume-eligible pane can block for the full Tier-1 +
+    /// Tier-2 cascade window (~6-7s; see `start_with_resume_fallback` for
+    /// the breakdown) plus up to 3s of `wait_for_pane_ready` polling.
+    /// Smart-send, TUI Enter, and `aoe send` callers should size timeouts
+    /// and spinner copy accordingly.
     ///
     /// Note: callers that mutate a clone (e.g. inside `spawn_blocking`) must
     /// sync the post-start state (`status`, `agent_session_id`,

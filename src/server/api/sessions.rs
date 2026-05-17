@@ -1188,10 +1188,18 @@ fn apply_cascade_state_sync(live: &mut Instance, started: &Instance) {
 /// Read-only: in read-only mode, the endpoint may report `alive` but will
 /// refuse to kill+restart a session. Returns 403 when a restart is needed.
 ///
-/// Latency: the synchronous restart path includes Tier-1 probe (up to ~1s
-/// to detect a pane crash) plus, if the cascade fires, kill_clean + Tier-2
-/// spawn + Tier-2 probe grace (up to another ~3s). HTTP clients should
-/// budget ~3s worst-case for cold-start cascade scenarios.
+/// Latency: bounded by `RESUME_PROBE_MAX` (~3s) per probe.
+///   * No-op (pane alive): inspect-only, ~tmux RTT.
+///   * Healthy resume: Tier-1 probe only, returns after the
+///     `RESUME_PROBE_POST_SHELL_GRACE` (~500ms) shortcut. Shell-wrapper
+///     overrides charitably burn the full ~3s instead (see
+///     `Instance::probe_settle`).
+///   * Cascade fires (Tier-1 detects a dead pane): Tier-1 returns Dead
+///     fast (`pane_dead`/`!exists` is unambiguous), then `kill_clean`
+///     (~100ms macOS grace) + Tier-2 tmux spawn + up to another
+///     `RESUME_PROBE_MAX`.
+/// HTTP clients should budget ~6-7s worst-case for the full Tier-1 +
+/// Tier-2 cascade and configure timeouts accordingly.
 pub async fn ensure_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
