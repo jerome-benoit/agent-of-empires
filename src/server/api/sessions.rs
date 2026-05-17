@@ -1191,7 +1191,7 @@ fn apply_cascade_state_sync(live: &mut Instance, started: &Instance) {
 /// Latency: bounded by `RESUME_PROBE_MAX` (~3s) per probe.
 ///   * No-op (pane alive): inspect-only, ~tmux RTT.
 ///   * Healthy resume: Tier-1 probe only, returns after the
-///     `RESUME_PROBE_POST_SHELL_GRACE` (~500ms) shortcut. Shell-wrapper
+///     `RESUME_PROBE_POST_SHELL_GRACE` (~2s) shortcut. Shell-wrapper
 ///     overrides charitably burn the full ~3s instead (see
 ///     `Instance::probe_settle`).
 ///   * Cascade fires (Tier-1 detects a dead pane): Tier-1 returns Dead

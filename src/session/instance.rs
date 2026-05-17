@@ -82,10 +82,20 @@ enum ProbeResult {
 const RESUME_PROBE_MAX: std::time::Duration = std::time::Duration::from_millis(3000);
 const RESUME_PROBE_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 /// Grace window we keep observing after the pane stops running its boot
-/// shell, before declaring `Alive`. Without it, a Node.js agent that
-/// `exec`s past the wrapper at ~80ms and crashes at ~250ms is reported
-/// as alive on the first not-shell poll, defeating the cascade.
-const RESUME_PROBE_POST_SHELL_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
+/// shell, before declaring `Alive`. Sized to cover the longest in-pane
+/// boot a real agent takes before it would have crashed on a bad sid:
+/// opencode (bun-compiled native binary that loads JS, parses argv, and
+/// hits the session-not-found path) reaches `pane_dead = true` between
+/// ~900ms and ~1100ms after spawn on a warm cache, longer on cold or
+/// heavy projects. The earlier 500ms value caught Node.js agents that
+/// crashed in ~250ms but missed opencode's slower bun startup, leaving
+/// the cascade dormant on stale opencode sids: the user-visible bug is a
+/// dead pane after restart with the bad sid still on disk and no toast.
+/// Healthy resumes pay this entire window once on Tier-1 (and again on
+/// Tier-2 if it fires); the pane is fully attachable for the duration so
+/// the cost is purely in the synchronous restart path's latency, not in
+/// agent responsiveness afterward.
+const RESUME_PROBE_POST_SHELL_GRACE: std::time::Duration = std::time::Duration::from_millis(2000);
 
 /// Pure decision: should the resume-fallback cascade probe and potentially
 /// retry without resume after the initial start? Extracted for unit-testability:
@@ -1723,21 +1733,22 @@ impl Instance {
     /// Returns `Dead` immediately if the pane dies or the session evaporates
     /// during the probe window. Returns `Alive` only after the pane has been
     /// off the boot shell for `RESUME_PROBE_POST_SHELL_GRACE` consecutive
-    /// time (handles Node.js agents that `exec` to `node` before crashing
-    /// on a bad sid), or charitably on full timeout for slow-start agents.
-    /// `pane_dead` is the unambiguous signal we trust to fire the cascade.
+    /// time (handles agents whose boot wrapper sits before the agent
+    /// crashes on a bad sid), or charitably on full timeout for slow-start
+    /// agents. `pane_dead` is the unambiguous signal we trust to fire the
+    /// cascade.
     ///
     /// For instances using a shell-wrapper command (`/bin/sh -c '...'`,
     /// agent-override scripts), `is_pane_running_shell` stays true for the
     /// entire probe and the post-shell grace shortcut never fires. Such
-    /// instances rely exclusively on `pane_dead` -- if the wrapper exits
+    /// instances rely exclusively on `pane_dead`: if the wrapper exits
     /// when the agent crashes, the cascade fires correctly; if the wrapper
     /// holds the pane open past the agent crash (e.g., trailing `sleep`),
     /// the cascade misses it. Pathological shape; not worth special-casing.
     ///
     /// Latency consequence: shell-wrapper instances therefore burn the full
     /// `RESUME_PROBE_MAX` on every healthy resume. Real agents settle in
-    /// ~`RESUME_PROBE_POST_SHELL_GRACE` (~500ms).
+    /// ~`RESUME_PROBE_POST_SHELL_GRACE`.
     fn probe_settle(
         &self,
         max: std::time::Duration,
@@ -1790,7 +1801,7 @@ impl Instance {
     ///
     /// Latency: only fires the probe when `--resume <sid>` is being passed
     /// to a freshly-created tmux session. Healthy resumes on real agents
-    /// pay `RESUME_PROBE_POST_SHELL_GRACE` (~500ms) once on cold start;
+    /// pay `RESUME_PROBE_POST_SHELL_GRACE` (~2s) once on cold start;
     /// warm sessions and non-resume launches pay nothing. Shell-wrapper
     /// command overrides pay the full `RESUME_PROBE_MAX` (~3s) on every
     /// healthy resume because `is_pane_running_shell` never clears for
