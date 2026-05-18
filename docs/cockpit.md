@@ -109,7 +109,7 @@ Configured agents:
     install: npm install -g @google/gemini-cli  (then `gemini --acp`)
 [!! ] opencode  (OpenCode (SST); native ACP via `opencode acp`)
     install: curl -fsSL https://opencode.ai/install | bash  (then `opencode acp`)
-[!! ] pi  (Hermes coding agent (`pi`) via the pi-acp adapter …)
+[!! ] pi  (Pi coding agent (`pi`) via the pi-acp adapter …)
     install: npm install -g pi-acp  (also requires `npm i -g @earendil-works/pi-coding-agent`)
 [!! ] vibe  (Mistral Vibe; native ACP via the bundled `vibe-acp` binary)
     install: follow https://github.com/mistralai/mistral-vibe (ships the `vibe-acp` binary)
