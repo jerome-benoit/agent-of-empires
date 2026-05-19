@@ -943,7 +943,51 @@ impl HomeView {
                 .iter()
                 .map(|i| (i.id.clone(), i.clone()))
                 .collect();
+            // Preserve the selection across the rebuild. Without this, a
+            // recovery completion that reorders rows under
+            // `SortOrder::LastActivity` (the recovered session's
+            // `last_start_time` shifted) would silently latch the
+            // selection onto a neighbour because `update_selected()`
+            // resolves through `flat_items[cursor]`. Mirrors the
+            // canonical sequence in `reload()`.
+            let prev_selected_session = self.selected_session.clone();
+            let prev_selected_group = self.selected_group.clone();
+
             self.flat_items = self.build_flat_items();
+
+            let mut restored = false;
+            if let Some(ref sid) = prev_selected_session {
+                for (idx, item) in self.flat_items.iter().enumerate() {
+                    if let Item::Session { id, .. } = item {
+                        if id == sid {
+                            self.cursor = idx;
+                            restored = true;
+                            break;
+                        }
+                    }
+                }
+            } else if let Some(ref gpath) = prev_selected_group {
+                for (idx, item) in self.flat_items.iter().enumerate() {
+                    if let Item::Group { path, .. } = item {
+                        if path == gpath {
+                            self.cursor = idx;
+                            restored = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if !restored && self.cursor >= self.flat_items.len() && !self.flat_items.is_empty() {
+                self.cursor = self.flat_items.len() - 1;
+            }
+
+            if self.search_active && !self.search_query.value().is_empty() {
+                self.update_search();
+            } else if !self.search_matches.is_empty() {
+                self.refresh_search_matches();
+            }
+
+            self.update_selected();
         }
         touched
     }
