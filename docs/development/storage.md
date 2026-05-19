@@ -30,10 +30,10 @@ The closure passed to `update` is `FnOnce(&mut Vec<Instance>, &mut Vec<Group>)
 the body even on the tokio multi-threaded runtime: server callers wrap
 `update` in `tokio::task::spawn_blocking`, which is the existing pattern.
 
-`save`, `save_groups`, and `save_workspace_ordering` are `pub(crate)` and
-exist only to be called by `update` / `commit` internally. External crates
-and integration tests cannot invoke them, so it is structurally
-impossible to bypass the lock from outside the crate.
+`save_workspace_ordering` is `pub(crate)` and exists only to be called by
+`update_workspace_ordering` internally. The per-profile `save` and
+`save_groups` helpers have been removed entirely. External crates and
+integration tests cannot bypass the lock from outside the crate.
 
 ## Choosing between `update` and `commit`
 

@@ -4,9 +4,10 @@
 //! per-profile mutex (one `Arc<Mutex<()>>` per profile name, registered process-
 //! wide). Mutators use `update` (load -> mutate -> save under the lock) or
 //! `commit` (locked wholesale write, for callers that already own the
-//! authoritative in-memory state, e.g. the TUI's `HomeView`). The `save` /
-//! `save_groups` / `save_workspace_ordering` entry points are `pub(crate)` and
-//! only consumed by `update` / `commit` internally; this keeps it
+//! authoritative in-memory state, e.g. the TUI's `HomeView`). The
+//! `save_workspace_ordering` entry point is `pub(crate)` and only consumed
+//! by `update_workspace_ordering` internally; the per-profile `save` /
+//! `save_groups` helpers have been removed entirely. This keeps it
 //! structurally impossible to bypass the lock.
 //!
 //! Lock-ordering rule across the process: `AppState.instances` (tokio RwLock,

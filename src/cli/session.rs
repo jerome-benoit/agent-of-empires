@@ -809,7 +809,7 @@ async fn set_base(profile: &str, args: SetBaseArgs) -> Result<()> {
         bail!("Provide a branch ref or pass --clear to remove the override.");
     }
     let storage = Storage::new(profile)?;
-    let mut instances = storage.load()?;
+    let instances = storage.load()?;
 
     let idx = instances
         .iter()
@@ -850,7 +850,6 @@ async fn set_base(profile: &str, args: SetBaseArgs) -> Result<()> {
         Some(trimmed)
     };
 
-    instances[idx].base_branch_override = new_value.clone();
     let title = instances[idx].title.clone();
     let id_for_save = instances[idx].id.clone();
 
