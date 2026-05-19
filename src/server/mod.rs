@@ -1569,6 +1569,60 @@ async fn status_poll_loop(state: Arc<AppState>) {
                 }
             }
 
+            // Non-cockpit error overlay: preserve in-memory `last_error` for
+            // recently-errored instances against the wholesale state.instances
+            // replacement at the bottom of this loop. `last_error` and
+            // `last_error_check` are `#[serde(skip)]` so the disk reload at
+            // the top of the spawn_blocking closure always sees them as
+            // None; without this overlay, update_status_with_metadata_inner
+            // regenerates a generic "tmux session is gone" message every
+            // tick, hiding cascade-specific (or any other in-memory-only)
+            // error context. Filter on `status == Error` AND a recent
+            // `last_error_check` to avoid resurrecting stale errors after
+            // the in-memory status has legitimately moved on.
+            //
+            // Mirrors the cockpit overlay above; the two are disjoint by
+            // the `cockpit_mode` filter.
+            #[cfg(feature = "serve")]
+            {
+                type ErrorOverlay = std::collections::HashMap<
+                    String,
+                    (Status, Option<String>, Option<std::time::Instant>),
+                >;
+                let error_overlay: ErrorOverlay = {
+                    let state_instances = state.instances.read().await;
+                    state_instances
+                        .iter()
+                        .filter(|i| {
+                            !i.cockpit_mode
+                                && i.status == Status::Error
+                                && i.last_error.is_some()
+                                && i.last_error_check.is_some_and(|t| {
+                                    t.elapsed() < std::time::Duration::from_secs(30)
+                                })
+                        })
+                        .map(|i| {
+                            (
+                                i.id.clone(),
+                                (i.status, i.last_error.clone(), i.last_error_check),
+                            )
+                        })
+                        .collect()
+                };
+                for inst in &mut instances {
+                    if inst.cockpit_mode {
+                        continue;
+                    }
+                    if let Some((status, last_error, last_error_check)) =
+                        error_overlay.get(&inst.id)
+                    {
+                        inst.status = *status;
+                        inst.last_error = last_error.clone();
+                        inst.last_error_check = *last_error_check;
+                    }
+                }
+            }
+
             // Emit transitions before swapping in the new snapshot so
             // consumers see events in the same order regardless of when
             // they read state.instances themselves.
@@ -1802,6 +1856,14 @@ async fn daemon_startup_recovery_cascade(
                     // cascade-specific error.
                     updated.status = crate::session::Status::Error;
                     updated.last_error = Some(format!("recovery cascade: {}", e));
+                    // Stamp last_error_check so the in-memory error overlay
+                    // in status_poll_loop arms the 30s stickiness in
+                    // update_status_with_metadata_inner. Without this
+                    // (#[serde(skip)] would otherwise leave it None on the
+                    // next disk reload), the cascade-specific message is
+                    // overwritten by the generic "tmux session is gone" on
+                    // the very next poll tick.
+                    updated.last_error_check = Some(std::time::Instant::now());
                     let mut instances = inst_state.instances.write().await;
                     if let Some(slot) = instances.iter_mut().find(|i| i.id == id) {
                         *slot = updated;
@@ -1827,6 +1889,8 @@ async fn daemon_startup_recovery_cascade(
                     if let Some(slot) = instances.iter_mut().find(|i| i.id == id) {
                         slot.status = crate::session::Status::Error;
                         slot.last_error = Some(format!("recovery worker panicked: {}", join_err));
+                        // Same stickiness arming as the cascade-Err arm above.
+                        slot.last_error_check = Some(std::time::Instant::now());
                     }
                     drop(instances);
                     // Same suppression release as above: without unmarking,
