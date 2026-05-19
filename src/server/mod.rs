@@ -1788,14 +1788,18 @@ async fn daemon_startup_recovery_cascade(
                         error = %e,
                         "recovery cascade failed",
                     );
-                    // The cascade leaves status=Starting (set inside
-                    // start_with_size_opts) and last_error=None on Err.
-                    // Without explicitly transitioning to Error here, the
-                    // next status_poll_loop tick observes Starting and
-                    // either suppresses (if recently_restarted is still
-                    // marked) or falls through to update_status_with_metadata
-                    // which generates a generic "tmux session is gone"
-                    // message, hiding the cascade-specific error.
+                    // The cascade leaves last_error=None on every Err exit
+                    // (no failure path sets it) and self.status as either
+                    // `Status::Starting` (the common case: probe_settle
+                    // returned Dead, or Tier-2 failed after finalize_launch
+                    // ran at instance.rs:1403) or `Status::Idle` (rare:
+                    // kill_clean failed, or Tier-1 start_with_size_opts
+                    // failed before finalize_launch). In either case,
+                    // without an explicit Error transition the next
+                    // status_poll_loop tick falls through to
+                    // update_status_with_metadata and generates a generic
+                    // "tmux session is gone" message, hiding the
+                    // cascade-specific error.
                     updated.status = crate::session::Status::Error;
                     updated.last_error = Some(format!("recovery cascade: {}", e));
                     let mut instances = inst_state.instances.write().await;
