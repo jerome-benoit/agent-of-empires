@@ -1826,8 +1826,34 @@ impl Instance {
         // detect, and reporting `Fresh` is the least-wrong outcome
         // (returning `Resumed` would mean lying about a `--resume <sid>`
         // that was never passed). The debug_assert surfaces the protocol
-        // violation in dev/test if a future caller forgets to tear down.
+        // violation in dev/test if a future caller forgets to tear down;
+        // the tracing::warn! mirrors it in release so the race is visible
+        // in `aoe logs` for diagnosis. The branch on `attempting_resume`
+        // separates the dangerous case (sid was passed but no probe ran,
+        // pane could be left frozen) from the benign one (no resume was
+        // attempted, the race is just kill_clean cache staleness).
         let pane_was_preexisting = self.tmux_session().is_ok_and(|s| s.exists());
+        if pane_was_preexisting {
+            if attempting_resume {
+                tracing::warn!(
+                    target: "session.store",
+                    instance_id = %self.id,
+                    "start_with_resume_fallback: tmux session still exists on \
+                     entry with attempting_resume=true; cascade skipped, \
+                     returning Fresh. --resume <sid> was passed to \
+                     start_with_size_opts but no probe ran; if the agent \
+                     crashes inside the pane, it will be left frozen.",
+                );
+            } else {
+                tracing::warn!(
+                    target: "session.store",
+                    instance_id = %self.id,
+                    "start_with_resume_fallback: tmux session still exists on \
+                     entry (no resume attempted); cascade skipped, returning \
+                     Fresh. Likely a kill_clean race or caller protocol violation.",
+                );
+            }
+        }
         debug_assert!(
             !pane_was_preexisting,
             "start_with_resume_fallback callers must kill_clean() first; \
