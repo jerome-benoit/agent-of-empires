@@ -2997,3 +2997,29 @@ fn wants_paste_burst_only_for_paste_aware_dialogs() {
         "burst should re-enable after dialog closes"
     );
 }
+
+#[test]
+#[serial]
+fn pollable_instances_excludes_recovery_in_flight() {
+    let mut env = create_test_env_with_sessions(3);
+    let id_skipped = env.view.instances[1].id.clone();
+    env.view.recovery_in_flight.insert(id_skipped.clone());
+
+    let pollable = env.view.pollable_instances();
+
+    assert_eq!(pollable.len(), 2);
+    assert!(pollable.iter().all(|i| i.id != id_skipped));
+}
+
+#[test]
+#[serial]
+fn pollable_instances_recovers_after_inflight_clear() {
+    let mut env = create_test_env_with_sessions(1);
+    let id = env.view.instances[0].id.clone();
+    env.view.recovery_in_flight.insert(id.clone());
+    assert!(env.view.pollable_instances().is_empty());
+
+    env.view.recovery_in_flight.remove(&id);
+
+    assert_eq!(env.view.pollable_instances().len(), 1);
+}

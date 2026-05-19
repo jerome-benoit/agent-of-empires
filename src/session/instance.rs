@@ -96,7 +96,7 @@ const RESUME_PROBE_POST_SHELL_GRACE: std::time::Duration = std::time::Duration::
 /// Pure decision: should the resume-fallback cascade probe and potentially
 /// retry without resume after the initial start? Extracted for unit-testability:
 /// the cascade itself needs a real tmux session to test end-to-end.
-fn should_attempt_resume(agent_session_id: Option<&str>, tool: &str) -> bool {
+pub(crate) fn should_attempt_resume(agent_session_id: Option<&str>, tool: &str) -> bool {
     let valid = agent_session_id.map(is_valid_session_id).unwrap_or(false);
     if !valid {
         return false;
@@ -929,6 +929,14 @@ impl Instance {
     pub fn has_container_terminal(&self) -> bool {
         self.container_terminal_tmux_session()
             .map(|s| s.exists())
+            .unwrap_or(false)
+    }
+
+    /// `exists()` alone is insufficient: a pane can exist while its agent
+    /// has died. Used by recovery, status polling, and TUI reload.
+    pub fn has_live_tmux_pane(&self) -> bool {
+        self.tmux_session()
+            .map(|s| s.exists() && !s.is_pane_dead())
             .unwrap_or(false)
     }
 
