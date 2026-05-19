@@ -429,15 +429,14 @@ fn workspace_id_for_session(s: &SessionResponse) -> String {
 // ordering without each racing to PUT their own prepend. In read-only
 // mode we still compute the merge for the response, but we skip the
 // disk write.
-fn merge_workspace_ordering(
-    sessions: &[SessionResponse],
-    read_only: bool,
-) -> anyhow::Result<Vec<String>> {
-    let mut ordering = crate::session::load_workspace_ordering()
-        .map(|w| w.order)
-        .unwrap_or_default();
-    let known: std::collections::HashSet<&str> = ordering.iter().map(String::as_str).collect();
-
+// Pure helper: merges newly observed workspace ids on top of the
+// existing ordering, deduplicating and putting unknowns first
+// (newest-first). Extracted so the merge math can run from both the
+// read-only path (no lock) and the locked closure (where it operates
+// on `ord.order` directly to avoid the read-modify-write race that
+// `merge_workspace_ordering` originally had on a pre-lock snapshot).
+fn compute_merged_ordering(sessions: &[SessionResponse], current_order: &[String]) -> Vec<String> {
+    let known: std::collections::HashSet<&str> = current_order.iter().map(String::as_str).collect();
     let mut seen_unknown: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut new_ids: Vec<String> = Vec::new();
     for s in sessions {
@@ -449,24 +448,29 @@ fn merge_workspace_ordering(
             new_ids.push(id);
         }
     }
-
     if new_ids.is_empty() {
-        return Ok(ordering);
+        return current_order.to_vec();
     }
-
-    // Newest first: `instances` is in creation order, so reverse the
-    // collected unknowns and prepend.
     new_ids.reverse();
-    new_ids.append(&mut ordering);
-    let merged = new_ids;
+    new_ids.extend_from_slice(current_order);
+    new_ids
+}
 
-    if !read_only {
-        crate::session::update_workspace_ordering(|ord| {
-            ord.order = merged.clone();
-            Ok(())
-        })?;
+fn merge_workspace_ordering(
+    sessions: &[SessionResponse],
+    read_only: bool,
+) -> anyhow::Result<Vec<String>> {
+    if read_only {
+        let current = crate::session::load_workspace_ordering()
+            .map(|w| w.order)
+            .unwrap_or_default();
+        return Ok(compute_merged_ordering(sessions, &current));
     }
-    Ok(merged)
+    crate::session::update_workspace_ordering(|ord| {
+        let merged = compute_merged_ordering(sessions, &ord.order);
+        ord.order = merged.clone();
+        Ok(merged)
+    })
 }
 
 // --- Workspace ordering ---
@@ -886,27 +890,73 @@ pub async fn delete_session(
 
     match deletion_result {
         Ok(result) if result.success => {
-            // Remove from in-memory state and persist
-            let mut instances = state.instances.write().await;
-            instances.retain(|i| i.id != id);
-
-            if let Ok(storage) = Storage::new(&profile) {
-                let id_clone = id.clone();
-                if let Err(e) = storage.update(|instances, _groups| {
-                    instances.retain(|i| i.id != id_clone);
+            // Disk first: if persistence fails, the in-memory state is left
+            // intact and we return 500. Otherwise the status poll loop
+            // would silently re-add the entry from disk on the next tick
+            // and the user would see "deleted" then the session
+            // reappearing seconds later.
+            let storage = match Storage::new(&profile) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!(target: "http.api.sessions",
+                        "Storage::new failed after deletion: {e}");
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "error": "persist_failed",
+                            "message": format!(
+                                "Session was torn down but storage init failed: {e}"
+                            ),
+                        })),
+                    );
+                }
+            };
+            let id_for_save = id.clone();
+            let persist_result = tokio::task::spawn_blocking(move || {
+                storage.update(|instances, _groups| {
+                    instances.retain(|i| i.id != id_for_save);
                     Ok(())
-                }) {
-                    tracing::error!(target: "http.api.sessions", "Failed to save after deletion: {e}");
+                })
+            })
+            .await;
+            match persist_result {
+                Ok(Ok(())) => {
+                    {
+                        let mut instances = state.instances.write().await;
+                        instances.retain(|i| i.id != id);
+                    }
+                    state.instance_locks.write().await.remove(&id);
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({ "status": "deleted" })),
+                    )
+                }
+                Ok(Err(e)) => {
+                    tracing::error!(target: "http.api.sessions",
+                        "Failed to save after deletion: {e}");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "error": "persist_failed",
+                            "message": format!(
+                                "Session deletion completed on disk, but \
+                                 sessions.json could not be updated: {e}"
+                            ),
+                        })),
+                    )
+                }
+                Err(join_err) => {
+                    tracing::error!(target: "http.api.sessions",
+                        "Persist task panicked: {join_err}");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "error": "persist_failed",
+                            "message": "Persist task panicked",
+                        })),
+                    )
                 }
             }
-
-            // Clean up per-instance lock entry
-            state.instance_locks.write().await.remove(&id);
-
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({ "status": "deleted" })),
-            )
         }
         Ok(result) => {
             // Deletion had errors; set status to Error
@@ -3293,6 +3343,58 @@ mod workspace_ordering_tests {
         assert!(on_disk.order.is_empty(), "read-only path must not persist");
 
         Ok(())
+    }
+
+    #[test]
+    fn compute_merged_ordering_pure_no_known_ids() {
+        let sessions = vec![
+            mock_response("s1", "/repo/a", Some("main")),
+            mock_response("s2", "/repo/b", Some("dev")),
+        ];
+        let merged = compute_merged_ordering(&sessions, &[]);
+        assert_eq!(
+            merged,
+            vec!["/repo/b::dev".to_string(), "/repo/a::main".to_string()]
+        );
+    }
+
+    #[test]
+    fn compute_merged_ordering_pure_dedupes_unknowns() {
+        let sessions = vec![
+            mock_response("s1", "/repo/a", Some("main")),
+            mock_response("s2", "/repo/a", Some("main")),
+            mock_response("s3", "/repo/b", Some("dev")),
+        ];
+        let merged = compute_merged_ordering(&sessions, &[]);
+        assert_eq!(merged.len(), 2);
+        assert!(merged.contains(&"/repo/a::main".to_string()));
+        assert!(merged.contains(&"/repo/b::dev".to_string()));
+    }
+
+    #[test]
+    fn compute_merged_ordering_pure_preserves_existing_order() {
+        let existing = vec!["/repo/x::main".to_string(), "/repo/y::dev".to_string()];
+        let sessions = vec![mock_response("s1", "/repo/z", Some("feat"))];
+        let merged = compute_merged_ordering(&sessions, &existing);
+        assert_eq!(
+            merged,
+            vec![
+                "/repo/z::feat".to_string(),
+                "/repo/x::main".to_string(),
+                "/repo/y::dev".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn compute_merged_ordering_pure_returns_existing_when_all_known() {
+        let existing = vec!["/repo/x::main".to_string(), "/repo/y::dev".to_string()];
+        let sessions = vec![
+            mock_response("s1", "/repo/x", Some("main")),
+            mock_response("s2", "/repo/y", Some("dev")),
+        ];
+        let merged = compute_merged_ordering(&sessions, &existing);
+        assert_eq!(merged, existing);
     }
 }
 

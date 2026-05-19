@@ -204,12 +204,9 @@ impl HomeView {
         if let Some(ref mut diff_view) = self.diff_view {
             let action = diff_view.handle_key(key);
             if let Some((session_id, new_override)) = diff_view.take_pending_override() {
-                if let Some(inst) = self.instances.iter_mut().find(|i| i.id == session_id) {
-                    inst.base_branch_override = new_override.clone();
-                }
-                if let Some(inst) = self.instance_map.get_mut(&session_id) {
+                self.mutate_instance(&session_id, |inst| {
                     inst.base_branch_override = new_override;
-                }
+                });
             }
             match action {
                 DiffAction::Continue => return None,

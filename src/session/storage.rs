@@ -61,7 +61,7 @@ fn save_lock_for(profile: &str) -> Arc<Mutex<()>> {
     let registry = REGISTRY.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = registry
         .lock()
-        .expect("storage save-lock registry poisoned");
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     guard
         .entry(profile.to_string())
         .or_insert_with(|| Arc::new(Mutex::new(())))
@@ -151,9 +151,19 @@ impl Storage {
     }
 
     /// Locked load -> mutate -> save. The closure receives mutable references
-    /// to the current persisted state of both `sessions.json` and `groups.json`;
-    /// on `Ok` from the closure, both files are rewritten atomically under the
-    /// per-profile lock. On `Err`, neither file is touched.
+    /// to the current persisted state of `sessions.json` and `groups.json`.
+    /// On `Ok` from the closure, both files are serialised before any disk
+    /// write, so a serialisation failure on either side leaves both files
+    /// untouched. Likewise, an `Err` from the closure leaves both files
+    /// untouched. `groups.json` is only rewritten when the closure actually
+    /// changed the groups vec (most callers only touch instances).
+    ///
+    /// `groups.json` is written first, `sessions.json` second. A disk-level
+    /// failure on the second `atomic_write` (after the first succeeded) can
+    /// leave a torn pair: the new groups are persisted with the prior
+    /// instances. This window is bounded by two `rename(2)` syscalls on
+    /// sibling files and is tolerated by the loader (`GroupTree` accepts
+    /// orphan group rows).
     ///
     /// This is the only way to mutate persisted session state from any caller
     /// that does not already own the authoritative in-memory copy. Use `commit`
@@ -167,9 +177,27 @@ impl Storage {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let (mut instances, mut groups) = self.load_with_groups()?;
+        let groups_before = groups.clone();
         let result = f(&mut instances, &mut groups)?;
-        self.save(&instances)?;
-        self.save_groups(&groups)?;
+
+        // Pre-serialise both buffers so a serde failure on either side
+        // aborts before any file is touched.
+        let instances_buf = serde_json::to_vec_pretty(&instances)?;
+        let groups_changed = groups != groups_before;
+        let groups_buf = if groups_changed {
+            Some(serde_json::to_vec_pretty(&groups)?)
+        } else {
+            None
+        };
+
+        // groups first, sessions last: a torn pair leaves orphan groups
+        // (loader-tolerant) rather than instances pointing at a missing
+        // group_path.
+        if let Some(buf) = groups_buf {
+            let groups_path = self.sessions_path.with_file_name("groups.json");
+            atomic_write(&groups_path, &buf)?;
+        }
+        atomic_write(&self.sessions_path, &instances_buf)?;
         Ok(result)
     }
 
@@ -177,25 +205,22 @@ impl Storage {
     /// wins by design: any concurrent `update` whose load happened before this
     /// `commit` is overwritten. This is correct for HomeView (the TUI's
     /// authoritative in-memory copy); other callers should use `update`.
+    ///
+    /// Both buffers are serialised before any disk write, so a serialisation
+    /// failure on either side leaves both files untouched. The two atomic
+    /// writes happen in the same order as `update` (groups, then sessions);
+    /// the same residual disk-failure window applies.
     pub fn commit(&self, instances: &[Instance], group_tree: &GroupTree) -> Result<()> {
         let _guard = self
             .save_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        self.save(instances)?;
-        self.save_groups(&group_tree.get_all_groups())
-    }
-
-    pub(crate) fn save(&self, instances: &[Instance]) -> Result<()> {
-        let content = serde_json::to_string_pretty(instances)?;
-        atomic_write(&self.sessions_path, content.as_bytes())?;
-        Ok(())
-    }
-
-    pub(crate) fn save_groups(&self, groups: &[Group]) -> Result<()> {
+        let groups = group_tree.get_all_groups();
+        let instances_buf = serde_json::to_vec_pretty(instances)?;
+        let groups_buf = serde_json::to_vec_pretty(&groups)?;
         let groups_path = self.sessions_path.with_file_name("groups.json");
-        let content = serde_json::to_string_pretty(groups)?;
-        atomic_write(&groups_path, content.as_bytes())?;
+        atomic_write(&groups_path, &groups_buf)?;
+        atomic_write(&self.sessions_path, &instances_buf)?;
         Ok(())
     }
 }
@@ -272,7 +297,7 @@ mod tests {
             Instance::new("test2", "/tmp/test2"),
         ];
 
-        storage.save(&instances)?;
+        storage.commit(&instances, &GroupTree::new_with_groups(&instances, &[]))?;
         let loaded = storage.load()?;
 
         assert_eq!(loaded.len(), 2);
@@ -360,16 +385,17 @@ mod tests {
 
         for i in 0..5 {
             let instances = vec![Instance::new(&format!("iter{i}"), "/tmp/test")];
-            storage.save(&instances)?;
+            storage.commit(&instances, &GroupTree::new_with_groups(&instances, &[]))?;
         }
 
         let dir = storage.sessions_path.parent().unwrap();
-        let entries: Vec<_> = fs::read_dir(dir)?
+        let mut entries: Vec<_> = fs::read_dir(dir)?
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
+        entries.sort();
 
-        assert_eq!(entries, vec!["sessions.json"]);
+        assert_eq!(entries, vec!["groups.json", "sessions.json"]);
         Ok(())
     }
 
@@ -380,7 +406,10 @@ mod tests {
         setup_test_home(temp.path());
 
         let storage = Storage::new("test-empty-save")?;
-        storage.save(&[])?;
+        {
+            let xs: Vec<Instance> = vec![];
+            storage.commit(&xs, &GroupTree::new_with_groups(&xs, &[]))?
+        };
 
         let content = fs::read_to_string(&storage.sessions_path)?;
         assert_eq!(content.trim(), "[]");
@@ -396,7 +425,7 @@ mod tests {
         let storage = Storage::new("test-no-groups")?;
 
         let instances = vec![Instance::new("test", "/tmp/test")];
-        storage.save(&instances)?;
+        storage.commit(&instances, &GroupTree::new_with_groups(&instances, &[]))?;
 
         let (loaded_instances, loaded_groups) = storage.load_with_groups()?;
         assert_eq!(loaded_instances.len(), 1);
@@ -456,7 +485,10 @@ mod tests {
         instance.command = "opencode --config test".to_string();
         instance.group_path = "work/clients".to_string();
 
-        storage.save(&[instance.clone()])?;
+        {
+            let xs: Vec<Instance> = vec![instance.clone()];
+            storage.commit(&xs, &GroupTree::new_with_groups(&xs, &[]))?
+        };
         let loaded = storage.load()?;
 
         assert_eq!(loaded.len(), 1);
@@ -496,7 +528,10 @@ mod tests {
         let storage = Storage::new("test-empty-groups")?;
 
         // Save sessions
-        storage.save(&[Instance::new("test", "/tmp/test")])?;
+        {
+            let xs: Vec<Instance> = vec![Instance::new("test", "/tmp/test")];
+            storage.commit(&xs, &GroupTree::new_with_groups(&xs, &[]))?
+        };
 
         // Create empty groups file
         let groups_path = storage.sessions_path.with_file_name("groups.json");
@@ -824,6 +859,123 @@ mod tests {
         assert_eq!(loaded_instances.len(), 1);
         assert_eq!(loaded_groups.len(), 1);
         assert_eq!(loaded_groups[0].name, "projects");
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_update_closure_err_leaves_both_files_untouched() -> Result<()> {
+        let temp = tempdir()?;
+        setup_test_home(temp.path());
+
+        let storage = Storage::new("test-update-err-untouched")?;
+        let seed = vec![Instance::new("seed", "/tmp/seed")];
+        let seed_groups = vec![Group::new("seed-group", "work/seed")];
+        let mut tree = GroupTree::new_with_groups(&seed, &seed_groups);
+        tree.create_group("work/seed");
+        storage.commit(&seed, &tree)?;
+
+        let groups_path = storage.sessions_path.with_file_name("groups.json");
+        let sessions_before = fs::read(&storage.sessions_path)?;
+        let groups_before = fs::read(&groups_path)?;
+
+        let outcome: Result<()> = storage.update(|instances, groups| {
+            instances.push(Instance::new("doomed-inst", "/tmp/doomed"));
+            groups.push(Group::new("doomed-group", "doomed/path"));
+            Err(anyhow!("forced abort"))
+        });
+        assert!(outcome.is_err());
+
+        assert_eq!(fs::read(&storage.sessions_path)?, sessions_before);
+        assert_eq!(fs::read(&groups_path)?, groups_before);
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_update_skips_groups_write_when_groups_unchanged() -> Result<()> {
+        let temp = tempdir()?;
+        setup_test_home(temp.path());
+
+        let storage = Storage::new("test-skip-groups-write")?;
+        let seed_instances = vec![Instance::new("seed", "/tmp/seed")];
+        storage.commit(
+            &seed_instances,
+            &GroupTree::new_with_groups(&seed_instances, &[]),
+        )?;
+
+        let groups_path = storage.sessions_path.with_file_name("groups.json");
+        let groups_mtime_before = fs::metadata(&groups_path)?.modified()?;
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        storage.update(|instances, _groups| {
+            instances.push(Instance::new("added", "/tmp/added"));
+            Ok(())
+        })?;
+
+        let groups_mtime_after = fs::metadata(&groups_path)?.modified()?;
+        assert_eq!(
+            groups_mtime_before, groups_mtime_after,
+            "groups.json should not be rewritten when closure does not mutate groups"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_update_rewrites_groups_when_changed() -> Result<()> {
+        let temp = tempdir()?;
+        setup_test_home(temp.path());
+
+        let storage = Storage::new("test-rewrite-groups")?;
+        let seed_instances = vec![Instance::new("seed", "/tmp/seed")];
+        storage.commit(
+            &seed_instances,
+            &GroupTree::new_with_groups(&seed_instances, &[]),
+        )?;
+
+        let groups_path = storage.sessions_path.with_file_name("groups.json");
+        let groups_mtime_before = fs::metadata(&groups_path)?.modified()?;
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        storage.update(|_instances, groups| {
+            groups.push(Group::new("new-group", "work/new-group"));
+            Ok(())
+        })?;
+
+        let groups_mtime_after = fs::metadata(&groups_path)?.modified()?;
+        assert_ne!(
+            groups_mtime_before, groups_mtime_after,
+            "groups.json should be rewritten when closure mutates groups"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_save_lock_registry_recovers_from_poison() -> Result<()> {
+        let temp = tempdir()?;
+        setup_test_home(temp.path());
+
+        let storage_outer = Storage::new("test-poison-recovery")?;
+        let _ = std::thread::spawn(move || {
+            let _ = storage_outer.update(|_instances, _groups| -> Result<()> {
+                panic!("forced poison");
+            });
+        })
+        .join();
+
+        let storage_after = Storage::new("test-poison-recovery")?;
+        storage_after.update(|instances, _groups| {
+            instances.push(Instance::new("after-poison", "/tmp/after"));
+            Ok(())
+        })?;
+
+        let loaded = storage_after.load()?;
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].title, "after-poison");
         Ok(())
     }
 }

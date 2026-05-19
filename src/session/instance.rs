@@ -3827,7 +3827,10 @@ mod tests {
             let inst = Instance::new("title", "/tmp/x");
             let id = inst.id.clone();
             assert!(inst.agent_session_id.is_none());
-            storage.save(&[inst]).unwrap();
+            let xs = vec![inst];
+            storage
+                .commit(&xs, &crate::session::GroupTree::new_with_groups(&xs, &[]))
+                .unwrap();
 
             clear_session_id_on_disk("test-profile-already-none", &id);
 
@@ -3849,7 +3852,10 @@ mod tests {
             let mut inst = Instance::new("title", "/tmp/x");
             inst.agent_session_id = Some("stale-uuid-1234".to_string());
             let id = inst.id.clone();
-            storage.save(&[inst]).unwrap();
+            let xs = vec![inst];
+            storage
+                .commit(&xs, &crate::session::GroupTree::new_with_groups(&xs, &[]))
+                .unwrap();
 
             clear_session_id_on_disk("clear-test", &id);
 
@@ -3908,7 +3914,10 @@ mod tests {
                 .args(["kill-session", "-t", &tmux_name])
                 .output();
 
-            storage.save(&[inst.clone()]).unwrap();
+            let xs = vec![inst.clone()];
+            storage
+                .commit(&xs, &crate::session::GroupTree::new_with_groups(&xs, &[]))
+                .unwrap();
 
             let outcome = inst.start_with_resume_fallback(None, true);
 

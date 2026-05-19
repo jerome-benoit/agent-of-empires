@@ -162,3 +162,114 @@ fn test_commit_overwrites_concurrent_update_by_design() -> Result<()> {
     );
     Ok(())
 }
+
+/// Concurrent per-field updates on the same instance must not clobber each
+/// other. Mirrors the cockpit-handler / status-poll pattern: thread A
+/// mutates one field (`title`, simulating status poll), thread B mutates
+/// a different field (`cockpit_mode`, simulating the cockpit handler).
+/// Both should land. Regression guard for review #5: a wholesale-replace
+/// closure (using a pre-lock snapshot) would lose one of the writes.
+#[test]
+#[serial]
+fn test_concurrent_per_field_updates_no_clobber() -> Result<()> {
+    let _temp = setup_temp_home();
+
+    let storage = Storage::new("default")?;
+    let seed = vec![Instance::new("session", "/tmp/session")];
+    storage.commit(&seed, &GroupTree::new_with_groups(&seed, &[]))?;
+    let target_id = storage.load()?[0].id.clone();
+
+    let n_iterations = 16usize;
+    let start = Arc::new(Barrier::new(2));
+    let id_for_a = target_id.clone();
+    let id_for_b = target_id.clone();
+    let start_a = Arc::clone(&start);
+    let start_b = Arc::clone(&start);
+
+    let thread_a = std::thread::spawn(move || -> Result<()> {
+        let storage = Storage::new("default")?;
+        start_a.wait();
+        for i in 0..n_iterations {
+            storage.update(|all, _groups| {
+                if let Some(slot) = all.iter_mut().find(|i| i.id == id_for_a) {
+                    slot.title = format!("from-A-{i}");
+                }
+                Ok(())
+            })?;
+        }
+        Ok(())
+    });
+
+    let thread_b = std::thread::spawn(move || -> Result<()> {
+        let storage = Storage::new("default")?;
+        start_b.wait();
+        for _ in 0..n_iterations {
+            storage.update(|all, _groups| {
+                if let Some(slot) = all.iter_mut().find(|i| i.id == id_for_b) {
+                    slot.cockpit_mode = true;
+                }
+                Ok(())
+            })?;
+        }
+        Ok(())
+    });
+
+    thread_a.join().unwrap()?;
+    thread_b.join().unwrap()?;
+
+    let loaded = storage.load()?;
+    assert_eq!(loaded.len(), 1);
+    assert!(
+        loaded[0].title.starts_with("from-A-"),
+        "thread A's title write must be preserved (got: {})",
+        loaded[0].title
+    );
+    assert!(
+        loaded[0].cockpit_mode,
+        "thread B's cockpit_mode write must be preserved"
+    );
+    Ok(())
+}
+
+/// `Storage::update` must surface a disk-write failure as `Err` so the
+/// `delete_session` handler can return HTTP 500 instead of silently
+/// dropping the in-memory entry. Regression guard for review #7.
+#[cfg(unix)]
+#[test]
+#[serial]
+fn test_update_propagates_disk_write_failure() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let _temp = setup_temp_home();
+
+    let storage = Storage::new("default")?;
+    let seed = vec![Instance::new("session", "/tmp/s")];
+    storage.commit(&seed, &GroupTree::new_with_groups(&seed, &[]))?;
+
+    let profile_dir = agent_of_empires::session::get_profile_dir("default")?;
+
+    let original_perms = std::fs::metadata(&profile_dir)?.permissions();
+    let mut readonly_perms = original_perms.clone();
+    readonly_perms.set_mode(0o555);
+    std::fs::set_permissions(&profile_dir, readonly_perms)?;
+
+    let result: Result<()> = storage.update(|instances, _groups| {
+        instances.clear();
+        Ok(())
+    });
+
+    std::fs::set_permissions(&profile_dir, original_perms)?;
+
+    assert!(
+        result.is_err(),
+        "update must Err when disk write fails (read-only parent dir)"
+    );
+
+    let reloaded = storage.load()?;
+    assert_eq!(
+        reloaded.len(),
+        1,
+        "disk state must be unchanged when atomic_write fails"
+    );
+    Ok(())
+}
