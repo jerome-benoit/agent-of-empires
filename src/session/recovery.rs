@@ -72,7 +72,10 @@ pub struct RecoveryLock {
 pub fn try_acquire_recovery_lock() -> Result<Option<RecoveryLock>> {
     let path = recovery_lock_path()?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).ok();
+        // Propagate so an unwritable app dir surfaces here with the real
+        // OS error (e.g. EACCES, EROFS) rather than as a confusing
+        // ENOENT from the subsequent `open()`.
+        std::fs::create_dir_all(parent)?;
     }
     let file = std::fs::OpenOptions::new()
         .read(true)
