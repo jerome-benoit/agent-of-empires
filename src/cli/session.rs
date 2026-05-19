@@ -854,9 +854,11 @@ async fn set_base(profile: &str, args: SetBaseArgs) -> Result<()> {
     let id_for_save = instances[idx].id.clone();
 
     storage.update(|instances, _groups| {
-        if let Some(inst) = instances.iter_mut().find(|i| i.id == id_for_save) {
-            inst.base_branch_override = new_value.clone();
-        }
+        let inst = instances
+            .iter_mut()
+            .find(|i| i.id == id_for_save)
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {}", args.identifier))?;
+        inst.base_branch_override = new_value.clone();
         Ok(())
     })?;
 
