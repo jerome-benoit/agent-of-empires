@@ -119,8 +119,19 @@ export function SettingsView({
   useEffect(() => {
     fetchProfiles().then((p) => {
       setProfiles(p);
-      const active = p.find((pr) => pr.is_default);
-      if (active) setSelectedProfile(active.name);
+      // Preserve a user-set selection if it's still a valid profile.
+      // The hardcoded initial state ("default") races against this
+      // mount fetch: if the user selects another profile in the gap
+      // before the fetch resolves (or before a child component like
+      // ProfileSelector populates its own option list), an
+      // unconditional `setSelectedProfile(active.name)` here silently
+      // reverts that choice. Only auto-select when the current value
+      // is no longer in the server's profile list (e.g. profile
+      // deleted out from under us).
+      setSelectedProfile((current) => {
+        if (p.some((pr) => pr.name === current)) return current;
+        return p.find((pr) => pr.is_default)?.name ?? "default";
+      });
     });
   }, []);
 
