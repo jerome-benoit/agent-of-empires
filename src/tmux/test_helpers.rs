@@ -83,15 +83,17 @@ mod tests {
             assert!(output.status.success());
             let exists = Command::new("tmux")
                 .args(["has-session", "-t", guard.name()])
-                .status()
+                .output()
                 .expect("tmux has-session")
+                .status
                 .success();
             assert!(exists, "session should exist while guard is alive");
         }
         let exists = Command::new("tmux")
             .args(["has-session", "-t", &captured_name])
-            .status()
+            .output()
             .expect("tmux has-session")
+            .status
             .success();
         assert!(!exists, "session should be killed after guard drop");
     }
