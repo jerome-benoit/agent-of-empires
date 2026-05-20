@@ -118,7 +118,15 @@ enum WorkerKind {
 }
 
 struct WorkerHandle {
-    client: Arc<Mutex<AcpClient>>,
+    /// Shared with all callers that need to issue an ACP request to
+    /// this worker. Stored as `Arc<AcpClient>` (no surrounding Mutex)
+    /// because every method on `AcpClient` takes `&self` and forwards
+    /// to an `mpsc::Sender<ClientCmd>` whose consumer is the
+    /// connection task. Ordering across multiple senders is whatever
+    /// the channel scheduler picks; the agent serialises within a
+    /// turn anyway. The single writer (respawn) replaces the whole
+    /// `Arc` rather than mutating the inner client.
+    client: Arc<AcpClient>,
     /// Background task draining events from the client. Aborted on
     /// shutdown.
     drain_task: JoinHandle<()>,
@@ -660,7 +668,7 @@ impl<S: BroadcastSink> Supervisor<S> {
         let inbound = client
             .take_inbound()
             .expect("freshly spawned AcpClient always has inbound receiver");
-        let client = Arc::new(Mutex::new(client));
+        let client = Arc::new(client);
 
         let mut workers = self.workers.lock().await;
         // Belt-and-braces: even with the pending_spawns reservation,
@@ -718,8 +726,7 @@ impl<S: BroadcastSink> Supervisor<S> {
         // failure, and adapters that don't advertise bypass mode stay in
         // default. See #1142.
         if let Some(client) = client_for_yolo {
-            let client_guard = client.lock().await;
-            if let Err(e) = client_guard.set_mode("bypassPermissions").await {
+            if let Err(e) = client.set_mode("bypassPermissions").await {
                 warn!(
                     target: "cockpit.supervisor",
                     session = %session_id,
@@ -1051,7 +1058,7 @@ impl<S: BroadcastSink> Supervisor<S> {
                     let Some(handle) = guard.get_mut(&session_id) else {
                         return;
                     };
-                    handle.client = Arc::new(Mutex::new(new_client));
+                    handle.client = Arc::new(new_client);
                 }
 
                 info!(
@@ -1098,11 +1105,13 @@ impl<S: BroadcastSink> Supervisor<S> {
     pub async fn send_prompt(&self, session_id: &str, text: &str) -> Result<(), SupervisorError> {
         self.wait_for_worker(session_id, std::time::Duration::from_secs(10))
             .await;
-        let workers = self.workers.lock().await;
-        let handle = workers
-            .get(session_id)
-            .ok_or_else(|| SupervisorError::UnknownSession(session_id.into()))?;
-        let client = handle.client.lock().await;
+        let client = {
+            let workers = self.workers.lock().await;
+            workers
+                .get(session_id)
+                .ok_or_else(|| SupervisorError::UnknownSession(session_id.into()))
+                .map(|h| Arc::clone(&h.client))?
+        };
         client.send_prompt(text).await?;
         Ok(())
     }
@@ -1112,11 +1121,13 @@ impl<S: BroadcastSink> Supervisor<S> {
     pub async fn cancel_prompt(&self, session_id: &str) -> Result<(), SupervisorError> {
         self.wait_for_worker(session_id, std::time::Duration::from_secs(10))
             .await;
-        let workers = self.workers.lock().await;
-        let handle = workers
-            .get(session_id)
-            .ok_or_else(|| SupervisorError::UnknownSession(session_id.into()))?;
-        let client = handle.client.lock().await;
+        let client = {
+            let workers = self.workers.lock().await;
+            workers
+                .get(session_id)
+                .ok_or_else(|| SupervisorError::UnknownSession(session_id.into()))
+                .map(|h| Arc::clone(&h.client))?
+        };
         client.cancel_prompt().await?;
         Ok(())
     }
@@ -1139,9 +1150,11 @@ impl<S: BroadcastSink> Supervisor<S> {
         );
         // Best-effort cancel; ignore UnknownSession because the headline
         // intent is "free the UI", which the publish above already did.
-        let workers = self.workers.lock().await;
-        if let Some(handle) = workers.get(session_id) {
-            let client = handle.client.lock().await;
+        let client = {
+            let workers = self.workers.lock().await;
+            workers.get(session_id).map(|h| Arc::clone(&h.client))
+        };
+        if let Some(client) = client {
             let _ = client.cancel_prompt().await;
         }
     }
@@ -1150,11 +1163,13 @@ impl<S: BroadcastSink> Supervisor<S> {
     pub async fn set_mode(&self, session_id: &str, mode_id: &str) -> Result<(), SupervisorError> {
         self.wait_for_worker(session_id, std::time::Duration::from_secs(10))
             .await;
-        let workers = self.workers.lock().await;
-        let handle = workers
-            .get(session_id)
-            .ok_or_else(|| SupervisorError::UnknownSession(session_id.into()))?;
-        let client = handle.client.lock().await;
+        let client = {
+            let workers = self.workers.lock().await;
+            workers
+                .get(session_id)
+                .ok_or_else(|| SupervisorError::UnknownSession(session_id.into()))
+                .map(|h| Arc::clone(&h.client))?
+        };
         client.set_mode(mode_id).await?;
         Ok(())
     }
@@ -1166,11 +1181,13 @@ impl<S: BroadcastSink> Supervisor<S> {
         nonce: Nonce,
         decision: ApprovalDecision,
     ) -> Result<(), SupervisorError> {
-        let workers = self.workers.lock().await;
-        let handle = workers
-            .get(session_id)
-            .ok_or_else(|| SupervisorError::UnknownSession(session_id.into()))?;
-        let client = handle.client.lock().await;
+        let client = {
+            let workers = self.workers.lock().await;
+            workers
+                .get(session_id)
+                .ok_or_else(|| SupervisorError::UnknownSession(session_id.into()))
+                .map(|h| Arc::clone(&h.client))?
+        };
         client.resolve_permission(nonce, decision).await?;
         Ok(())
     }
@@ -1186,10 +1203,7 @@ impl<S: BroadcastSink> Supervisor<S> {
         if let Some(handle) = workers.remove(session_id) {
             // Worker is alive — tear it down.
             drop(workers);
-            {
-                let client = handle.client.lock().await;
-                let _ = client.shutdown().await;
-            }
+            let _ = handle.client.shutdown().await;
             handle.drain_task.abort();
             // SIGTERM the runner (if there is one) so the agent
             // subprocess dies; the runner cleans up its own files but
@@ -1261,16 +1275,15 @@ impl<S: BroadcastSink> Supervisor<S> {
             .map(|r| (r.session_id, r.pid))
             .collect();
 
-        let mut workers = self.workers.lock().await;
-        for (id, handle) in workers.drain() {
+        let drained: Vec<(String, WorkerHandle)> = {
+            let mut workers = self.workers.lock().await;
+            workers.drain().collect()
+        };
+        for (id, handle) in drained {
             debug!(target: "cockpit.supervisor", session = %id, "shutting down");
-            {
-                let client = handle.client.lock().await;
-                let _ = client.shutdown().await;
-            }
+            let _ = handle.client.shutdown().await;
             handle.drain_task.abort();
         }
-        drop(workers);
 
         // SIGTERM every runner we knew about, so detached agents that
         // outlived a previous daemon are also taken down by an explicit
@@ -1296,20 +1309,20 @@ impl<S: BroadcastSink> Supervisor<S> {
     /// registry entry. The runner observes EOF on its socket read,
     /// clears its active outbound, and goes back to accepting.
     pub async fn detach_all(&self) {
-        let mut workers = self.workers.lock().await;
-        let ids: Vec<String> = workers.keys().cloned().collect();
-        info!(
-            target: "cockpit.supervisor",
-            count = ids.len(),
-            "detaching cockpit workers; they continue running. \
-             Use `aoe cockpit stop` to terminate."
-        );
-        for (id, handle) in workers.drain() {
+        let drained: Vec<(String, WorkerHandle)> = {
+            let mut workers = self.workers.lock().await;
+            let drained: Vec<(String, WorkerHandle)> = workers.drain().collect();
+            info!(
+                target: "cockpit.supervisor",
+                count = drained.len(),
+                "detaching cockpit workers; they continue running. \
+                 Use `aoe cockpit stop` to terminate."
+            );
+            drained
+        };
+        for (id, handle) in drained {
             debug!(target: "cockpit.supervisor", session = %id, "detaching");
-            {
-                let client = handle.client.lock().await;
-                let _ = client.shutdown().await;
-            }
+            let _ = handle.client.shutdown().await;
             handle.drain_task.abort();
             super::worker_registry::mark_detached(&id);
         }
@@ -1425,7 +1438,7 @@ impl<S: BroadcastSink> Supervisor<S> {
         let inbound = client
             .take_inbound()
             .expect("freshly attached AcpClient always has inbound receiver");
-        let client = Arc::new(Mutex::new(client));
+        let client = Arc::new(client);
         let mut workers = self.workers.lock().await;
         if workers.contains_key(&session_id) {
             drop(workers);
@@ -1605,10 +1618,7 @@ impl<S: BroadcastSink> Supervisor<S> {
             // Send ACP Shutdown so the connection task's closure breaks
             // out of its cmd_rx loop and the underlying transport closes
             // cleanly (avoids a leaked socket fd until the daemon dies).
-            {
-                let client = handle.client.lock().await;
-                let _ = client.shutdown().await;
-            }
+            let _ = handle.client.shutdown().await;
             handle.drain_task.abort();
             if is_restart {
                 restart_pending.push(id);
@@ -1883,7 +1893,7 @@ mod tests {
         workers.insert(
             "s-1".into(),
             WorkerHandle {
-                client: Arc::new(Mutex::new(client)),
+                client: Arc::new(client),
                 drain_task: drain,
                 restart_history: vec![Instant::now()],
                 kind: WorkerKind::Stdio,
@@ -1979,7 +1989,7 @@ mod tests {
             workers.insert(
                 "s-1".into(),
                 WorkerHandle {
-                    client: Arc::new(Mutex::new(client)),
+                    client: Arc::new(client),
                     drain_task: drain,
                     restart_history: vec![],
                     kind: WorkerKind::Runner {
@@ -2052,7 +2062,7 @@ mod tests {
             workers.insert(
                 "s-stop".into(),
                 WorkerHandle {
-                    client: Arc::new(Mutex::new(client)),
+                    client: Arc::new(client),
                     drain_task: drain,
                     restart_history: vec![],
                     kind: WorkerKind::Runner {
@@ -2124,7 +2134,7 @@ mod tests {
             workers.insert(
                 "s-reap".into(),
                 WorkerHandle {
-                    client: Arc::new(Mutex::new(client)),
+                    client: Arc::new(client),
                     drain_task: drain,
                     restart_history: vec![],
                     kind: WorkerKind::Runner {
@@ -2196,7 +2206,7 @@ mod tests {
             workers.insert(
                 "s-restart".into(),
                 WorkerHandle {
-                    client: Arc::new(Mutex::new(client)),
+                    client: Arc::new(client),
                     drain_task: drain,
                     restart_history: vec![],
                     kind: WorkerKind::Runner {
@@ -2265,7 +2275,7 @@ mod tests {
             workers.insert(
                 "s-stdio".into(),
                 WorkerHandle {
-                    client: Arc::new(Mutex::new(client)),
+                    client: Arc::new(client),
                     drain_task: drain,
                     restart_history: vec![],
                     kind: WorkerKind::Stdio,
@@ -2322,7 +2332,7 @@ mod tests {
             workers.insert(
                 "s-stop".into(),
                 WorkerHandle {
-                    client: Arc::new(Mutex::new(client)),
+                    client: Arc::new(client),
                     drain_task: drain,
                     restart_history: vec![],
                     kind: WorkerKind::Runner {
@@ -2363,7 +2373,7 @@ mod tests {
             workers.insert(
                 "s-stdio".into(),
                 WorkerHandle {
-                    client: Arc::new(Mutex::new(client)),
+                    client: Arc::new(client),
                     drain_task: drain,
                     restart_history: vec![],
                     kind: WorkerKind::Stdio,
@@ -2762,7 +2772,7 @@ mod tests {
         workers.insert(
             "s-1".into(),
             WorkerHandle {
-                client: Arc::new(Mutex::new(client)),
+                client: Arc::new(client),
                 drain_task: drain,
                 restart_history: vec![],
                 kind: WorkerKind::Stdio,
