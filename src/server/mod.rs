@@ -816,32 +816,44 @@ pub async fn start_server(config: ServerConfig<'_>) -> anyhow::Result<()> {
     {
         let gc_map = state.recently_restarted.clone();
         let shutdown = state.shutdown.clone();
-        tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(crate::session::recovery::RECENTLY_RESTARTED_GC_INTERVAL);
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        crate::session::recovery::gc_recently_restarted(&gc_map);
+        crate::task_util::spawn_supervised(
+            "server.gc.recently_restarted",
+            crate::task_util::PanicPolicy::Log,
+            async move {
+                let mut interval =
+                    tokio::time::interval(crate::session::recovery::RECENTLY_RESTARTED_GC_INTERVAL);
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            crate::session::recovery::gc_recently_restarted(&gc_map);
+                        }
+                        _ = shutdown.cancelled() => break,
                     }
-                    _ = shutdown.cancelled() => break,
                 }
-            }
-        });
+            },
+        );
     }
 
     if let Some((lock, candidates)) = recovery_inputs {
         let cascade_state = state.clone();
-        tokio::spawn(async move {
-            daemon_startup_recovery_cascade(cascade_state, lock, candidates).await;
-        });
+        crate::task_util::spawn_supervised(
+            "server.startup_recovery_cascade",
+            crate::task_util::PanicPolicy::Log,
+            async move {
+                daemon_startup_recovery_cascade(cascade_state, lock, candidates).await;
+            },
+        );
     }
 
     // Spawn background tasks
     let poll_state = state.clone();
-    tokio::spawn(async move {
-        status_poll_loop(poll_state).await;
-    });
+    crate::task_util::spawn_supervised(
+        "server.status_poll_loop",
+        crate::task_util::PanicPolicy::Log,
+        async move {
+            status_poll_loop(poll_state).await;
+        },
+    );
 
     // Cockpit broadcast listener: a single subscriber that handles
     // every in-process consumer of cockpit events. Status mirroring
@@ -852,9 +864,13 @@ pub async fn start_server(config: ServerConfig<'_>) -> anyhow::Result<()> {
     // matter to both (e.g. AcpSessionAssigned).
     {
         let listener_state = state.clone();
-        tokio::spawn(async move {
-            cockpit_event_listener(listener_state).await;
-        });
+        crate::task_util::spawn_supervised(
+            "server.cockpit_event_listener",
+            crate::task_util::PanicPolicy::Log,
+            async move {
+                cockpit_event_listener(listener_state).await;
+            },
+        );
     }
 
     // Push-notification consumer: subscribes to status_tx, applies
