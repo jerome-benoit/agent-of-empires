@@ -68,8 +68,11 @@ async fn main() -> Result<()> {
     // poller seed below the early-return command dispatch. Staying lazy here
     // means commands that don't need app data (`aoe completion`,
     // `aoe init`, `aoe agents`, `aoe uninstall`, `aoe update`, …) never
-    // call `get_app_dir()` as a side effect.
+    // call `get_app_dir()` as a side effect. `config_load_attempted` lets
+    // the seed block skip a redundant load (and a redundant error warning)
+    // when the logging block already tried.
     let mut loaded_config: Option<agent_of_empires::session::Config> = None;
+    let mut config_load_attempted = false;
 
     let mut debug_log_warning: Option<String> = None;
     // Subscriber installation. One resolver picks the sink based on
@@ -115,6 +118,7 @@ async fn main() -> Result<()> {
                         None
                     }
                 };
+                config_load_attempted = true;
                 let log_cfg = loaded_config
                     .as_ref()
                     .map(|c| c.logging.clone())
@@ -230,21 +234,25 @@ async fn main() -> Result<()> {
     // Seed the session-id poller cap from persisted config. Reached only
     // for commands that may spawn sessions (early-return commands above
     // have already exited). Reuses the config loaded by the logging-init
-    // block when available; otherwise loads now.
-    let cap_config =
-        loaded_config
-            .take()
-            .or_else(|| match agent_of_empires::session::load_config() {
-                Ok(opt) => opt,
-                Err(e) => {
-                    eprintln!(
-                        "warning: could not load config to seed session-id poller cap, \
+    // block when available; otherwise loads now. Skips a redundant load
+    // (and a redundant warning) when the logging block already attempted.
+    let cap_config = if let Some(cfg) = loaded_config.take() {
+        Some(cfg)
+    } else if config_load_attempted {
+        None
+    } else {
+        match agent_of_empires::session::load_config() {
+            Ok(opt) => opt,
+            Err(e) => {
+                eprintln!(
+                    "warning: could not load config to seed session-id poller cap, \
                      using built-in default of {}: {e}",
-                        agent_of_empires::session::poller::DEFAULT_SESSION_ID_POLLER_MAX_THREADS,
-                    );
-                    None
-                }
-            });
+                    agent_of_empires::session::poller::DEFAULT_SESSION_ID_POLLER_MAX_THREADS,
+                );
+                None
+            }
+        }
+    };
     if let Some(cfg) = cap_config {
         agent_of_empires::session::poller::set_session_id_poller_max_threads(
             cfg.session.session_id_poller_max_threads,
