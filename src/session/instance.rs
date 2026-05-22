@@ -689,6 +689,24 @@ impl Instance {
         self.snoozed_until = None;
     }
 
+    /// Mutates: `status`, `sandbox_info`. Field set must match what
+    /// `start_with_size_opts` writes; missing fields re-introduce the
+    /// wholesale-replace clobber.
+    pub fn merge_post_start(&mut self, src: &Self) {
+        self.status = src.status;
+        self.sandbox_info = src.sandbox_info.clone();
+    }
+
+    /// Same fields as `merge_post_start`. When `clear_stale_sid` (resume
+    /// fallback fired), also copy `agent_session_id`: the cascade just
+    /// invalidated it, so peer writes are stale by construction.
+    pub fn merge_post_restart(&mut self, src: &Self, clear_stale_sid: bool) {
+        self.merge_post_start(src);
+        if clear_stale_sid {
+            self.agent_session_id = src.agent_session_id.clone();
+        }
+    }
+
     /// Mark the session archived. Archived sessions sink to the bottom of
     /// the Attention sort and render in italic+dim style, but remain
     /// visible. Auto-cleared by the attention-signal hook on Waiting/Error.
@@ -2901,6 +2919,67 @@ mod tests {
         // Favorite is orthogonal to sink states; user interaction must not
         // clear it.
         assert!(inst.is_favorited());
+    }
+
+    #[test]
+    fn test_merge_post_start_preserves_peer_field_writes() {
+        let mut stored = Instance::new("session", "/tmp/test");
+        stored.archive();
+        stored.agent_session_id = Some("daemon-sid".to_string());
+
+        let mut working = Instance::new("session", "/tmp/test");
+        working.id = stored.id.clone();
+        working.status = Status::Starting;
+
+        stored.merge_post_start(&working);
+
+        assert_eq!(stored.status, Status::Starting);
+        assert!(stored.is_archived(), "peer archive must survive merge");
+        assert_eq!(
+            stored.agent_session_id.as_deref(),
+            Some("daemon-sid"),
+            "peer-written sid must survive merge"
+        );
+    }
+
+    #[test]
+    fn test_merge_post_restart_no_fallback_preserves_sid() {
+        let mut stored = Instance::new("session", "/tmp/test");
+        stored.agent_session_id = Some("peer-fresh-sid".to_string());
+        stored.snooze(15);
+
+        let mut working = Instance::new("session", "/tmp/test");
+        working.id = stored.id.clone();
+        working.status = Status::Idle;
+        working.agent_session_id = Some("phase1-stale-sid".to_string());
+
+        stored.merge_post_restart(&working, false);
+
+        assert_eq!(stored.status, Status::Idle);
+        assert_eq!(
+            stored.agent_session_id.as_deref(),
+            Some("peer-fresh-sid"),
+            "no-fallback restart must not clobber peer sid write"
+        );
+        assert!(stored.is_snoozed(), "peer snooze must survive merge");
+    }
+
+    #[test]
+    fn test_merge_post_restart_fallback_clears_sid() {
+        let mut stored = Instance::new("session", "/tmp/test");
+        stored.agent_session_id = Some("any-sid".to_string());
+
+        let mut working = Instance::new("session", "/tmp/test");
+        working.id = stored.id.clone();
+        working.status = Status::Starting;
+        working.agent_session_id = None;
+
+        stored.merge_post_restart(&working, true);
+
+        assert!(
+            stored.agent_session_id.is_none(),
+            "fallback cascade invalidates the sid; peer writes are stale by construction"
+        );
     }
 
     #[test]
