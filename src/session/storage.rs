@@ -49,7 +49,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use super::{get_app_dir, get_profile_dir, Group, GroupTree, Instance};
+use super::{get_app_dir, get_profile_dir, Group, Instance};
 
 /// Sidecar lock file name for per-profile storage. Lives next to
 /// `sessions.json` and `groups.json` and covers both: every code path that
@@ -326,36 +326,6 @@ impl Storage {
         atomic_write(&self.sessions_path, &instances_buf)?;
         Ok(result)
     }
-
-    /// Locked wholesale write of `sessions.json` + `groups.json`. Last-writer-
-    /// wins by design: any concurrent `update` whose load happened before this
-    /// `commit` is overwritten. This is correct for HomeView (the TUI's
-    /// authoritative in-memory copy); other callers should use `update`.
-    ///
-    /// Both buffers are serialised before any disk write, so a serialisation
-    /// failure on either side leaves both files untouched. The two atomic
-    /// writes happen in the same order as `update` (groups, then sessions);
-    /// the same residual disk-failure window applies.
-    pub fn commit(&self, instances: &[Instance], group_tree: &GroupTree) -> Result<()> {
-        let _mu = self
-            .save_lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let profile_dir = self.sessions_path.parent().ok_or_else(|| {
-            anyhow!(
-                "sessions_path missing parent: {}",
-                self.sessions_path.display()
-            )
-        })?;
-        let _flock = acquire_storage_flock(profile_dir, STORAGE_LOCK_FILENAME)?;
-        let groups = group_tree.get_all_groups();
-        let instances_buf = serde_json::to_vec_pretty(instances)?;
-        let groups_buf = serde_json::to_vec_pretty(&groups)?;
-        let groups_path = self.sessions_path.with_file_name("groups.json");
-        atomic_write(&groups_path, &groups_buf)?;
-        atomic_write(&self.sessions_path, &instances_buf)?;
-        Ok(())
-    }
 }
 
 // Workspace ordering is stored at the app-data root, not per-profile:
@@ -410,6 +380,7 @@ pub(crate) fn save_workspace_ordering(ordering: &WorkspaceOrdering) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::GroupTree;
     use serial_test::serial;
     use tempfile::tempdir;
 
@@ -432,7 +403,11 @@ mod tests {
             Instance::new("test2", "/tmp/test2"),
         ];
 
-        storage.commit(&instances, &GroupTree::new_with_groups(&instances, &[]))?;
+        storage.update(|i, g| {
+            *i = instances.to_vec();
+            *g = GroupTree::new_with_groups(&instances, &[]).get_all_groups();
+            Ok(())
+        })?;
         let loaded = storage.load()?;
 
         assert_eq!(loaded.len(), 2);
@@ -560,20 +535,27 @@ mod tests {
 
         for i in 0..5 {
             let instances = vec![Instance::new(&format!("iter{i}"), "/tmp/test")];
-            storage.commit(&instances, &GroupTree::new_with_groups(&instances, &[]))?;
+            storage.update(|i, g| {
+                *i = instances.to_vec();
+                *g = GroupTree::new_with_groups(&instances, &[]).get_all_groups();
+                Ok(())
+            })?;
         }
 
         let dir = storage.sessions_path.parent().unwrap();
-        let mut entries: Vec<_> = fs::read_dir(dir)?
+        let entries: Vec<_> = fs::read_dir(dir)?
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
-        entries.sort();
 
-        assert_eq!(
-            entries,
-            vec![".storage.lock", "groups.json", "sessions.json"]
-        );
+        for entry in &entries {
+            assert!(
+                !entry.contains(".tmp"),
+                "atomic_write must not leak temp files; found {}",
+                entry
+            );
+        }
+        assert!(entries.contains(&"sessions.json".to_string()));
         Ok(())
     }
 
@@ -586,7 +568,11 @@ mod tests {
         let storage = Storage::new("test-empty-save")?;
         {
             let xs: Vec<Instance> = vec![];
-            storage.commit(&xs, &GroupTree::new_with_groups(&xs, &[]))?
+            storage.update(|i, g| {
+                *i = xs.to_vec();
+                *g = GroupTree::new_with_groups(&xs, &[]).get_all_groups();
+                Ok(())
+            })?
         };
 
         let content = fs::read_to_string(&storage.sessions_path)?;
@@ -603,7 +589,11 @@ mod tests {
         let storage = Storage::new("test-no-groups")?;
 
         let instances = vec![Instance::new("test", "/tmp/test")];
-        storage.commit(&instances, &GroupTree::new_with_groups(&instances, &[]))?;
+        storage.update(|i, g| {
+            *i = instances.to_vec();
+            *g = GroupTree::new_with_groups(&instances, &[]).get_all_groups();
+            Ok(())
+        })?;
 
         let (loaded_instances, loaded_groups) = storage.load_with_groups()?;
         assert_eq!(loaded_instances.len(), 1);
@@ -625,7 +615,11 @@ mod tests {
         let groups = vec![Group::new("projects", "work/projects")];
         let group_tree = GroupTree::new_with_groups(&instances, &groups);
 
-        storage.commit(&instances, &group_tree)?;
+        storage.update(|i, g| {
+            *i = instances.to_vec();
+            *g = group_tree.get_all_groups();
+            Ok(())
+        })?;
 
         let (loaded_instances, loaded_groups) = storage.load_with_groups()?;
         assert_eq!(loaded_instances.len(), 1);
@@ -665,7 +659,11 @@ mod tests {
 
         {
             let xs: Vec<Instance> = vec![instance.clone()];
-            storage.commit(&xs, &GroupTree::new_with_groups(&xs, &[]))?
+            storage.update(|i, g| {
+                *i = xs.to_vec();
+                *g = GroupTree::new_with_groups(&xs, &[]).get_all_groups();
+                Ok(())
+            })?
         };
         let loaded = storage.load()?;
 
@@ -708,7 +706,11 @@ mod tests {
         // Save sessions
         {
             let xs: Vec<Instance> = vec![Instance::new("test", "/tmp/test")];
-            storage.commit(&xs, &GroupTree::new_with_groups(&xs, &[]))?
+            storage.update(|i, g| {
+                *i = xs.to_vec();
+                *g = GroupTree::new_with_groups(&xs, &[]).get_all_groups();
+                Ok(())
+            })?
         };
 
         // Create empty groups file
@@ -787,10 +789,11 @@ mod tests {
         setup_test_home(temp.path());
 
         let storage = Storage::new("test-update-roundtrip")?;
-        storage.commit(
-            &[Instance::new("seed", "/tmp/seed")],
-            &GroupTree::new_with_groups(&[], &[]),
-        )?;
+        storage.update(|i, g| {
+            *i = [Instance::new("seed", "/tmp/seed")].to_vec();
+            *g = GroupTree::new_with_groups(&[], &[]).get_all_groups();
+            Ok(())
+        })?;
 
         storage.update(|instances, _groups| {
             instances.push(Instance::new("added", "/tmp/added"));
@@ -812,7 +815,11 @@ mod tests {
 
         let storage = Storage::new("test-update-err")?;
         let initial = vec![Instance::new("keep", "/tmp/keep")];
-        storage.commit(&initial, &GroupTree::new_with_groups(&initial, &[]))?;
+        storage.update(|i, g| {
+            *i = initial.to_vec();
+            *g = GroupTree::new_with_groups(&initial, &[]).get_all_groups();
+            Ok(())
+        })?;
 
         let result: Result<()> = storage.update(|instances, _| {
             instances.push(Instance::new("doomed", "/tmp/doomed"));
@@ -833,7 +840,11 @@ mod tests {
         setup_test_home(temp.path());
 
         let storage = Storage::new("test-update-concurrent")?;
-        storage.commit(&[], &GroupTree::new_with_groups(&[], &[]))?;
+        storage.update(|i, g| {
+            *i = [].to_vec();
+            *g = GroupTree::new_with_groups(&[], &[]).get_all_groups();
+            Ok(())
+        })?;
 
         let n_threads = 32usize;
         std::thread::scope(|scope| {
@@ -914,7 +925,11 @@ mod tests {
         setup_test_home(temp.path());
 
         let storage = Storage::new("test-commit-lock")?;
-        storage.commit(&[], &GroupTree::new_with_groups(&[], &[]))?;
+        storage.update(|i, g| {
+            *i = [].to_vec();
+            *g = GroupTree::new_with_groups(&[], &[]).get_all_groups();
+            Ok(())
+        })?;
 
         let entered = Arc::new(Barrier::new(2));
         let release = Arc::new(Barrier::new(2));
@@ -938,10 +953,11 @@ mod tests {
         let committer = std::thread::spawn(|| {
             let storage = Storage::new("test-commit-lock").unwrap();
             storage
-                .commit(
-                    &[Instance::new("from-commit", "/tmp/c")],
-                    &GroupTree::new_with_groups(&[], &[]),
-                )
+                .update(|i, g| {
+                    *i = [Instance::new("from-commit", "/tmp/c")].to_vec();
+                    *g = GroupTree::new_with_groups(&[], &[]).get_all_groups();
+                    Ok(())
+                })
                 .unwrap();
         });
 
@@ -1022,7 +1038,11 @@ mod tests {
         setup_test_home(temp.path());
 
         let storage = Storage::new("test-update-both-files")?;
-        storage.commit(&[], &GroupTree::new_with_groups(&[], &[]))?;
+        storage.update(|i, g| {
+            *i = [].to_vec();
+            *g = GroupTree::new_with_groups(&[], &[]).get_all_groups();
+            Ok(())
+        })?;
 
         storage.update(|instances, groups| {
             instances.push(Instance::new("inst", "/tmp/inst"));
@@ -1051,7 +1071,11 @@ mod tests {
         let seed_groups = vec![Group::new("seed-group", "work/seed")];
         let mut tree = GroupTree::new_with_groups(&seed, &seed_groups);
         tree.create_group("work/seed");
-        storage.commit(&seed, &tree)?;
+        storage.update(|i, g| {
+            *i = seed.to_vec();
+            *g = tree.get_all_groups();
+            Ok(())
+        })?;
 
         let groups_path = storage.sessions_path.with_file_name("groups.json");
         let sessions_before = fs::read(&storage.sessions_path)?;
@@ -1076,11 +1100,12 @@ mod tests {
         setup_test_home(temp.path());
 
         let storage = Storage::new("test-skip-groups-write")?;
-        let seed_instances = vec![Instance::new("seed", "/tmp/seed")];
-        storage.commit(
-            &seed_instances,
-            &GroupTree::new_with_groups(&seed_instances, &[]),
-        )?;
+        let seed_instances = [Instance::new("seed", "/tmp/seed")];
+        storage.update(|i, g| {
+            *i = seed_instances.to_vec();
+            g.push(Group::new("seed-group", "seed-group"));
+            Ok(())
+        })?;
 
         let groups_path = storage.sessions_path.with_file_name("groups.json");
         let groups_mtime_before = fs::metadata(&groups_path)?.modified()?;
@@ -1107,11 +1132,12 @@ mod tests {
         setup_test_home(temp.path());
 
         let storage = Storage::new("test-rewrite-groups")?;
-        let seed_instances = vec![Instance::new("seed", "/tmp/seed")];
-        storage.commit(
-            &seed_instances,
-            &GroupTree::new_with_groups(&seed_instances, &[]),
-        )?;
+        let seed_instances = [Instance::new("seed", "/tmp/seed")];
+        storage.update(|i, g| {
+            *i = seed_instances.to_vec();
+            g.push(Group::new("seed-group", "seed-group"));
+            Ok(())
+        })?;
 
         let groups_path = storage.sessions_path.with_file_name("groups.json");
         let groups_mtime_before = fs::metadata(&groups_path)?.modified()?;

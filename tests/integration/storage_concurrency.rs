@@ -17,7 +17,11 @@ fn test_concurrent_updates_no_lost_updates() -> Result<()> {
     let _temp = setup_temp_home();
 
     let storage = Storage::new("default")?;
-    storage.commit(&[], &GroupTree::new_with_groups(&[], &[]))?;
+    storage.update(|i, g| {
+        *i = [].to_vec();
+        *g = GroupTree::new_with_groups(&[], &[]).get_all_groups();
+        Ok(())
+    })?;
 
     let n_threads = 16usize;
     let start = Arc::new(Barrier::new(n_threads));
@@ -90,7 +94,11 @@ fn test_update_with_groups_and_instances_round_trip() -> Result<()> {
     let _temp = setup_temp_home();
 
     let storage = Storage::new("default")?;
-    storage.commit(&[], &GroupTree::new_with_groups(&[], &[]))?;
+    storage.update(|i, g| {
+        *i = [].to_vec();
+        *g = GroupTree::new_with_groups(&[], &[]).get_all_groups();
+        Ok(())
+    })?;
 
     storage.update(|instances, groups| {
         let mut inst = Instance::new("project-a", "/tmp/a");
@@ -105,60 +113,6 @@ fn test_update_with_groups_and_instances_round_trip() -> Result<()> {
     assert_eq!(loaded_instances[0].group_path, "work/clients");
     assert_eq!(loaded_groups.len(), 1);
     assert_eq!(loaded_groups[0].name, "clients");
-    Ok(())
-}
-
-#[test]
-#[serial]
-fn test_commit_overwrites_concurrent_update_by_design() -> Result<()> {
-    let _temp = setup_temp_home();
-
-    let storage = Storage::new("default")?;
-    storage.commit(&[], &GroupTree::new_with_groups(&[], &[]))?;
-
-    let entered = Arc::new(Barrier::new(2));
-    let release = Arc::new(Barrier::new(2));
-    let entered_clone = Arc::clone(&entered);
-    let release_clone = Arc::clone(&release);
-
-    let updater = std::thread::spawn(move || {
-        let storage = Storage::new("default").unwrap();
-        storage
-            .update(|instances, _| {
-                instances.push(Instance::new("from-update", "/tmp/u"));
-                entered_clone.wait();
-                release_clone.wait();
-                Ok(())
-            })
-            .unwrap();
-    });
-
-    entered.wait();
-    let committer = std::thread::spawn(|| {
-        let storage = Storage::new("default").unwrap();
-        storage
-            .commit(
-                &[Instance::new("from-commit", "/tmp/c")],
-                &GroupTree::new_with_groups(&[], &[]),
-            )
-            .unwrap();
-    });
-
-    std::thread::sleep(std::time::Duration::from_millis(80));
-    assert!(
-        !committer.is_finished(),
-        "commit should be blocked by update lock"
-    );
-    release.wait();
-    updater.join().unwrap();
-    committer.join().unwrap();
-
-    let loaded = storage.load()?;
-    assert_eq!(loaded.len(), 1);
-    assert_eq!(
-        loaded[0].title, "from-commit",
-        "commit semantics: last writer wins after the lock is released"
-    );
     Ok(())
 }
 
@@ -178,7 +132,11 @@ fn test_concurrent_per_field_updates_no_clobber() -> Result<()> {
 
     let storage = Storage::new("default")?;
     let seed = vec![Instance::new("session", "/tmp/session")];
-    storage.commit(&seed, &GroupTree::new_with_groups(&seed, &[]))?;
+    storage.update(|i, g| {
+        *i = seed.to_vec();
+        *g = GroupTree::new_with_groups(&seed, &[]).get_all_groups();
+        Ok(())
+    })?;
     let target_id = storage.load()?[0].id.clone();
 
     let n_iterations = 16usize;
@@ -247,7 +205,11 @@ fn test_update_propagates_disk_write_failure() -> Result<()> {
 
     let storage = Storage::new("default")?;
     let seed = vec![Instance::new("session", "/tmp/s")];
-    storage.commit(&seed, &GroupTree::new_with_groups(&seed, &[]))?;
+    storage.update(|i, g| {
+        *i = seed.to_vec();
+        *g = GroupTree::new_with_groups(&seed, &[]).get_all_groups();
+        Ok(())
+    })?;
 
     let profile_dir = agent_of_empires::session::get_profile_dir("default")?;
 

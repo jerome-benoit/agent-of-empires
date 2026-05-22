@@ -4338,7 +4338,11 @@ mod tests {
             assert!(inst.agent_session_id.is_none());
             let xs = vec![inst];
             storage
-                .commit(&xs, &crate::session::GroupTree::new_with_groups(&xs, &[]))
+                .update(|i, g| {
+                    *i = xs.to_vec();
+                    *g = crate::session::GroupTree::new_with_groups(&xs, &[]).get_all_groups();
+                    Ok(())
+                })
                 .unwrap();
 
             clear_session_id_on_disk("test-profile-already-none", &id);
@@ -4363,7 +4367,11 @@ mod tests {
             let id = inst.id.clone();
             let xs = vec![inst];
             storage
-                .commit(&xs, &crate::session::GroupTree::new_with_groups(&xs, &[]))
+                .update(|i, g| {
+                    *i = xs.to_vec();
+                    *g = crate::session::GroupTree::new_with_groups(&xs, &[]).get_all_groups();
+                    Ok(())
+                })
                 .unwrap();
 
             clear_session_id_on_disk("clear-test", &id);
@@ -4425,7 +4433,11 @@ mod tests {
 
             let xs = vec![inst.clone()];
             storage
-                .commit(&xs, &crate::session::GroupTree::new_with_groups(&xs, &[]))
+                .update(|i, g| {
+                    *i = xs.to_vec();
+                    *g = crate::session::GroupTree::new_with_groups(&xs, &[]).get_all_groups();
+                    Ok(())
+                })
                 .unwrap();
 
             let outcome = inst.start_with_resume_fallback(None, true);
