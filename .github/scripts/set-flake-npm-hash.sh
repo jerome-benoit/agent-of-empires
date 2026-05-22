@@ -13,7 +13,7 @@ if [ ! -f "$FLAKE" ]; then
   exit 1
 fi
 
-if ! printf '%s' "$NEW_HASH" | grep -qE '^sha256-[A-Za-z0-9+/]+=*$'; then
+if ! printf '%s' "$NEW_HASH" | grep -qE '^sha256-[A-Za-z0-9+/]{43}=$'; then
   echo "::error::hash has unexpected shape: $NEW_HASH" >&2
   exit 1
 fi

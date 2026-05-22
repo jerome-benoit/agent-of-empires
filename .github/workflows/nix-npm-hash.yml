@@ -71,8 +71,9 @@ jobs:
           # Fetch the bot branch first so --force-with-lease has a remote
           # tracking ref to anchor on; otherwise it fails with "stale info".
           git fetch origin chore/nix-npm-hash-update || true
-          # --force-with-lease (not --force) so a maintainer's manual edit
-          # on the bot branch is not silently clobbered.
+          # --force-with-lease guards only the narrow fetch -> push window.
+          # The branch is bot-owned (always reset from main on every run),
+          # so manual edits to it are not preserved by design.
           git push --force-with-lease origin chore/nix-npm-hash-update
 
       - name: Open or refresh PR with auto-merge
