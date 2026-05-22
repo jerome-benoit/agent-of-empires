@@ -723,6 +723,24 @@ impl Instance {
         self.idle_entered_at = src.idle_entered_at;
     }
 
+    /// Splice user-action fields from `src` onto `self`. Dual of
+    /// `merge_from_tui` for fields the TUI mutates per dialog action
+    /// (archive, favorite, snooze, rename, group move, base-branch
+    /// override). Called from `HomeView::apply_user_action`'s
+    /// `Storage::update` closure: the in-memory mirror has already run the
+    /// mutation once; this copies the resulting field values onto the
+    /// freshly-loaded disk row, so peer writes to OTHER fields survive.
+    pub fn merge_post_user_action(&mut self, src: &Self) {
+        self.title = src.title.clone();
+        self.group_path = src.group_path.clone();
+        self.archived_at = src.archived_at;
+        self.favorited_at = src.favorited_at;
+        self.snoozed_until = src.snoozed_until;
+        self.base_branch_override = src.base_branch_override.clone();
+        self.status = src.status;
+        self.last_accessed_at = self.last_accessed_at.max(src.last_accessed_at);
+    }
+
     /// Mark the session archived. Archived sessions sink to the bottom of
     /// the Attention sort and render in italic+dim style, but remain
     /// visible. Auto-cleared by the attention-signal hook on Waiting/Error.

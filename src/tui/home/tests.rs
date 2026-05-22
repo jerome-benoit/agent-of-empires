@@ -5188,4 +5188,30 @@ mod save_field_merge {
             "peer's notify_on_waiting must survive an apply_user_action that does not touch it"
         );
     }
+
+    #[test]
+    #[serial]
+    fn test_apply_user_action_disk_and_memory_share_one_timestamp() {
+        let (_temp, mut view, id) = boot_view_with_one_session("session", "/tmp/race");
+
+        view.apply_user_action(&id, |inst| inst.archive())
+            .expect("apply_user_action must persist");
+
+        let mem_ts = view
+            .get_instance(&id)
+            .expect("in-memory row present")
+            .archived_at;
+        let disk_ts = Storage::new("test")
+            .unwrap()
+            .load()
+            .unwrap()
+            .into_iter()
+            .find(|i| i.id == id)
+            .expect("disk row present")
+            .archived_at;
+        assert_eq!(
+            mem_ts, disk_ts,
+            "single Utc::now() snapshot, no microsecond drift between memory and disk"
+        );
+    }
 }

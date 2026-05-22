@@ -2252,27 +2252,31 @@ impl HomeView {
     }
 
     /// Apply a user-action mutation atomically to the in-memory mirror and
-    /// the on-disk row under the flock. `mutate` runs twice (memory + disk
-    /// closure) so peer writes to OTHER fields on the same row survive.
-    /// Use for dialog changes (archive, favorite, snooze, rename, group)
-    /// that `HomeView::save`'s field-merge does not propagate.
+    /// the on-disk row under the flock. The mutation runs ONCE in memory;
+    /// the resulting snapshot is spliced onto the disk row via
+    /// `Instance::merge_post_user_action`, which preserves peer-written
+    /// fields the TUI does not own. Use for dialog changes (archive,
+    /// favorite, snooze, rename, group, base-branch) that
+    /// `HomeView::save`'s field-merge does not propagate.
     pub(super) fn apply_user_action<F>(&mut self, id: &str, mutate: F) -> anyhow::Result<()>
     where
-        F: Fn(&mut Instance),
+        F: FnOnce(&mut Instance),
     {
-        let profile = match self.instance_map.get(id) {
-            Some(inst) => inst.source_profile.clone(),
-            None => return Ok(()),
+        let Some(profile) = self.instance_map.get(id).map(|i| i.source_profile.clone()) else {
+            return Ok(());
         };
-        if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
-            mutate(inst);
-            self.instance_map.insert(id.to_string(), inst.clone());
-        }
+        let Some(in_mem) = self.instances.iter_mut().find(|i| i.id == id) else {
+            return Ok(());
+        };
+        mutate(in_mem);
+        let snapshot = in_mem.clone();
+        self.instance_map.insert(id.to_string(), snapshot.clone());
+
         let id_owned = id.to_string();
         if let Some(storage) = self.storages.get(&profile) {
             storage.update(|insts, _groups| {
-                if let Some(inst) = insts.iter_mut().find(|i| i.id == id_owned) {
-                    mutate(inst);
+                if let Some(disk) = insts.iter_mut().find(|i| i.id == id_owned) {
+                    disk.merge_post_user_action(&snapshot);
                 }
                 Ok(())
             })?;
