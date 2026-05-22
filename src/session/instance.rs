@@ -528,6 +528,13 @@ fn append_resume_flags(
 /// thread. Concurrent calls within the same process are serialised via
 /// `Storage::update`'s per-profile lock; cross-process races between TUI
 /// and `aoe serve` remain a known limitation (see #1175).
+///
+/// Errors are logged at error level and absorbed: this is fire-and-forget
+/// from the caller's perspective, matching the surrounding tick-loop /
+/// pre-launch helpers (`apply_status_updates`, `clear_session_id_on_disk`).
+/// The next `status_poll` tick re-reads the sid from agent state and
+/// re-attempts persistence, so a transient flock contention or disk error
+/// is recovered without caller involvement.
 pub(crate) fn persist_session_to_storage(profile: &str, instance_id: &str, session_id: &str) {
     if !is_valid_session_id(session_id) {
         tracing::warn!(target: "session.store",
@@ -541,7 +548,7 @@ pub(crate) fn persist_session_to_storage(profile: &str, instance_id: &str, sessi
     let storage = match super::storage::Storage::new(profile) {
         Ok(s) => s,
         Err(e) => {
-            tracing::warn!(target: "session.store", "Failed to create storage for session ID persistence: {}", e);
+            tracing::error!(target: "session.store", "Failed to create storage for session ID persistence: {}", e);
             return;
         }
     };
@@ -561,7 +568,7 @@ pub(crate) fn persist_session_to_storage(profile: &str, instance_id: &str, sessi
         }
         Ok(false) => {}
         Err(e) => {
-            tracing::warn!(target: "session.store", "Failed to persist session ID for {}: {}", instance_id, e);
+            tracing::error!(target: "session.store", "Failed to persist session ID for {}: {}; next status_poll tick will retry", instance_id, e);
         }
     }
 }
