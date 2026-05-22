@@ -125,7 +125,7 @@ jobs:
               --head chore/nix-npm-hash-update \
               --title "chore: update Nix npmDepsHash for web dependencies" \
               --body-file /tmp/pr-body.md \
-              --label automated)
+              --label automated | tail -n1)
             PR_NUMBER="${PR_URL##*/}"
           else
             gh pr edit "$PR_NUMBER" --body-file /tmp/pr-body.md

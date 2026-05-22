@@ -148,7 +148,7 @@ jobs:
           # `databaseId` (not `id`) returns the numeric REST ID; the GraphQL
           # node id `IC_kw...` 404s on the REST PATCH/DELETE endpoints below.
           EXISTING=$(gh pr view "$PR_NUMBER" --json comments \
-            --jq '.comments[] | select(.body | startswith("<!-- nix-npm-hash-fix-pr -->")) | .databaseId' \
+            --jq '.comments[] | select(.author.login == "github-actions" and (.body | startswith("<!-- nix-npm-hash-fix-pr -->"))) | .databaseId' \
             | head -n1)
 
           if [ "$CHANGED" = "false" ]; then
