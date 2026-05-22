@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Patches the single `npmDepsHash` assignment in <flake.nix> to <new-hash>.
 # Validates the hash shape so an injected value cannot pollute the sed
-# replacement; errors if not exactly one match in the target file.
+# replacement; errors if `flake.nix` does not have exactly one match.
 
 set -euo pipefail
 

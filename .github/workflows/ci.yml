@@ -130,9 +130,8 @@ jobs:
     name: Nix Build Web
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Catches npmDepsHash desync at PR time so a stale hash cannot reach
-    # main even if the nix-npm-hash bot is offline. Gated on relevant
-    # paths so Rust-only PRs keep fast feedback.
+    # Catches npmDepsHash desync at PR time even if the nix-npm-hash bot
+    # is offline. Path-gated so Rust-only PRs keep fast feedback.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -170,8 +169,6 @@ jobs:
         if: steps.changes.outputs.relevant == 'true'
         run: |
           set -euo pipefail
-          # A stale npmDepsHash surfaces as `hash mismatch in fixed-output
-          # derivation` with `got: sha256-...`; copy that into flake.nix.
           nix build --no-link .#packages.x86_64-linux.aoe-with-web
 
   website:

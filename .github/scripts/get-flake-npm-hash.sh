@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Prints the single `npmDepsHash` assignment from <flake.nix>. Errors
-# if not exactly one match, so a future second derivation cannot drift.
+# Errors if `flake.nix` does not have exactly one `npmDepsHash`
+# assignment, so a future second derivation cannot drift.
 
 set -euo pipefail
 

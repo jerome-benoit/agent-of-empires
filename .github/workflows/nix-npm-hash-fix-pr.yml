@@ -26,7 +26,6 @@ jobs:
     if: github.event.pull_request.state == 'open'
 
     steps:
-      # Workflow code from base (pull_request_target guarantee). No PR tree.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -86,9 +85,8 @@ jobs:
       - name: Push fix commit (same-repo PRs only)
         if: steps.hash.outputs.changed == 'true' && steps.pr.outputs.is_fork == 'false'
         env:
-          # RELEASE_TOKEN is a PAT; pushes from PATs (unlike GITHUB_TOKEN)
-          # retrigger downstream workflows, so the PR's `Nix Build Web`
-          # check re-runs and goes green automatically.
+          # RELEASE_TOKEN is a PAT; PAT pushes (unlike GITHUB_TOKEN)
+          # retrigger downstream workflows so `Nix Build Web` re-runs.
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           NEW_HASH: ${{ steps.hash.outputs.computed }}
           HEAD_REF: ${{ steps.pr.outputs.head_ref }}
@@ -102,9 +100,8 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
             pr-checkout
 
-          # Confirm the PR head SHA has not advanced between the API fetch
-          # above and this step; otherwise abort and let the next
-          # synchronize event retrigger us.
+          # If the PR head moved between the API fetch and now, abort
+          # so the new synchronize event retriggers us.
           ACTUAL_SHA=$(git -C pr-checkout rev-parse HEAD)
           if [ "$ACTUAL_SHA" != "$HEAD_SHA" ]; then
             echo "head SHA moved ($HEAD_SHA -> $ACTUAL_SHA); next synchronize will retry."
@@ -113,7 +110,6 @@ jobs:
 
           "$WORKSPACE/.github/scripts/set-flake-npm-hash.sh" pr-checkout/flake.nix "$NEW_HASH"
 
-          # Defense in depth: only flake.nix may differ.
           if [ "$(git -C pr-checkout diff --name-only)" != "flake.nix" ]; then
             echo "::error::patch touched files other than flake.nix"
             git -C pr-checkout diff --name-only

@@ -18,9 +18,8 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'build.rs'
-      # web/** is excluded: lockfile changes only land on main via the
-      # nix-npm-hash bot's PR, which bumps flake.nix in the same merge
-      # commit, so the flake.nix path above already covers them.
+      # web/** is excluded: lockfile bumps land on main via the
+      # nix-npm-hash bot's PR which bumps flake.nix in the same commit.
   workflow_dispatch:
 
 jobs:

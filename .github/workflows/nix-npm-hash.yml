@@ -4,7 +4,6 @@ name: Update Nix npm Hash
 # to main. A direct push using GITHUB_TOKEN is rejected with `GH013:
 # Repository rule violations` because the main branch ruleset enforces
 # "Require a pull request before merging" plus 14 status checks.
-# Mirrors the existing open-release-pr.yml pattern.
 
 on:
   push:
@@ -38,8 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           # `prefetch-npm-deps` reads the lockfile and fetches each
-          # tarball by SRI integrity only; agrees with `buildNpmPackage`'s
-          # internal hash.
+          # tarball by SRI integrity only; agrees with `buildNpmPackage`'s internal hash.
           NEW_HASH=$(nix run --refresh nixpkgs#prefetch-npm-deps -- web/package-lock.json)
           CURRENT=$(.github/scripts/get-flake-npm-hash.sh flake.nix)
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
@@ -72,8 +70,7 @@ jobs:
           # tracking ref to anchor on; otherwise it fails with "stale info".
           git fetch origin chore/nix-npm-hash-update || true
           # --force-with-lease guards only the narrow fetch -> push window.
-          # The branch is bot-owned (always reset from main on every run),
-          # so manual edits to it are not preserved by design.
+          # The branch is bot-owned (always reset from main); manual edits are not preserved.
           git push --force-with-lease origin chore/nix-npm-hash-update
 
       - name: Open or refresh PR with auto-merge
