@@ -114,6 +114,10 @@
         {
           packages.default = aoe;
           packages.aoe-with-web = aoeWithWeb;
+          # Exposed so the nix-npm-hash bots and the local manual
+          # update procedure use the same nixpkgs revision as
+          # `buildNpmPackage` above.
+          packages.prefetch-npm-deps = pkgs.prefetch-npm-deps;
 
           checks = {
             # Build the packages as checks too
