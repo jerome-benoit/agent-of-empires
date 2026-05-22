@@ -311,6 +311,11 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
                 "Session already exists with same title and path: {}",
                 trimmed_title
             );
+            cleanup_partial_session(
+                &path,
+                worktree_info_opt.as_ref(),
+                workspace_info_opt.as_ref(),
+            );
             return Ok(());
         }
         trimmed_title.to_string()
@@ -320,6 +325,11 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
             println!(
                 "Session already exists with same title and path: {}",
                 branch_title
+            );
+            cleanup_partial_session(
+                &path,
+                worktree_info_opt.as_ref(),
+                workspace_info_opt.as_ref(),
             );
             return Ok(());
         }
@@ -603,37 +613,15 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
     })();
 
     if let Err(e) = hook_result {
-        // Clean up worktree if we created one
-        if let Some(ref wt_info) = instance.worktree_info {
-            if wt_info.managed_by_aoe {
-                if let Ok(git_wt) =
-                    crate::git::GitWorktree::new(std::path::PathBuf::from(&wt_info.main_repo_path))
-                {
-                    let _ = git_wt.remove_worktree(&path, false);
-                }
-            }
-        }
-        // Clean up workspace worktrees if we created them
-        if let Some(ref ws_info) = instance.workspace_info {
-            for repo in &ws_info.repos {
-                if repo.managed_by_aoe {
-                    let wt_path = PathBuf::from(&repo.worktree_path);
-                    let main_repo = PathBuf::from(&repo.main_repo_path);
-                    if let Ok(git_wt) = crate::git::GitWorktree::new(main_repo) {
-                        let _ = git_wt.remove_worktree(&wt_path, false);
-                    }
-                }
-            }
-            let _ = std::fs::remove_dir_all(&ws_info.workspace_dir);
-        }
+        cleanup_partial_session(
+            &path,
+            instance.worktree_info.as_ref(),
+            instance.workspace_info.as_ref(),
+        );
         return Err(e);
     }
 
-    // Phase 3 (locked): persist the new instance under the flock, with a
-    // duplicate re-check against the latest disk state to defend against a
-    // peer process that created the same (title, path) pair between our
-    // phase-1 load and now.
-    storage.update(|all_instances, groups| {
+    let persist_result = storage.update(|all_instances, groups| {
         if is_duplicate_session(
             all_instances,
             &instance.title,
@@ -651,7 +639,15 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
             *groups = group_tree.get_all_groups();
         }
         Ok(())
-    })?;
+    });
+    if let Err(e) = persist_result {
+        cleanup_partial_session(
+            &path,
+            instance.worktree_info.as_ref(),
+            instance.workspace_info.as_ref(),
+        );
+        return Err(e);
+    }
 
     println!("✓ Added session: {}", final_title);
     println!("  Profile: {}", storage.profile());
@@ -722,6 +718,33 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn cleanup_partial_session(
+    path: &std::path::Path,
+    worktree_info: Option<&crate::session::WorktreeInfo>,
+    workspace_info: Option<&crate::session::WorkspaceInfo>,
+) {
+    if let Some(wt) = worktree_info {
+        if wt.managed_by_aoe {
+            if let Ok(git_wt) = crate::git::GitWorktree::new(PathBuf::from(&wt.main_repo_path)) {
+                let _ = git_wt.remove_worktree(path, false);
+            }
+        }
+    }
+    if let Some(ws) = workspace_info {
+        for repo in &ws.repos {
+            if repo.managed_by_aoe {
+                if let Ok(git_wt) =
+                    crate::git::GitWorktree::new(PathBuf::from(&repo.main_repo_path))
+                {
+                    let _ =
+                        git_wt.remove_worktree(std::path::Path::new(&repo.worktree_path), false);
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(&ws.workspace_dir);
+    }
 }
 
 pub fn is_duplicate_session(instances: &[Instance], title: &str, path: &str) -> bool {
