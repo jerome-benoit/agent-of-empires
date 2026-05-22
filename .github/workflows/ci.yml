@@ -126,6 +126,54 @@ jobs:
           echo ""
           echo "=== All evaluations passed ==="
 
+  nix-build-web:
+    name: Nix Build Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Catches npmDepsHash desync at PR time so a stale hash cannot reach
+    # main even if the nix-npm-hash bot is offline. Gated on relevant
+    # paths so Rust-only PRs keep fast feedback.
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect relevant changes
+        id: changes
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+          else
+            # `github.event.before` is the SHA before the push, which
+            # covers multi-commit pushes correctly. Falls back to HEAD~1
+            # for the initial-push edge case where `before` is all zeros.
+            BEFORE="${{ github.event.before }}"
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              BASE="HEAD~1"
+            else
+              BASE="$BEFORE"
+            fi
+          fi
+          if git diff --name-only "$BASE"...HEAD \
+            | grep -E '^(web/package-lock\.json|flake\.nix|flake\.lock)$' \
+            >/dev/null; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: nixbuild/nix-quick-install-action@2c9db80fb984ceb1bcaa77cdda3fdf8cfba92035 # v34
+        if: steps.changes.outputs.relevant == 'true'
+
+      - name: Build aoe-with-web
+        if: steps.changes.outputs.relevant == 'true'
+        run: |
+          set -euo pipefail
+          # A stale npmDepsHash surfaces as `hash mismatch in fixed-output
+          # derivation` with `got: sha256-...`; copy that into flake.nix.
+          nix build --no-link .#packages.x86_64-linux.aoe-with-web
+
   website:
     name: Website Build
     runs-on: ubuntu-latest
