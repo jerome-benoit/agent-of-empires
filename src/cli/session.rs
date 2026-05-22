@@ -269,23 +269,28 @@ async fn unfavorite_session(profile: &str, args: SessionIdArgs) -> Result<()> {
 
 async fn archive_session(profile: &str, args: ArchiveArgs) -> Result<()> {
     let storage = Storage::new(profile)?;
-    let title = storage.update(|instances, _groups| {
-        let id = super::resolve_session(&args.identifier, instances)?
-            .id
-            .clone();
-        let inst = instances
-            .iter_mut()
-            .find(|i| i.id == id)
-            .expect("resolve_session returned an id that is no longer in instances");
 
-        if !args.no_kill {
-            if let Err(e) = inst.kill() {
-                eprintln!("Warning: failed to kill tmux session: {}", e);
-            }
+    // Phase 1 (unlocked): resolve identifier.
+    let (instances, _groups) = storage.load_with_groups()?;
+    let inst = super::resolve_session(&args.identifier, &instances)?;
+    let id = inst.id.clone();
+    let title = inst.title.clone();
+    let inst = inst.clone();
+
+    // Phase 2 (unlocked): tmux teardown. The closure-as-CPU-only invariant
+    // documented on Storage::update forbids tmux work inside the lock.
+    if !args.no_kill {
+        if let Err(e) = inst.kill() {
+            eprintln!("Warning: failed to kill tmux session: {}", e);
         }
+    }
 
-        inst.archive();
-        Ok(inst.title.clone())
+    // Phase 3 (locked, fast): set archived_at by id.
+    storage.update(|instances, _groups| {
+        if let Some(stored) = instances.iter_mut().find(|i| i.id == id) {
+            stored.archive();
+        }
+        Ok(())
     })?;
     println!("Archived: {}", title);
     Ok(())
