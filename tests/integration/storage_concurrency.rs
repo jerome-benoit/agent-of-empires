@@ -519,18 +519,19 @@ fn test_cross_process_independent_profiles_do_not_serialise() -> Result<()> {
 
     let hold = std::time::Duration::from_millis(500);
     let storage_clone = Storage::new("profile-a")?;
-    let started = std::time::Instant::now();
+    let parent_held = Arc::new(Barrier::new(2));
+    let parent_held_inner = parent_held.clone();
     let parent_handle = std::thread::spawn(move || {
         storage_clone
             .update(|_, _| {
+                parent_held_inner.wait();
                 std::thread::sleep(hold);
                 Ok(())
             })
             .unwrap();
     });
 
-    // Give the parent thread time to take the flock on profile-a.
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    parent_held.wait();
 
     // Cross-profile children must NOT be serialised by profile-a's flock.
     let aoe = aoe_bin();
@@ -540,6 +541,7 @@ fn test_cross_process_independent_profiles_do_not_serialise() -> Result<()> {
         .env("HOME", &home);
     #[cfg(target_os = "linux")]
     cmd_b.env("XDG_CONFIG_HOME", home.join(".config"));
+    let started = std::time::Instant::now();
     let status = cmd_b
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

@@ -219,13 +219,17 @@ impl HomeView {
         self.mutate_instance(&id, |inst| inst.touch_last_accessed());
         self.save()?;
 
-        // Resolve the wake message via the active profile's config (which
-        // already merges global + profile overrides). Empty string is the
+        // Resolve the wake message via the moved session's profile config
+        // (already merges global + profile overrides). Empty string is the
         // documented opt-out.
         let profile = self
-            .active_profile
-            .clone()
-            .unwrap_or_else(|| "default".to_string());
+            .get_instance(&id)
+            .map(|i| i.source_profile.clone())
+            .unwrap_or_else(|| {
+                self.active_profile
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string())
+            });
         let wake_msg = crate::session::resolve_config(&profile)
             .map(|c| c.session.restart_wake_message.clone())
             .unwrap_or_else(|_| "wake up: pick up what you were doing".to_string());
@@ -524,11 +528,14 @@ impl HomeView {
             }
         }
 
+        let path_changed = new_path != ctx.old_path;
+        let profile_changed = new_profile.is_some_and(|p| p != ctx.old_profile);
+
         // Capture old_path and its descendants from the pre-rebuild tree:
         // rebuild_group_trees below derives groups from instance.group_path,
         // which the loop above already migrated, so the old paths are about
         // to disappear from the in-memory tree.
-        let stale_paths: Vec<String> = if new_path != ctx.old_path {
+        let stale_paths: Vec<String> = if path_changed || profile_changed {
             let prefix = format!("{}/", ctx.old_path);
             self.group_trees
                 .get(&ctx.old_profile)
@@ -547,10 +554,12 @@ impl HomeView {
         // Rebuild trees from the updated instance list
         self.rebuild_group_trees();
 
-        if new_path != ctx.old_path {
+        if path_changed {
             if let Some(tree) = self.group_trees.get_mut(&ctx.old_profile) {
                 tree.rename_group(&ctx.old_path, new_path);
             }
+        }
+        if path_changed || profile_changed {
             self.pending_group_deletions
                 .entry(ctx.old_profile.clone())
                 .or_default()

@@ -2195,6 +2195,11 @@ impl HomeView {
             {
                 self.selected_session = None;
             }
+            self.rebuild_group_trees();
+            self.flat_items = self.build_flat_items();
+            if self.cursor >= self.flat_items.len() {
+                self.cursor = self.flat_items.len().saturating_sub(1);
+            }
             tracing::info!(
                 target: "tui.home",
                 count = all_peer_deleted.len(),
@@ -2379,7 +2384,9 @@ impl HomeView {
     }
 
     /// Atomic per-action mutate: in-memory once, disk via
-    /// `Instance::merge_user_action_diff` under the flock.
+    /// `Instance::merge_user_action_diff` under the flock. On disk persist
+    /// failure, in-memory is rolled back to `pre` so memory and disk stay
+    /// consistent.
     pub(super) fn apply_user_action<F>(&mut self, id: &str, mutate: F) -> anyhow::Result<()>
     where
         F: FnOnce(&mut Instance),
@@ -2396,13 +2403,13 @@ impl HomeView {
         self.instance_map.insert(id.to_string(), post.clone());
 
         let id_owned = id.to_string();
-        if let Some(storage) = self.storages.get(&profile) {
+        let res = if let Some(storage) = self.storages.get(&profile) {
             storage.update(|insts, _groups| {
                 if let Some(disk) = insts.iter_mut().find(|i| i.id == id_owned) {
                     disk.merge_user_action_diff(&pre, &post);
                 }
                 Ok(())
-            })?;
+            })
         } else {
             tracing::warn!(
                 target: "tui.home",
@@ -2410,8 +2417,15 @@ impl HomeView {
                 id = %id_owned,
                 "apply_user_action: no storage registered for profile; in-memory mutation will not persist"
             );
+            Ok(())
+        };
+        if res.is_err() {
+            if let Some(slot) = self.instances.iter_mut().find(|i| i.id == id) {
+                *slot = pre.clone();
+            }
+            self.instance_map.insert(id.to_string(), pre);
         }
-        Ok(())
+        res
     }
 
     /// Bulk `apply_user_action`: one `Storage::update` per affected
@@ -2438,18 +2452,32 @@ impl HomeView {
                 .or_default()
                 .push((id.clone(), pre, post));
         }
-        for (profile, items) in by_profile {
-            let Some(storage) = self.storages.get(&profile) else {
+        for (profile, items) in &by_profile {
+            let Some(storage) = self.storages.get(profile) else {
+                tracing::warn!(
+                    target: "tui.home",
+                    profile = %profile,
+                    count = items.len(),
+                    "bulk_apply_user_action: no storage registered for profile; in-memory mutations will not persist"
+                );
                 continue;
             };
-            storage.update(|insts, _groups| {
-                for (id, pre, post) in &items {
+            if let Err(e) = storage.update(|insts, _groups| {
+                for (id, pre, post) in items {
                     if let Some(disk) = insts.iter_mut().find(|i| i.id == *id) {
                         disk.merge_user_action_diff(pre, post);
                     }
                 }
                 Ok(())
-            })?;
+            }) {
+                for (id, pre, _post) in items {
+                    if let Some(slot) = self.instances.iter_mut().find(|i| i.id == *id) {
+                        *slot = pre.clone();
+                    }
+                    self.instance_map.insert(id.clone(), pre.clone());
+                }
+                return Err(e);
+            }
         }
         Ok(())
     }

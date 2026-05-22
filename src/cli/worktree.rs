@@ -2,6 +2,7 @@
 
 use anyhow::{bail, Result};
 use clap::Subcommand;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::git::GitWorktree;
@@ -259,9 +260,9 @@ async fn cleanup_orphaned(profile: &str, force: bool) -> Result<()> {
 
     // Remove orphaned sessions
     if !orphaned_sessions.is_empty() {
-        let orphan_ids: Vec<String> = orphaned_sessions.iter().map(|o| o.id.clone()).collect();
+        let orphan_ids: HashSet<String> = orphaned_sessions.iter().map(|o| o.id.clone()).collect();
         storage.update(|all_instances, _groups| {
-            all_instances.retain(|inst| !orphan_ids.iter().any(|id| id == &inst.id));
+            all_instances.retain(|inst| !orphan_ids.contains(&inst.id));
             Ok(())
         })?;
 

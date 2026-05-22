@@ -16,7 +16,7 @@
 //!    `logging.rs`.
 //!
 //! All mutation goes through `update` (load -> mutate -> save under both
-//! locks). `save_workspace_ordering` is `pub(crate)` and only consumed by
+//! locks). `save_workspace_ordering` is private and only consumed by
 //! `update_workspace_ordering` internally; the per-profile `save` /
 //! `save_groups` helpers were removed entirely. This keeps it structurally
 //! impossible to bypass the locks.
@@ -384,7 +384,7 @@ where
     Ok(result)
 }
 
-pub(crate) fn save_workspace_ordering(ordering: &WorkspaceOrdering) -> Result<()> {
+fn save_workspace_ordering(ordering: &WorkspaceOrdering) -> Result<()> {
     let path = workspace_ordering_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
