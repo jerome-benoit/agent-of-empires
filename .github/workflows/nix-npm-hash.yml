@@ -102,10 +102,6 @@ jobs:
             echo "- [x] I understand the code I am submitting"
             echo "- [x] New and existing tests pass"
             echo "- [x] Documentation was updated where necessary"
-            echo
-            echo "## AI Usage"
-            echo
-            echo "- [x] No AI was used"
           } > /tmp/pr-body.md
 
           gh label create automated \

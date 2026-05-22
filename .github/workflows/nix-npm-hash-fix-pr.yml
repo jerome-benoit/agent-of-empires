@@ -97,11 +97,12 @@ jobs:
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_AUTHOR_ID: ${{ github.event.pull_request.user.id }}
+          BASE_REPO: ${{ github.repository }}
           WORKSPACE: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch "$HEAD_REF" \
-            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+          git clone --depth 1 --branch "$HEAD_REF" -- \
+            "https://x-access-token:${GH_TOKEN}@github.com/${BASE_REPO}.git" \
             pr-checkout
 
           # If the PR head moved between the API fetch and now, abort
@@ -141,9 +142,9 @@ jobs:
           CUR_HASH: ${{ steps.hash.outputs.current }}
           CHANGED: ${{ steps.hash.outputs.changed }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          MARKER="<!-- nix-npm-hash-fix-pr -->"
 
           # `databaseId` (not `id`) returns the numeric REST ID; the GraphQL
           # node id `IC_kw...` 404s on the REST PATCH/DELETE endpoints below.
@@ -154,13 +155,13 @@ jobs:
           if [ "$CHANGED" = "false" ]; then
             if [ -n "$EXISTING" ]; then
               gh api --method DELETE \
-                "/repos/${{ github.repository }}/issues/comments/${EXISTING}" >/dev/null
+                "/repos/${BASE_REPO}/issues/comments/${EXISTING}" >/dev/null
             fi
             exit 0
           fi
 
           {
-            echo "$MARKER"
+            echo "<!-- nix-npm-hash-fix-pr -->"
             echo
             echo "The \`Nix Build Web\` check fails because \`flake.nix\`'s \`npmDepsHash\` does not match this PR's \`web/package-lock.json\`. The bot cannot push to fork branches; please apply the fix below."
             echo
@@ -177,7 +178,7 @@ jobs:
           } > /tmp/comment-body.md
 
           if [ -n "$EXISTING" ]; then
-            gh api --method PATCH "/repos/${{ github.repository }}/issues/comments/${EXISTING}" \
+            gh api --method PATCH "/repos/${BASE_REPO}/issues/comments/${EXISTING}" \
               -f body="$(cat /tmp/comment-body.md)" >/dev/null
           else
             gh pr comment "$PR_NUMBER" --body-file /tmp/comment-body.md
