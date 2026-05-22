@@ -144,17 +144,24 @@ impl Drop for StorageFlock {
 fn acquire_storage_flock(dir: &Path, name: &str) -> Result<StorageFlock> {
     fs::create_dir_all(dir)?;
     let path = dir.join(name);
+    #[cfg(unix)]
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(&path)?
+    };
+    #[cfg(not(unix))]
     let file = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
         .open(&path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = file.set_permissions(fs::Permissions::from_mode(0o600));
-    }
 
     if let Err(e) = file.try_lock_exclusive() {
         if e.kind() != std::io::ErrorKind::WouldBlock {

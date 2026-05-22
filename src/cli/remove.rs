@@ -43,23 +43,9 @@ pub async fn run(profile: &str, args: RemoveArgs) -> Result<()> {
     // deletion sequence, blocking peer mutators on the same profile.
     let (instances, _groups) = storage.load_with_groups()?;
 
-    let mut target: Option<Instance> = None;
-    for inst in &instances {
-        if inst.id == args.identifier
-            || inst.id.starts_with(&args.identifier)
-            || inst.title == args.identifier
-        {
-            target = Some(inst.clone());
-            break;
-        }
-    }
-    let inst = target.ok_or_else(|| {
-        anyhow::anyhow!(
-            "Session not found in profile '{}': {}",
-            storage.profile(),
-            args.identifier
-        )
-    })?;
+    let inst = super::resolve_session(&args.identifier, &instances)
+        .map_err(|e| anyhow::anyhow!("{} in profile '{}'", e, storage.profile()))?
+        .clone();
     let removed_id = inst.id.clone();
     let removed_title = inst.title.clone();
 

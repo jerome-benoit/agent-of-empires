@@ -200,10 +200,11 @@ async fn move_session(profile: &str, args: GroupMoveArgs) -> Result<()> {
     let group = args.group.trim().to_string();
 
     let old_group = storage.update(|instances, groups| {
+        let id = super::resolve_session(&identifier, instances)?.id.clone();
         let inst = instances
             .iter_mut()
-            .find(|i| i.id == identifier || i.id.starts_with(&identifier) || i.title == identifier)
-            .ok_or_else(|| anyhow::anyhow!("Session not found: {}", identifier))?;
+            .find(|i| i.id == id)
+            .expect("resolve_session returned an id that is no longer in instances");
         let old = inst.group_path.clone();
         inst.group_path = group.clone();
 

@@ -3,6 +3,7 @@
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand};
 use serde::Serialize;
+use std::collections::HashSet;
 
 use crate::session::{GroupTree, StartOutcome, Storage};
 
@@ -555,7 +556,7 @@ async fn restart_all_sessions(profile: &str, parallel: usize) -> Result<()> {
         });
     }
 
-    let mut succeeded: Vec<(String, Option<String>)> = Vec::new();
+    let mut succeeded: Vec<(String, String, Option<String>)> = Vec::new();
     let mut failed: Vec<(String, String)> = Vec::new();
     let mut restarted: Vec<(crate::session::Instance, Option<String>)> = Vec::new();
     while let Some(joined) = join_set.join_next().await {
@@ -564,12 +565,15 @@ async fn restart_all_sessions(profile: &str, parallel: usize) -> Result<()> {
             Ok(StartOutcome::Restarted { stale_sid }) => Some(stale_sid.clone()),
             _ => None,
         };
+        let id = inst_opt.as_ref().map(|i| i.id.clone()).unwrap_or_default();
         if let Some(inst) = inst_opt {
             restarted.push((inst, stale_sid.clone()));
         }
         match result {
-            Ok(StartOutcome::Restarted { stale_sid }) => succeeded.push((title, Some(stale_sid))),
-            Ok(StartOutcome::Resumed | StartOutcome::Fresh) => succeeded.push((title, None)),
+            Ok(StartOutcome::Restarted { stale_sid }) => {
+                succeeded.push((id, title, Some(stale_sid)))
+            }
+            Ok(StartOutcome::Resumed | StartOutcome::Fresh) => succeeded.push((id, title, None)),
             Err(e) => failed.push((title, e.to_string())),
         }
     }
@@ -579,7 +583,7 @@ async fn restart_all_sessions(profile: &str, parallel: usize) -> Result<()> {
     // sessions during phase 2 (status updates from a parallel daemon
     // poller, sibling CLI invocations, ...) are preserved because the
     // closure receives the latest disk state.
-    let orphaned: Vec<String> = storage.update(|instances, _groups| {
+    let orphaned: Vec<(String, String)> = storage.update(|instances, _groups| {
         let mut orphaned = Vec::new();
         for (restarted_inst, stale_sid) in restarted {
             if let Some(stored) = instances.iter_mut().find(|i| i.id == restarted_inst.id) {
@@ -590,16 +594,18 @@ async fn restart_all_sessions(profile: &str, parallel: usize) -> Result<()> {
                     session_id = %restarted_inst.id,
                     "session row removed by peer between phase 1 and phase 3 of restart --all; tmux session is now orphan"
                 );
-                orphaned.push(restarted_inst.title.clone());
+                orphaned.push((restarted_inst.id.clone(), restarted_inst.title.clone()));
             }
         }
         Ok(orphaned)
     })?;
 
-    // Move orphaned titles out of succeeded: tmux ran but no disk row carries the outcome.
-    succeeded.retain(|(title, _)| !orphaned.contains(title));
+    // Filter by id, not title: two distinct sessions can share a title on
+    // different paths (is_duplicate_session blocks only same-title-same-path).
+    let orphaned_ids: HashSet<&String> = orphaned.iter().map(|(id, _)| id).collect();
+    succeeded.retain(|(id, _, _)| !orphaned_ids.contains(id));
 
-    let stale_count = succeeded.iter().filter(|(_, s)| s.is_some()).count();
+    let stale_count = succeeded.iter().filter(|(_, _, s)| s.is_some()).count();
     if stale_count == 0 {
         println!("✓ Restarted {}/{} sessions:", succeeded.len(), total);
     } else {
@@ -610,7 +616,7 @@ async fn restart_all_sessions(profile: &str, parallel: usize) -> Result<()> {
             stale_count,
         );
     }
-    for (title, stale) in &succeeded {
+    for (_id, title, stale) in &succeeded {
         match stale {
             Some(sid) => println!("  · {}{}", title, stale_history_suffix(sid)),
             None => println!("  · {}", title),
@@ -621,7 +627,7 @@ async fn restart_all_sessions(profile: &str, parallel: usize) -> Result<()> {
             "⚠ {} orphaned (row removed by peer mid-flight; tmux running but unrooted):",
             orphaned.len()
         );
-        for title in &orphaned {
+        for (_, title) in &orphaned {
             println!("  · {}", title);
         }
     }
@@ -1128,14 +1134,9 @@ async fn set_base(profile: &str, args: SetBaseArgs) -> Result<()> {
     let storage = Storage::new(profile)?;
     let instances = storage.load()?;
 
-    let idx = instances
-        .iter()
-        .position(|i| {
-            i.id == args.identifier
-                || i.id.starts_with(&args.identifier)
-                || i.title == args.identifier
-        })
-        .ok_or_else(|| anyhow::anyhow!("Session not found: {}", args.identifier))?;
+    let inst = super::resolve_session(&args.identifier, &instances)?;
+    let id = inst.id.clone();
+    let title = inst.title.clone();
 
     let new_value = if args.clear {
         None
@@ -1144,16 +1145,11 @@ async fn set_base(profile: &str, args: SetBaseArgs) -> Result<()> {
         if trimmed.is_empty() {
             bail!("Branch name is empty. Pass --clear to remove the override.");
         }
-        // Validate the ref against the same resolution chain the diff
-        // resolver uses, so users see a clear error at set-time rather
-        // than a silent fallback when the diff is next computed. For
-        // workspace sessions, validate against the first repo's
-        // worktree (each repo will resolve the ref the same way).
-        let validate_path = instances[idx]
+        let validate_path = inst
             .workspace_info
             .as_ref()
             .and_then(|w| w.repos.first().map(|r| r.worktree_path.clone()))
-            .unwrap_or_else(|| instances[idx].project_path.clone());
+            .unwrap_or_else(|| inst.project_path.clone());
         if let Err(e) =
             crate::git::diff::validate_ref(std::path::Path::new(&validate_path), &trimmed)
         {
@@ -1167,15 +1163,12 @@ async fn set_base(profile: &str, args: SetBaseArgs) -> Result<()> {
         Some(trimmed)
     };
 
-    let title = instances[idx].title.clone();
-    let id_for_save = instances[idx].id.clone();
-
     storage.update(|instances, _groups| {
-        let inst = instances
+        let stored = instances
             .iter_mut()
-            .find(|i| i.id == id_for_save)
+            .find(|i| i.id == id)
             .ok_or_else(|| anyhow::anyhow!("Session not found: {}", args.identifier))?;
-        inst.base_branch_override = new_value.clone();
+        stored.base_branch_override = new_value.clone();
         Ok(())
     })?;
 

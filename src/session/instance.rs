@@ -525,9 +525,9 @@ fn append_resume_flags(
 /// Used during synchronous pre-launch (e.g. `persist_session_id` for Claude)
 /// when no poller is active yet. Post-launch persistence goes exclusively
 /// through the poller channel -> `apply_session_id_updates()` in the TUI
-/// thread. Concurrent calls within the same process are serialised via
-/// `Storage::update`'s per-profile lock; cross-process races between TUI
-/// and `aoe serve` remain a known limitation (see #1175).
+/// thread. Concurrent calls within and across processes are serialised via
+/// `Storage::update`'s two-layer lock (in-process mutex + cross-process
+/// flock; see `storage.rs` module rustdoc).
 ///
 /// Fire-and-forget: errors are logged at error level. The poller dedupes
 /// on its `last_known` and `apply_session_id_updates` dedupes on in-memory
@@ -581,9 +581,11 @@ pub(crate) fn persist_session_to_storage(profile: &str, instance_id: &str, sessi
 /// Tier 2's `finalize_launch`, the next launch would otherwise re-load the
 /// bad sid from disk and pass `--resume <bad>` again, looping.
 ///
-/// Concurrent in-process callers (TUI tick, server `spawn_blocking` workers,
-/// CLI `restart --all` JoinSet workers) are serialised via `Storage::update`'s
-/// per-profile lock; cross-process races remain out of scope (see #1175).
+/// Concurrent callers within and across processes (TUI tick, server
+/// `spawn_blocking` workers, CLI `restart --all` JoinSet workers, peer
+/// `aoe` invocations) are serialised via `Storage::update`'s two-layer
+/// lock (in-process mutex + cross-process flock; see `storage.rs` module
+/// rustdoc).
 fn clear_session_id_on_disk(profile: &str, instance_id: &str) {
     let storage = match super::storage::Storage::new(profile) {
         Ok(s) => s,
@@ -736,6 +738,9 @@ impl Instance {
     /// survive even when the field is in the user-action set.
     /// `last_accessed_at` is monotone-max (no diff guard).
     /// `source_profile` is excluded; cross-profile moves bypass this path.
+    /// Post-splice rules enforce the same cross-field invariants the
+    /// per-mutation methods enforce (archive XOR favorite, touch unarchives)
+    /// so concurrent peer writes cannot violate them.
     pub fn merge_user_action_diff(&mut self, pre: &Self, post: &Self) {
         debug_assert_eq!(
             pre.source_profile, post.source_profile,
@@ -763,6 +768,27 @@ impl Instance {
             self.status = post.status;
         }
         self.last_accessed_at = self.last_accessed_at.max(post.last_accessed_at);
+
+        let archived_changed = pre.archived_at != post.archived_at;
+        let favorited_changed = pre.favorited_at != post.favorited_at;
+        // Read self (post-merge) to catch both TUI-side and peer-side touches.
+        let touched = self.last_accessed_at > pre.last_accessed_at;
+
+        // archive(): archived=Some => favorited=None
+        if archived_changed && post.archived_at.is_some() {
+            self.favorited_at = None;
+        }
+        // favorite(): favorited=Some => archived=None, snoozed=None
+        if favorited_changed && post.favorited_at.is_some() {
+            self.archived_at = None;
+            self.snoozed_until = None;
+        }
+        // touch_last_accessed(): clears archived + snoozed. Runs LAST so a
+        // fresh touch beats a concurrent archive (user rule: messaging unarchives).
+        if touched {
+            self.archived_at = None;
+            self.snoozed_until = None;
+        }
     }
 
     /// Mark the session archived. Archived sessions sink to the bottom of
@@ -3076,6 +3102,113 @@ mod tests {
             stored.agent_session_id.as_deref(),
             Some("poller-fresh-sid"),
             "poller wrote a fresh sid between phase 2 and phase 3; CAS preserves it"
+        );
+    }
+
+    #[test]
+    fn test_merge_diff_peer_archive_loses_to_tui_favorite() {
+        let pre = Instance::new("s", "/tmp/x");
+        let mut post = pre.clone();
+        post.favorite();
+
+        let mut disk = pre.clone();
+        disk.archive();
+
+        disk.merge_user_action_diff(&pre, &post);
+
+        assert!(disk.favorited_at.is_some(), "TUI favorite landed");
+        assert!(
+            disk.archived_at.is_none(),
+            "favorite() invariant must clear concurrent peer archive"
+        );
+    }
+
+    #[test]
+    fn test_merge_diff_peer_favorite_loses_to_tui_archive() {
+        let pre = Instance::new("s", "/tmp/x");
+        let mut post = pre.clone();
+        post.archive();
+
+        let mut disk = pre.clone();
+        disk.favorite();
+
+        disk.merge_user_action_diff(&pre, &post);
+
+        assert!(disk.archived_at.is_some(), "TUI archive landed");
+        assert!(
+            disk.favorited_at.is_none(),
+            "archive() invariant must clear concurrent peer favorite"
+        );
+    }
+
+    #[test]
+    fn test_merge_diff_peer_archive_loses_to_tui_touch() {
+        let pre = Instance::new("s", "/tmp/x");
+        let mut post = pre.clone();
+        post.touch_last_accessed();
+
+        let mut disk = pre.clone();
+        disk.archive();
+
+        disk.merge_user_action_diff(&pre, &post);
+
+        assert!(
+            disk.archived_at.is_none(),
+            "touch_last_accessed() invariant must clear concurrent peer archive"
+        );
+    }
+
+    #[test]
+    fn test_merge_diff_peer_touch_clears_tui_archive() {
+        let mut pre = Instance::new("s", "/tmp/x");
+        pre.last_accessed_at = Some(Utc::now() - chrono::Duration::seconds(60));
+
+        let mut post = pre.clone();
+        post.archive();
+
+        let mut disk = pre.clone();
+        disk.touch_last_accessed();
+
+        disk.merge_user_action_diff(&pre, &post);
+
+        assert!(
+            disk.archived_at.is_none(),
+            "peer touch (newer last_accessed_at) must dethrone TUI archive per messaging-unarchives rule"
+        );
+    }
+
+    #[test]
+    fn test_merge_diff_archive_and_snooze_coexist() {
+        let pre = Instance::new("s", "/tmp/x");
+        let mut post = pre.clone();
+        post.snooze(15);
+
+        let mut disk = pre.clone();
+        disk.archive();
+
+        disk.merge_user_action_diff(&pre, &post);
+
+        assert!(disk.archived_at.is_some(), "peer archive survives");
+        assert!(disk.snoozed_until.is_some(), "TUI snooze landed");
+    }
+
+    #[test]
+    fn test_merge_diff_tui_unfavorite_does_not_resurrect_peer_archive() {
+        let mut pre = Instance::new("s", "/tmp/x");
+        pre.favorite();
+
+        let mut post = pre.clone();
+        post.unfavorite();
+
+        let mut disk = pre.clone();
+        disk.archive();
+
+        disk.merge_user_action_diff(&pre, &post);
+
+        assert!(disk.favorited_at.is_none(), "TUI unfavorite landed");
+        assert!(
+            disk.archived_at.is_some(),
+            "post.favorited_at == None; favorite-invariant rule must NOT fire"
         );
     }
 
