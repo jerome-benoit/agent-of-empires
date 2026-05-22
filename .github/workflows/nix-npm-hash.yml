@@ -39,7 +39,7 @@ jobs:
           set -euo pipefail
           # `prefetch-npm-deps` reads the lockfile and fetches each
           # tarball by SRI integrity only; agrees with `buildNpmPackage`'s
-          # internal hash. Same tool used by the PR auto-fix workflow.
+          # internal hash.
           NEW_HASH=$(nix run --refresh nixpkgs#prefetch-npm-deps -- web/package-lock.json)
           CURRENT=$(.github/scripts/get-flake-npm-hash.sh flake.nix)
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"

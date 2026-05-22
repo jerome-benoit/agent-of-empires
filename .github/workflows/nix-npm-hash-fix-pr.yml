@@ -1,13 +1,9 @@
 name: Auto Fix npmDepsHash on PRs
 
-# Reads only `web/package-lock.json` and `flake.nix` from the PR head via
-# the GitHub API, computes the SRI hash with `prefetch-npm-deps` (the
-# nixpkgs lockfile-only tool used internally by `buildNpmPackage`; no
-# `npm install`, no postinstall scripts, no PR JS executed), and patches
-# `flake.nix` either by pushing to a same-repo PR branch or by leaving a
-# sticky comment with a copy-paste snippet on a fork PR. `pull_request_target`
-# is safe here because the workflow file itself is taken from base, no PR
-# tree is checked out, and no PR-supplied code is evaluated.
+# `pull_request_target` is safe here because the workflow runs from
+# base, the PR head is read only as data via `gh api` (never as code),
+# and the hash is computed by `prefetch-npm-deps` which fetches tarballs
+# by SRI integrity only and never executes npm or postinstall scripts.
 
 on:
   pull_request_target:
@@ -160,7 +156,6 @@ jobs:
             echo '```'
           } > /tmp/comment-body.md
 
-          # Upsert: edit the existing sticky comment if present, else create.
           # `databaseId` (not `id`) returns the numeric REST ID; the GraphQL
           # node id `IC_kw...` 404s on the REST PATCH endpoint below.
           EXISTING=$(gh pr view "$PR_NUMBER" --json comments \
