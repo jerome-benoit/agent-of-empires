@@ -1,6 +1,7 @@
-//! Integration tests for the in-process per-profile lock added in #1175.
+//! Integration tests for the two-layer per-profile lock (in-process mutex
+//! + cross-process flock).
 //!
-//! These exercise the public locked API (`Storage::update`, `commit`,
+//! These exercise the public locked API (`Storage::update`,
 //! `update_workspace_ordering`) end-to-end from outside the crate, the same
 //! surface a third-party consumer would see.
 

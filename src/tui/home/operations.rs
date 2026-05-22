@@ -197,7 +197,7 @@ impl HomeView {
                     .get_instance(&id)
                     .map(|i| i.group_path.clone())
                     .unwrap_or_default();
-                self.move_to_profile(&id, target_profile, group_path);
+                self.move_to_profile(&id, target_profile, group_path)?;
                 self.rebuild_group_trees();
                 // Rebuild the visible row list too; otherwise the row still
                 // renders under the old profile until the next reload, and
@@ -509,7 +509,7 @@ impl HomeView {
             };
 
             if let Some(tp) = new_profile {
-                self.move_to_profile(id, tp, new_group_path.clone());
+                self.move_to_profile(id, tp, new_group_path.clone())?;
             } else {
                 self.apply_user_action(id, |inst| {
                     inst.group_path = new_group_path.clone();
@@ -647,7 +647,7 @@ impl HomeView {
                     // Update source_profile and save (handles moving between profiles)
                     instance.source_profile = target_profile.to_string();
                     let new_title = instance.title.clone();
-                    self.move_to_profile(&id, target_profile, instance.group_path.clone());
+                    self.move_to_profile(&id, target_profile, instance.group_path.clone())?;
                     self.mutate_instance(&id, |inst| {
                         inst.title = new_title;
                     });

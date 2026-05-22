@@ -743,11 +743,9 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
                 tmux_session.attach()?;
             }
             Err(e) => {
-                let err_msg = e.to_string();
                 if let Err(rollback_err) = storage.update(|all_instances, _groups| {
                     if let Some(stored) = all_instances.iter_mut().find(|i| i.id == id) {
                         stored.status = crate::session::Status::Error;
-                        stored.last_error = Some(err_msg.clone());
                     }
                     Ok(())
                 }) {

@@ -5357,7 +5357,8 @@ mod save_field_merge {
         view.storages
             .insert("target".to_string(), Storage::new("target").unwrap());
 
-        view.move_to_profile(&id, "target", "moved/group".to_string());
+        view.move_to_profile(&id, "target", "moved/group".to_string())
+            .unwrap();
 
         assert!(
             view.pending_deletions
@@ -5383,7 +5384,7 @@ mod save_field_merge {
         view.storages
             .insert("target".to_string(), Storage::new("target").unwrap());
 
-        view.move_to_profile(&id, "target", String::new());
+        view.move_to_profile(&id, "target", String::new()).unwrap();
         view.save().expect("save must succeed across profiles");
 
         let old_disk = Storage::new("test").unwrap().load().unwrap();
@@ -5403,7 +5404,8 @@ mod save_field_merge {
     fn test_move_to_profile_same_profile_only_updates_group_path() {
         let (_temp, mut view, id) = boot_view_with_one_session("victim", "/tmp/move");
 
-        view.move_to_profile(&id, "test", "newgrp".to_string());
+        view.move_to_profile(&id, "test", "newgrp".to_string())
+            .unwrap();
 
         assert!(
             !view.pending_deletions.contains_key("test")
@@ -5411,5 +5413,37 @@ mod save_field_merge {
             "same-profile move must NOT tombstone the row"
         );
         assert_eq!(view.get_instance(&id).unwrap().group_path, "newgrp");
+    }
+
+    #[test]
+    #[serial]
+    fn test_reload_honors_peer_cleared_session_id() {
+        let (_temp, mut view, id) = boot_view_with_one_session("session", "/tmp/sid");
+
+        // Seed a stale sid via the in-memory mirror + persist.
+        view.mutate_instance(&id, |inst| {
+            inst.agent_session_id = Some("stale_X".to_string());
+        });
+        view.save().unwrap();
+
+        // Peer clears the sid on disk (simulates `aoe session set-session-id ""`).
+        Storage::new("test")
+            .unwrap()
+            .update(|insts, _g| {
+                if let Some(inst) = insts.iter_mut().find(|i| i.id == id) {
+                    inst.agent_session_id = None;
+                }
+                Ok(())
+            })
+            .unwrap();
+
+        view.reload().unwrap();
+
+        assert!(
+            view.get_instance(&id)
+                .and_then(|i| i.agent_session_id.clone())
+                .is_none(),
+            "reload must honor peer-cleared sid; carrying memory would re-pass --resume <stale>"
+        );
     }
 }

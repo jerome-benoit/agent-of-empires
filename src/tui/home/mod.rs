@@ -683,13 +683,9 @@ impl HomeView {
                     // freshness state when the user toggles a setting
                     // that triggers a reload mid-window.
                     inst.idle_entered_at = prev.idle_entered_at;
-                    // Use in-memory session_id if present; fallback to disk.
-                    // In-memory state takes priority over disk: the poller
-                    // may have updated the ID since last save.
-                    inst.agent_session_id = prev
-                        .agent_session_id
-                        .clone()
-                        .or(inst.agent_session_id.take());
+                    // agent_session_id NOT carried: writers persist synchronously
+                    // through Storage::update before reload runs, so disk is
+                    // authoritative; carrying memory would resurrect a peer-cleared sid.
                     // Carry the resume-fallback exclusion set across
                     // reloads. Without this, a stale sid that the cascade
                     // just cleared would be re-imported on the next 5s reload
@@ -1008,9 +1004,39 @@ impl HomeView {
                 self.mutate_instance(id, |inst| {
                     inst.agent_session_id = Some(session_id.clone());
                 });
-                let profile = self.instance_map.get(id).map(|i| i.source_profile.clone());
-                if let Some(profile) = profile {
-                    crate::session::persist_session_to_storage(&profile, id, session_id);
+            }
+            // Group by profile so each affected sessions.json is rewritten
+            // once, regardless of how many sids the poller delivered this tick.
+            let mut by_profile: HashMap<String, Vec<(String, String)>> = HashMap::new();
+            for (id, session_id) in &updates {
+                if let Some(profile) = self.instance_map.get(id).map(|i| i.source_profile.clone()) {
+                    by_profile
+                        .entry(profile)
+                        .or_default()
+                        .push((id.clone(), session_id.clone()));
+                }
+            }
+            for (profile, items) in by_profile {
+                if let Some(storage) = self.storages.get(&profile) {
+                    if let Err(e) = storage.update(|insts, _g| {
+                        for (id, session_id) in &items {
+                            if let Some(inst) = insts.iter_mut().find(|i| i.id == *id) {
+                                inst.agent_session_id = Some(session_id.clone());
+                            }
+                        }
+                        Ok(())
+                    }) {
+                        tracing::error!(
+                            target: "session.store",
+                            "Bulk sid persist failed for profile {}: {}",
+                            profile,
+                            e
+                        );
+                    }
+                } else {
+                    for (id, session_id) in &items {
+                        crate::session::persist_session_to_storage(&profile, id, session_id);
+                    }
                 }
             }
         }
@@ -2308,13 +2334,23 @@ impl HomeView {
     /// per-profile loop misclassifies the row as peer-deleted in the new
     /// profile and leaves the old profile's disk row, which next reload
     /// resurrects under the original profile.
-    pub(super) fn move_to_profile(&mut self, id: &str, target: &str, new_group_path: String) {
+    pub(super) fn move_to_profile(
+        &mut self,
+        id: &str,
+        target: &str,
+        new_group_path: String,
+    ) -> anyhow::Result<()> {
         let Some(old_profile) = self.instance_map.get(id).map(|i| i.source_profile.clone()) else {
-            return;
+            return Ok(());
         };
         if old_profile == target {
             self.mutate_instance(id, |inst| inst.group_path = new_group_path);
-            return;
+            return Ok(());
+        }
+
+        if !self.storages.contains_key(target) {
+            self.storages
+                .insert(target.to_string(), Storage::new(target)?);
         }
 
         self.pending_deletions
@@ -2334,6 +2370,7 @@ impl HomeView {
             inst.source_profile = target.to_string();
             self.instance_map.insert(id.to_string(), inst.clone());
         }
+        Ok(())
     }
 
     /// Atomic per-action mutate: in-memory once, disk via
