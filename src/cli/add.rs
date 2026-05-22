@@ -630,10 +630,7 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
             &instance.title,
             instance.project_path.as_str(),
         ) {
-            bail!(
-                "Session already exists with same title and path: {}",
-                instance.title
-            );
+            return Ok(false);
         }
         all_instances.push(instance.clone());
         if !instance.group_path.is_empty() {
@@ -641,16 +638,32 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
             group_tree.create_group(&instance.group_path);
             *groups = group_tree.get_all_groups();
         }
-        Ok(())
+        Ok(true)
     });
-    if let Err(e) = persist_result {
-        cleanup_partial_session(
-            &path,
-            instance.worktree_info.as_ref(),
-            instance.workspace_info.as_ref(),
-            args.create_branch,
-        );
-        return Err(e);
+    match persist_result {
+        Ok(true) => {}
+        Ok(false) => {
+            println!(
+                "Session already exists with same title and path: {}",
+                instance.title
+            );
+            cleanup_partial_session(
+                &path,
+                instance.worktree_info.as_ref(),
+                instance.workspace_info.as_ref(),
+                args.create_branch,
+            );
+            return Ok(());
+        }
+        Err(e) => {
+            cleanup_partial_session(
+                &path,
+                instance.worktree_info.as_ref(),
+                instance.workspace_info.as_ref(),
+                args.create_branch,
+            );
+            return Err(e);
+        }
     }
 
     println!("✓ Added session: {}", final_title);
