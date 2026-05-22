@@ -523,12 +523,15 @@ async fn restart_all_sessions(profile: &str, parallel: usize) -> Result<()> {
 
     let mut succeeded: Vec<(String, Option<String>)> = Vec::new();
     let mut failed: Vec<(String, String)> = Vec::new();
-    let mut restarted: Vec<(crate::session::Instance, bool)> = Vec::new();
+    let mut restarted: Vec<(crate::session::Instance, Option<String>)> = Vec::new();
     while let Some(joined) = join_set.join_next().await {
         let (title, inst_opt, result) = joined.expect("JoinSet shouldn't panic on join itself");
-        let clear_stale_sid = matches!(result, Ok(StartOutcome::Restarted { .. }));
+        let stale_sid = match &result {
+            Ok(StartOutcome::Restarted { stale_sid }) => Some(stale_sid.clone()),
+            _ => None,
+        };
         if let Some(inst) = inst_opt {
-            restarted.push((inst, clear_stale_sid));
+            restarted.push((inst, stale_sid.clone()));
         }
         match result {
             Ok(StartOutcome::Restarted { stale_sid }) => succeeded.push((title, Some(stale_sid))),
@@ -543,9 +546,9 @@ async fn restart_all_sessions(profile: &str, parallel: usize) -> Result<()> {
     // poller, sibling CLI invocations, ...) are preserved because the
     // closure receives the latest disk state.
     storage.update(|instances, _groups| {
-        for (restarted_inst, clear_stale_sid) in restarted {
+        for (restarted_inst, stale_sid) in restarted {
             if let Some(stored) = instances.iter_mut().find(|i| i.id == restarted_inst.id) {
-                stored.merge_post_restart(&restarted_inst, clear_stale_sid);
+                stored.merge_post_restart(&restarted_inst, stale_sid.as_deref());
             }
         }
         Ok(())
@@ -655,10 +658,13 @@ async fn restart_session(profile: &str, args: SessionIdArgs) -> Result<()> {
 
     // touch_last_accessed runs on `stored`, not `working`: its fields are
     // peer-mutable and do not belong in `merge_post_restart`.
-    let clear_stale_sid = matches!(outcome, StartOutcome::Restarted { .. });
+    let stale_sid = match &outcome {
+        StartOutcome::Restarted { stale_sid } => Some(stale_sid.as_str()),
+        StartOutcome::Resumed | StartOutcome::Fresh => None,
+    };
     storage.update(|instances, _groups| {
         if let Some(stored) = instances.iter_mut().find(|i| i.id == session_id) {
-            stored.merge_post_restart(&working, clear_stale_sid);
+            stored.merge_post_restart(&working, stale_sid);
             if wake_succeeded {
                 stored.touch_last_accessed();
             }

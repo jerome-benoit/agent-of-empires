@@ -697,13 +697,17 @@ impl Instance {
         self.sandbox_info = src.sandbox_info.clone();
     }
 
-    /// Same fields as `merge_post_start`. When `clear_stale_sid` (resume
-    /// fallback fired), also copy `agent_session_id`: the cascade just
-    /// invalidated it, so peer writes are stale by construction.
-    pub fn merge_post_restart(&mut self, src: &Self, clear_stale_sid: bool) {
+    /// Same fields as `merge_post_start`. When `stale_sid` is `Some`, the
+    /// resume-fallback cascade just invalidated that exact sid; clear
+    /// `self.agent_session_id` only if it still matches the stale value, so
+    /// a peer poller's freshly-discovered sid (landed between phase 2 and
+    /// phase 3 of the restart) survives intact.
+    pub fn merge_post_restart(&mut self, src: &Self, stale_sid: Option<&str>) {
         self.merge_post_start(src);
-        if clear_stale_sid {
-            self.agent_session_id = src.agent_session_id.clone();
+        if let Some(stale) = stale_sid {
+            if self.agent_session_id.as_deref() == Some(stale) {
+                self.agent_session_id = src.agent_session_id.clone();
+            }
         }
     }
 
@@ -2965,7 +2969,7 @@ mod tests {
         working.status = Status::Idle;
         working.agent_session_id = Some("phase1-stale-sid".to_string());
 
-        stored.merge_post_restart(&working, false);
+        stored.merge_post_restart(&working, None);
 
         assert_eq!(stored.status, Status::Idle);
         assert_eq!(
@@ -2977,20 +2981,39 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_post_restart_fallback_clears_sid() {
+    fn test_merge_post_restart_fallback_clears_matching_sid() {
         let mut stored = Instance::new("session", "/tmp/test");
-        stored.agent_session_id = Some("any-sid".to_string());
+        stored.agent_session_id = Some("phase1-stale-sid".to_string());
 
         let mut working = Instance::new("session", "/tmp/test");
         working.id = stored.id.clone();
         working.status = Status::Starting;
         working.agent_session_id = None;
 
-        stored.merge_post_restart(&working, true);
+        stored.merge_post_restart(&working, Some("phase1-stale-sid"));
 
         assert!(
             stored.agent_session_id.is_none(),
-            "fallback cascade invalidates the sid; peer writes are stale by construction"
+            "stored sid still equals stale; cascade invalidation propagates"
+        );
+    }
+
+    #[test]
+    fn test_merge_post_restart_preserves_poller_sid_landed_during_phase_2() {
+        let mut stored = Instance::new("session", "/tmp/test");
+        stored.agent_session_id = Some("poller-fresh-sid".to_string());
+
+        let mut working = Instance::new("session", "/tmp/test");
+        working.id = stored.id.clone();
+        working.status = Status::Starting;
+        working.agent_session_id = None;
+
+        stored.merge_post_restart(&working, Some("phase1-stale-sid"));
+
+        assert_eq!(
+            stored.agent_session_id.as_deref(),
+            Some("poller-fresh-sid"),
+            "poller wrote a fresh sid between phase 2 and phase 3; CAS preserves it"
         );
     }
 
