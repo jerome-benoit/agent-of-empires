@@ -414,7 +414,7 @@ fn test_cross_process_blocking_acquire() -> Result<()> {
 
 #[test]
 #[serial]
-fn test_cross_process_lock_released_on_child_kill() -> Result<()> {
+fn test_lock_released_on_panic_unwind() -> Result<()> {
     let temp = setup_temp_home();
     let home = temp.path().to_path_buf();
 
@@ -425,14 +425,6 @@ fn test_cross_process_lock_released_on_child_kill() -> Result<()> {
     })?;
     let id = storage.load()?[0].id.clone();
 
-    // Hold the flock from a spawned thread inside this process by going through
-    // the public update path with a sleeping closure. Killing a child of `aoe`
-    // is harder to time deterministically; the in-thread variant gives the
-    // same OS-level guarantee (kernel releases the flock when the holder's
-    // file descriptor is closed) because thread panic unwinds the
-    // `StorageFlock` Drop impl, which calls `fs2::FileExt::unlock`. Combined
-    // with the `kill -9` path's `exit(2)`-on-SIGKILL semantics, this asserts
-    // that an aborted holder cannot wedge peer processes.
     let storage_clone = Storage::new("default")?;
     let parent_handle = std::thread::spawn(move || {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -443,8 +435,6 @@ fn test_cross_process_lock_released_on_child_kill() -> Result<()> {
     });
     parent_handle.join().expect("thread joined");
 
-    // After the panicking thread has unwound, a fresh child should acquire
-    // the flock immediately.
     let started = std::time::Instant::now();
     let mut child = spawn_favorite(aoe_bin(), &home, &id);
     let status = child.wait()?;
@@ -455,6 +445,92 @@ fn test_cross_process_lock_released_on_child_kill() -> Result<()> {
         elapsed < std::time::Duration::from_secs(2),
         "lock must be released after holder unwinds; observed {:?}",
         elapsed
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+#[serial]
+fn test_cross_process_lock_released_on_child_kill() -> Result<()> {
+    use fs2::FileExt;
+    use nix::sys::signal::{self, Signal};
+    use nix::sys::wait::waitpid;
+    use nix::unistd::{fork, ForkResult, Pid};
+
+    let _temp = setup_temp_home();
+
+    let storage = Storage::new("default")?;
+    storage.update(|insts, _| {
+        insts.push(Instance::new("victim-kill", "/tmp/aoe-test-victim-kill"));
+        Ok(())
+    })?;
+
+    let lock_path = agent_of_empires::session::get_profile_dir("default")?.join(".storage.lock");
+    let path_c =
+        std::ffi::CString::new(lock_path.to_str().expect("utf8 path")).expect("path has no NUL");
+
+    // SAFETY: between fork() and _exit() the child only calls
+    // async-signal-safe libc routines (open, flock, pause, _exit). Cargo
+    // test runs each test on a worker thread, so the post-fork process
+    // is multithreaded; non-async-signal-safe code (allocator, std::fs)
+    // would be UB here.
+    let child = match unsafe { fork() }? {
+        ForkResult::Parent { child } => child,
+        ForkResult::Child => unsafe {
+            let fd = nix::libc::open(
+                path_c.as_ptr(),
+                nix::libc::O_RDWR | nix::libc::O_CREAT,
+                0o600,
+            );
+            if fd < 0 {
+                nix::libc::_exit(2);
+            }
+            if nix::libc::flock(fd, nix::libc::LOCK_EX) != 0 {
+                nix::libc::_exit(3);
+            }
+            nix::libc::pause();
+            nix::libc::_exit(0);
+        },
+    };
+
+    struct ChildGuard(Pid);
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            let _ = signal::kill(self.0, Signal::SIGKILL);
+            let _ = waitpid(self.0, None);
+        }
+    }
+    let _g = ChildGuard(child);
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let probe = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)?;
+        if FileExt::try_lock_exclusive(&probe).is_err() {
+            break;
+        }
+        let _ = FileExt::unlock(&probe);
+        drop(probe);
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!("child did not acquire flock within deadline");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    signal::kill(child, Signal::SIGKILL)?;
+    waitpid(child, None)?;
+
+    let started = std::time::Instant::now();
+    storage.update(|_, _| Ok(()))?;
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "lock must release after SIGKILL; observed {:?}",
+        started.elapsed()
     );
     Ok(())
 }
