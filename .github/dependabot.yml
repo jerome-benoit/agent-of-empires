@@ -95,6 +95,7 @@ updates:
           - "react"
           - "react-dom"
           - "tailwindcss"
+          - "@tailwindcss/*"
         update-types: ["minor", "patch"]
     ignore:
       - dependency-name: "react"
@@ -102,6 +103,8 @@ updates:
       - dependency-name: "react-dom"
         update-types: ["version-update:semver-major"]
       - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@tailwindcss/*"
         update-types: ["version-update:semver-major"]
 
   # npm: cockpit-worker/aoe-agent
@@ -183,7 +186,10 @@ updates:
         patterns: ["*"]
         exclude-patterns:
           - "tailwindcss"
+          - "@tailwindcss/*"
         update-types: ["minor", "patch"]
     ignore:
       - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@tailwindcss/*"
         update-types: ["version-update:semver-major"]
