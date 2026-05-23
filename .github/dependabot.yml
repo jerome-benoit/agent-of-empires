@@ -26,7 +26,7 @@ updates:
 
   # docker
   - package-ecosystem: "docker"
-    directory: "docker"
+    directory: "/docker"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -70,7 +70,7 @@ updates:
 
   # npm: web
   - package-ecosystem: "npm"
-    directory: "web"
+    directory: "/web"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -106,7 +106,7 @@ updates:
 
   # npm: cockpit-worker/aoe-agent
   - package-ecosystem: "npm"
-    directory: "cockpit-worker/aoe-agent"
+    directory: "/cockpit-worker/aoe-agent"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -141,10 +141,9 @@ updates:
 
   # npm: cockpit-worker/test-shim
   - package-ecosystem: "npm"
-    directory: "cockpit-worker/test-shim"
+    directory: "/cockpit-worker/test-shim"
     schedule:
       interval: "monthly"
-      day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 3
@@ -162,10 +161,9 @@ updates:
 
   # npm: website
   - package-ecosystem: "npm"
-    directory: "website"
+    directory: "/website"
     schedule:
       interval: "monthly"
-      day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 3
