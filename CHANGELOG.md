@@ -4,6 +4,22 @@ All notable changes to Agent of Empires will be documented in this file.
 
 The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.9.5](https://github.com/agent-of-empires/agent-of-empires/releases/tag/v1.9.5) - 2026-05-29
+
+
+
+### Bug Fixes
+
+- **tui:** Show top preview row in live mode when info header is hidden in [#1604](https://github.com/agent-of-empires/agent-of-empires/pull/1604) by [@njbrake](https://github.com/njbrake) ([`45bacae`](https://github.com/agent-of-empires/agent-of-empires/commit/45bacae6701dbedbea4b2ac20f02fb510e5de82e))
+
+
+### Features
+
+- **tui:** Mouse click + hover support across dialogs, settings, diff in [#1593](https://github.com/agent-of-empires/agent-of-empires/pull/1593) by [@njbrake](https://github.com/njbrake) ([`47d5355`](https://github.com/agent-of-empires/agent-of-empires/commit/47d5355353a41d8f7ac01af67cdddf9bf348a1e5))
+- **tui:** First-run intro walkthrough with theme + attach-mode picks in [#1605](https://github.com/agent-of-empires/agent-of-empires/pull/1605) by [@njbrake](https://github.com/njbrake) ([`02f404d`](https://github.com/agent-of-empires/agent-of-empires/commit/02f404d588b6597e03b715409ab9e3977f2a1d23))
+
+
+**Full Changelog**: https://github.com/agent-of-empires/agent-of-empires/compare/v1.9.4...v1.9.5
 ## [1.9.4](https://github.com/agent-of-empires/agent-of-empires/releases/tag/v1.9.4) - 2026-05-28
 
 
