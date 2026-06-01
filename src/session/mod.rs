@@ -309,23 +309,8 @@ mod profile_listing_tests {
     }
 }
 
-/// Reject any `AOE_INSTANCE_ID` that is not safe to use as a single
-/// path component when joined onto a trusted base directory, or to
-/// interpolate into a sandbox shell snippet, or to interpolate into
-/// the launch-time tmux command line.
-///
-/// Production IDs come from `instance::generate_id()` (16 lowercase hex)
-/// and trivially satisfy the allowlist. The wider `[A-Za-z0-9_-]`
-/// allowlist accommodates dev / test labels (`compact`, `nested_first`,
-/// `a-b-c`) and matches `cockpit::worker_registry::validate_session_id`,
-/// which guards an identical "user-string-as-path-component" threat.
-///
-/// Defense in depth on a tampered `sessions.json`: every consumer that
-/// joins this value onto a base path, or interpolates it into a shell
-/// command (host launch, docker exec, in-container hook), calls this
-/// first. The sandbox shell hooks ALSO carry their own in-shell
-/// allowlist guard because the host validator does not run inside the
-/// container.
+/// Validate `AOE_INSTANCE_ID` is safe as a single path component and
+/// for shell interpolation. Allowlist `[A-Za-z0-9_-]`, max 64 bytes.
 pub(crate) fn validate_instance_id(id: &str) -> Result<()> {
     if id.is_empty() {
         anyhow::bail!("AOE_INSTANCE_ID must not be empty");

@@ -17,14 +17,8 @@ use super::HOOK_STATUS_BASE;
 /// Maximum age before a sidecar `session_id` file is considered stale.
 pub(crate) const SESSION_ID_SIDECAR_MAX_AGE: Duration = Duration::from_secs(5 * 60);
 
-/// Return the directory for a given instance's hook status file.
-///
-/// Validates `instance_id` so that callers joining further components
-/// (e.g. `.join("status")`) cannot escape `HOOK_STATUS_BASE`. Production
-/// IDs always pass. On failure: hot-path readers (`read_hook_*`) map to
-/// their existing fail-closed value (`None` / `false`); cleanup paths
-/// log + skip; the Docker bind-mount in `container_config` propagates
-/// the error and refuses to launch the container.
+/// `<HOOK_STATUS_BASE>/<instance_id>`. `Err` if `instance_id` fails
+/// `validate_instance_id`.
 pub fn hook_status_dir(instance_id: &str) -> Result<PathBuf> {
     crate::session::validate_instance_id(instance_id)?;
     Ok(PathBuf::from(HOOK_STATUS_BASE).join(instance_id))

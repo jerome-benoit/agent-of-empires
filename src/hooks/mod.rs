@@ -101,12 +101,9 @@ fn hook_command(status: &str) -> String {
 }
 
 fn hook_command_with_base(status: &str, base: &str) -> String {
-    // Shell-side allowlist mirrors the host `validate_instance_id`. The
-    // host validator does not run inside sandbox containers, so this
-    // guard is mandatory defense in depth, not redundant. `exit 0` on
-    // rejection preserves the never-block-the-agent contract. The
-    // `[ -n "$AOE_INSTANCE_ID" ]` check is load-bearing because the
-    // case glob `*[!...]*` does not match the empty string.
+    // `[ -n ]` is load-bearing: `*[!...]*` does not match the empty
+    // string. `exit 0` on rejection: a non-zero hook exit blocks the
+    // agent's tool calls.
     format!(
         "sh -c '[ -n \"$AOE_INSTANCE_ID\" ] || exit 0; \
          case \"$AOE_INSTANCE_ID\" in *[!0-9a-zA-Z_-]*) exit 0 ;; esac; \
@@ -2821,11 +2818,9 @@ hooks_auto_accept: false
 
     #[test]
     fn shell_guard_actually_rejects_traversal() {
-        // Nest <base> two levels deep under <tmp> so traversal up to two
-        // levels resolves WITHIN an asserted-on subtree rather than
-        // escaping into tmp.parent() where the assertions cannot see it.
-        // Place a canary file under <base> so any mkdir/write side effect
-        // is also detectable. Layout: <tmp>/level1/base/.canary-deadbeef.
+        // Nesting <tmp>/level1/base + canary file: any escape (one or
+        // two levels) or in-place mkdir/write surfaces in one of the
+        // three read_dir assertions below.
         let tmp = tempfile::tempdir().unwrap();
         let level1 = tmp.path().join("level1");
         std::fs::create_dir(&level1).unwrap();

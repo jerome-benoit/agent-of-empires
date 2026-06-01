@@ -40,6 +40,7 @@ pub async fn run(_args: ExtractSessionIdArgs) -> Result<()> {
     Ok(())
 }
 
+/// Caller MUST validate `instance_id` first; this fn path-joins without re-checking.
 fn run_inner<R: Read>(stdin: R, base: &str, instance_id: &str) -> Result<()> {
     let mut buf = String::new();
     stdin.take(STDIN_BYTE_CAP).read_to_string(&mut buf)?;

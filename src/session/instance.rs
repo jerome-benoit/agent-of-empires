@@ -1585,13 +1585,11 @@ impl Instance {
         size: Option<(u16, u16)>,
         skip_on_launch: bool,
     ) -> Result<LaunchSidOutcome> {
-        // Reject any tampered id BEFORE any shell-command construction
-        // happens in `build_launch_command`. Covers both
-        // `status_hook_env_prefix` (host path) and the docker_args
-        // interpolation `format!("... -e AOE_INSTANCE_ID={}", self.id)`
-        // (sandbox path). `build_container_config` validates separately
-        // for the bind-mount; this gate is the launch-line-injection
-        // guard.
+        // Validate before any shell-command construction in
+        // `build_launch_command` (covers `status_hook_env_prefix` and
+        // the sandbox docker_args interpolation). Runs before the
+        // cockpit short-circuit so a tampered id surfaces as `Err` for
+        // cockpit sessions too.
         crate::session::validate_instance_id(&self.id)
             .context("refusing to launch: AOE_INSTANCE_ID failed validation")?;
 
