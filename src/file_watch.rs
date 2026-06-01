@@ -811,6 +811,7 @@ mod tests {
 
     /// Test 1
     #[tokio::test]
+    #[serial(file_watch)]
     async fn service_init_returns_arc_on_success() {
         let svc = FileWatchService::new().expect("init");
         // Live service: watcher present, dispatcher_dead unset.
@@ -1271,6 +1272,7 @@ mod tests {
     /// the underlying `watch()` call and roll back atomically (no `dirs`
     /// entry left behind, sibling subscribes succeed).
     #[tokio::test]
+    #[serial(file_watch)]
     async fn subscribe_channel_returns_err_on_watch_failure() {
         let svc = FileWatchService::new().expect("init");
         // A path that almost certainly doesn't exist on any test host.

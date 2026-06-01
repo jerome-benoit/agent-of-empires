@@ -9,6 +9,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
 jobs:
   fmt:
     name: Format
@@ -140,8 +143,6 @@ jobs:
     name: Nix Build Web
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: read
     # Catches npmDepsHash desync at PR time even if the nix-npm-hash bot
     # is offline. Path-gated so Rust-only PRs keep fast feedback.
     steps:
