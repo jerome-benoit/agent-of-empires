@@ -1383,7 +1383,7 @@ mod cockpit_reject_tests {
         #[cfg(target_os = "linux")]
         std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
-        let storage = Storage::new("cockpit-reject").unwrap();
+        let storage = Storage::new_for_test("cockpit-reject").unwrap();
         let mut inst = Instance::new("cockpit_session", "/tmp/x");
         inst.cockpit_mode = true;
         let id = inst.id.clone();
