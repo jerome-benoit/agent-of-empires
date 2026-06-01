@@ -25,8 +25,7 @@ pub struct FileEvent {
     pub path: PathBuf,
     /// Coarse classification of the kernel event.
     pub kind: FileEventKind,
-    /// Origin tag. Always `Kernel` in this PR; the server consumer migration
-    /// adds `Local` for the in-process fast path.
+    /// Origin tag of the file event.
     pub source: EventSource,
 }
 
