@@ -2070,10 +2070,11 @@ impl Instance {
     /// the flock), not the caller's memory: a user repin landing
     /// between the probe and the clear keeps its fresh pin.
     ///
-    /// Also heals the legacy `(None, Use(stale_sid))` shape that a
-    /// pre-flock daemon could persist mid-cascade: when disk's sid is
-    /// already `None` but intent still pins the dead sid, downgrade
-    /// intent to `Default` and return `Applied`.
+    /// Also heals the legacy `(None, Use(stale_sid))` shape that the
+    /// previous two-flock implementation could persist after a daemon
+    /// crash mid-cascade: when disk's sid is already `None` but intent
+    /// still pins the dead sid, downgrade intent to `Default` and
+    /// return `Applied`.
     ///
     /// On sid CAS skip: skip both writes. On Applied or Skipped:
     /// reload both fields from disk so memory matches whatever the
@@ -2715,12 +2716,17 @@ impl Instance {
 
         self.agent_session_id = None;
         let _ = std::fs::remove_file(crate::hooks::hook_status_dir(&self.id).join("session_id"));
-        // Populate the poller exclusion before the disk write so a
-        // bail on Failed below still keeps the bad sid out of the
-        // next retroactive capture cycle.
+        // Populate the poller exclusion before calling
+        // `clear_session_for_resume_fallback` so its `Failed` bail
+        // still keeps the bad sid out of the next retroactive capture
+        // cycle. Must stay before that call for the bail to win.
         self.retroactive_capture_excludes.insert(stale_sid.clone());
         match self.clear_session_for_resume_fallback(&profile, &stale_sid) {
             SidWrite::Applied | SidWrite::Skipped => {}
+            // `Failed` is unit-tested via
+            // `clear_for_resume_fallback_returns_failed_on_missing_row`;
+            // bail rather than launch Tier-2 against a disk we know
+            // could not be cleaned, which would re-pin the dead sid.
             SidWrite::Failed => {
                 anyhow::bail!(
                     "resume-fallback could not clear stale sid {} for {}",
@@ -6560,6 +6566,9 @@ mod tests {
             inst.agent_session_id = Some(stale_sid.clone());
             inst.status = Status::Idle;
 
+            // Seed required: clear_session_for_resume_fallback bails on
+            // missing-row Failed before reaching Tier-2, so the row must
+            // exist on disk for the cascade to reach the probe assertions.
             let xs = vec![inst.clone()];
             _storage
                 .update(|i, g| {
@@ -6648,6 +6657,9 @@ mod tests {
             inst.agent_session_id = Some(stale_sid.clone());
             inst.status = Status::Idle;
 
+            // Seed required: clear_session_for_resume_fallback bails on
+            // missing-row Failed before reaching Tier-2, so the row must
+            // exist on disk for the cascade to reach the probe assertions.
             let xs = vec![inst.clone()];
             _storage
                 .update(|i, g| {
