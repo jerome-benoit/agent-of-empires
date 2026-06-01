@@ -245,9 +245,9 @@ impl CleanupDefaultsCache {
 /// Per-profile entry tracking a live `FileWatchService` subscription and the
 /// `tokio::spawn`ed forwarder that drains its receiver into
 /// `AppState::disk_changed`. Stored under `AppState::disk_watch_handles`.
-/// Drop-then-abort order on rewire / shutdown is canonical (per primitive
-/// design §12 rule 3): drop the `SubscriptionHandle` first so the
-/// dispatcher stops queuing events for this id, then abort the forwarder.
+/// Drop-then-abort order on rewire / shutdown is canonical: drop the
+/// `SubscriptionHandle` first so the dispatcher stops queuing events for
+/// this id, then abort the forwarder.
 pub struct DiskWatchEntry {
     /// RAII guard from `subscribe_channel`. Drop unsubscribes and unwatches
     /// the directory if its refcount drops to zero.
@@ -921,8 +921,8 @@ pub async fn start_server(config: ServerConfig<'_>) -> anyhow::Result<()> {
 
     // File-watch wire-up: register per-profile subscriptions and start the
     // consumer task. Spawned AFTER the listener bind above so subscribe
-    // latency never gates listener readiness; polling stays canonical per
-    // primitive §9.2 if subscribe fails.
+    // latency never gates listener readiness; polling stays canonical
+    // if subscribe fails.
     {
         let init_state = state.clone();
         tokio::spawn(async move {
@@ -1701,7 +1701,7 @@ fn merge_runtime_fields(prior: Instance, mut fresh: Instance) -> Instance {
 // 5. `prior_by_id` is built with `.drain(..)` once, then read with
 //    `.get()` (NOT `.remove()`) in the merge loop, so the same map is
 //    still populated when `apply_cockpit_overlay_inplace` runs.
-// 6. Polling is canonical (primitive design §9.2). The watcher path
+// 6. Polling is canonical. The watcher path
 //    adds latency reduction; correctness still holds when it fails.
 
 /// Reload `state.instances` by merging caller-supplied `fresh` against the
@@ -1862,7 +1862,6 @@ async fn subscribe_profile_disk_watch(state: &Arc<AppState>, profile: &str) {
 
 /// Drop the per-profile disk-watch entry: drop the `SubscriptionHandle`
 /// FIRST so the dispatcher stops queuing events, then abort the forwarder.
-/// Drop-then-abort is canonical per primitive design §12 rule 3.
 pub async fn unsubscribe_profile_disk_watch(state: &Arc<AppState>, profile: &str) {
     let mut handles = state.disk_watch_handles.lock().await;
     if let Some(entry) = handles.remove(profile) {
@@ -1915,7 +1914,7 @@ pub async fn rewire_disk_watch_for_profile_remove(state: &Arc<AppState>, profile
 /// Background task: reload `state.instances` from disk on every wake of
 /// `state.disk_changed`. Mirrors `status_poll_loop`'s lock-acquisition
 /// pattern but does NOT touch tmux or `state.status_tx`. Polling stays
-/// canonical per primitive §9.2; this task is pure latency reduction.
+/// canonical; this task is pure latency reduction.
 async fn disk_watcher_consumer(state: Arc<AppState>) {
     loop {
         tokio::select! {

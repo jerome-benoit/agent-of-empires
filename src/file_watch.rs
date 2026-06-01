@@ -198,7 +198,7 @@ pub struct SubscriptionHandle {
 impl FileWatchService {
     /// Construct the live service. Spawns the drain thread + tokio dispatcher.
     ///
-    /// Graceful degradation per design §9.1: on `notify::recommended_watcher`
+    /// Graceful degradation: on `notify::recommended_watcher`
     /// Err or when the env var `AOE_FILE_WATCH=off` is set, returns
     /// `Ok(Self::noop())` rather than `Err`. The only error case surfaced by
     /// this constructor today is failure to spawn the drain thread.
@@ -358,7 +358,7 @@ impl FileWatchService {
     ///
     /// Returns [`WatchError::Watch`] if registering the spec's directory
     /// with the kernel backend fails (refcount is rolled back atomically;
-    /// the partial-state §7.3 invariant is maintained).
+    /// the partial-state invariant is maintained).
     pub fn subscribe_channel(
         self: &Arc<Self>,
         spec: WatchSpec,
@@ -366,7 +366,7 @@ impl FileWatchService {
     ) -> Result<(mpsc::Receiver<FileEvent>, SubscriptionHandle), WatchError> {
         let mut inner = self.inner.lock().expect("file_watch inner mutex poisoned");
         let cap = capacity.max(1);
-        // Noop short-circuit before touching subscriptions / dirs (§7.3).
+        // Noop short-circuit before touching subscriptions / dirs.
         if inner.watcher.is_none() {
             // Dropping `_tx` before return makes `rx.recv().await` resolve
             // to `None` immediately.
@@ -406,7 +406,7 @@ impl FileWatchService {
         inner.dirs.get_mut(&dir).expect("just inserted").refcount = pre_bump + 1;
         if pre_bump == 0 {
             // Need to start watching. Lock STAYS HELD across the watch call
-            // to preserve the §7.3 invariant: another subscriber must not
+            // to preserve the invariant: another subscriber must not
             // observe refcount==1 mid-rollback.
             let watcher = inner.watcher.as_mut().expect(
                 "watcher initialized in FileWatchService::new; noop path short-circuits above",
@@ -499,7 +499,7 @@ fn log_dispatcher_dead_once_err(
     }
 }
 
-/// Uniform tempfile suppression (design §8.1). Covers both
+/// Uniform tempfile suppression. Covers both
 /// `tempfile::NamedTempFile::new_in` (`.tmp*` prefix) and rename-based
 /// atomic writes (`runtime_filter.tmp` suffix), plus common editor temp
 /// files (`~`-prefixed, emacs `.#name`).
@@ -516,7 +516,7 @@ fn is_tempfile(path: &Path) -> bool {
     false
 }
 
-/// Uniform lockfile suppression (design §8.1). Matches `^\.[a-z_-]+\.lock$`.
+/// Uniform lockfile suppression. Matches `^\.[a-z_-]+\.lock$`.
 fn is_lockfile(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(OsStr::to_str) else {
         return false;
