@@ -5927,7 +5927,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
             let on_disk = storage
                 .load()
                 .unwrap()
@@ -5959,7 +5959,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
             let on_disk = storage
                 .load()
                 .unwrap()
@@ -5991,7 +5991,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
             let on_disk = storage
                 .load()
                 .unwrap()
@@ -6025,7 +6025,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
             let on_disk = storage
                 .load()
                 .unwrap()
@@ -6054,7 +6054,7 @@ mod tests {
             inst.reconcile_sidecar_into_disk();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
             let on_disk = storage
                 .load()
                 .unwrap()
