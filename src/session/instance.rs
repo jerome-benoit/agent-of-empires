@@ -399,8 +399,11 @@ pub struct Instance {
     pub agent_session_id: Option<String>,
 
     /// User intent gating `acquire_session_id`. See `ResumeIntent` for
-    /// semantics. Owned by user-initiated paths (CLI, REST, TUI); never
-    /// written by the poller. Disjoint writers from `agent_session_id`.
+    /// semantics. Non-`Default` values (`Use`, `Cleared`) are written only
+    /// by user-initiated CLI commands; daemon-internal paths demote to
+    /// `Default` only (one-shot `Cleared` auto-promote, cascade Tier-1
+    /// `Use(stale_sid)` downgrade), both CAS-guarded, so a daemon restart
+    /// cannot silently undo a user-set pin.
     #[serde(default, skip_serializing_if = "ResumeIntent::is_default")]
     pub(crate) resume_intent: ResumeIntent,
 
@@ -913,10 +916,9 @@ impl Instance {
         *self = disk;
     }
 
-    /// CAS-adopt a fresh hook-sidecar sid into disk. Closes the data-loss
-    /// window where `/clear` writes the sidecar but the daemon crashes
-    /// before the next poll tick persists it: without this, the next
-    /// launch's wipe destroys the fresh sid.
+    /// Closes the data-loss window where `/clear` writes the sidecar but
+    /// the daemon crashes before the next poll tick persists it: without
+    /// this step, the next launch's wipe destroys the fresh sid.
     ///
     /// Claude-only (sole sidecar tool); `Default` intent only (`Use(X)`
     /// and `Cleared` override); excluded sids skipped (cascade re-poison
@@ -2711,6 +2713,7 @@ impl Instance {
             .with_context(|| format!("kill_clean before resume fallback for {}", self.id))?;
 
         self.agent_session_id = None;
+        let _ = std::fs::remove_file(crate::hooks::hook_status_dir(&self.id).join("session_id"));
         let _ = clear_session_id_on_disk(&profile, &self.id, Some(&stale_sid));
         self.retroactive_capture_excludes.insert(stale_sid.clone());
 
@@ -5856,6 +5859,7 @@ mod tests {
             let dir = write_sidecar(&inst.id, SIDECAR_TEST_FRESH_UUID);
 
             inst.reconcile_sidecar_into_disk();
+            std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(
                 inst.agent_session_id.as_deref(),
@@ -5872,8 +5876,6 @@ mod tests {
                 on_disk.agent_session_id.as_deref(),
                 Some(SIDECAR_TEST_FRESH_UUID)
             );
-
-            std::fs::remove_dir_all(&dir).ok();
         }
 
         #[test]
@@ -5895,10 +5897,17 @@ mod tests {
             let dir = write_sidecar(&inst.id, SIDECAR_TEST_FRESH_UUID);
 
             inst.reconcile_sidecar_into_disk();
+            std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-
-            std::fs::remove_dir_all(&dir).ok();
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let on_disk = storage
+                .load()
+                .unwrap()
+                .into_iter()
+                .find(|i| i.id == inst.id)
+                .unwrap();
+            assert_eq!(on_disk.agent_session_id.as_deref(), Some("disk-sid"));
         }
 
         #[test]
@@ -5920,10 +5929,17 @@ mod tests {
             let dir = write_sidecar(&inst.id, SIDECAR_TEST_FRESH_UUID);
 
             inst.reconcile_sidecar_into_disk();
+            std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-
-            std::fs::remove_dir_all(&dir).ok();
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let on_disk = storage
+                .load()
+                .unwrap()
+                .into_iter()
+                .find(|i| i.id == inst.id)
+                .unwrap();
+            assert_eq!(on_disk.agent_session_id.as_deref(), Some("disk-sid"));
         }
 
         #[test]
@@ -5945,10 +5961,17 @@ mod tests {
             let dir = write_sidecar(&inst.id, SIDECAR_TEST_FRESH_UUID);
 
             inst.reconcile_sidecar_into_disk();
+            std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-
-            std::fs::remove_dir_all(&dir).ok();
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let on_disk = storage
+                .load()
+                .unwrap()
+                .into_iter()
+                .find(|i| i.id == inst.id)
+                .unwrap();
+            assert_eq!(on_disk.agent_session_id.as_deref(), Some("disk-sid"));
         }
 
         #[test]
@@ -5972,10 +5995,46 @@ mod tests {
             let dir = write_sidecar(&inst.id, SIDECAR_TEST_FRESH_UUID);
 
             inst.reconcile_sidecar_into_disk();
+            std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let on_disk = storage
+                .load()
+                .unwrap()
+                .into_iter()
+                .find(|i| i.id == inst.id)
+                .unwrap();
+            assert_eq!(on_disk.agent_session_id.as_deref(), Some("disk-sid"));
+        }
 
-            std::fs::remove_dir_all(&dir).ok();
+        #[test]
+        #[serial]
+        fn reconcile_sidecar_noop_when_sidecar_absent() {
+            let temp = tempdir().unwrap();
+            std::env::set_var("HOME", temp.path());
+            #[cfg(target_os = "linux")]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+
+            let profile = "sidecar-absent";
+            let mut inst = Instance::new("title", "/tmp/x");
+            inst.source_profile = profile.to_string();
+            inst.tool = "claude".to_string();
+            inst.resume_intent = ResumeIntent::Default;
+            inst.agent_session_id = Some("disk-sid".to_string());
+            seed_disk_for_sidecar_test(profile, &inst);
+
+            inst.reconcile_sidecar_into_disk();
+
+            assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let on_disk = storage
+                .load()
+                .unwrap()
+                .into_iter()
+                .find(|i| i.id == inst.id)
+                .unwrap();
+            assert_eq!(on_disk.agent_session_id.as_deref(), Some("disk-sid"));
         }
 
         #[test]
@@ -6005,6 +6064,7 @@ mod tests {
             let dir = write_sidecar(&inst.id, SIDECAR_TEST_FRESH_UUID);
 
             inst.reconcile_sidecar_into_disk();
+            std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("peer-wrote-this"));
             let on_disk = storage
@@ -6014,8 +6074,6 @@ mod tests {
                 .find(|i| i.id == inst.id)
                 .unwrap();
             assert_eq!(on_disk.agent_session_id.as_deref(), Some("peer-wrote-this"));
-
-            std::fs::remove_dir_all(&dir).ok();
         }
 
         #[test]
