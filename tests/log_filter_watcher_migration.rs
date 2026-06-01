@@ -1,5 +1,5 @@
 //! Byte-identical-behavior integration test for the migrated
-//! `watch_runtime_filter` (design §11.1, test 3a).
+//! `watch_runtime_filter`.
 //!
 //! Verifies:
 //! a) Apply-once-at-startup path: the file already exists when subscribe
