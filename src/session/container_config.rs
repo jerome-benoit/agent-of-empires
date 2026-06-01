@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::containers::{ContainerConfig, EnvEntry, NamedVolumeMount, VolumeMount};
 use crate::git::GitWorktree;
@@ -1175,26 +1175,21 @@ pub(crate) fn build_container_config(
             let hermes_hooks = agent.name == "hermes";
             let kiro_hooks = agent.name == "kiro";
             if hermes_hooks || kiro_hooks || agent.hook_config.is_some() {
-                match crate::hooks::hook_status_dir(instance_id) {
-                    Ok(hook_dir) => {
-                        if let Err(e) = std::fs::create_dir_all(&hook_dir) {
-                            tracing::warn!(target: "session.profile",
-                                "Failed to create hook directory {}: {}",
-                                hook_dir.display(),
-                                e
-                            );
-                        }
-                        volumes.push(VolumeMount {
-                            host_path: hook_dir.to_string_lossy().to_string(),
-                            container_path: hook_dir.to_string_lossy().to_string(),
-                            read_only: false,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!(target: "session.profile",
-                            "Skipping hook bind-mount for invalid instance id: {e}");
-                    }
+                let hook_dir = crate::hooks::hook_status_dir(instance_id).context(
+                    "refusing to mount hook directory: AOE_INSTANCE_ID failed validation",
+                )?;
+                if let Err(e) = std::fs::create_dir_all(&hook_dir) {
+                    tracing::warn!(target: "session.profile",
+                        "Failed to create hook directory {}: {}",
+                        hook_dir.display(),
+                        e
+                    );
                 }
+                volumes.push(VolumeMount {
+                    host_path: hook_dir.to_string_lossy().to_string(),
+                    container_path: hook_dir.to_string_lossy().to_string(),
+                    read_only: false,
+                });
             }
 
             if hermes_hooks {
@@ -2742,6 +2737,47 @@ extra_volumes = ["/host/screenshots:/root/screenshots"]
             "status hook directory should be mounted"
         );
         crate::hooks::cleanup_hook_status_dir(instance_id);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_build_container_config_refuses_unsafe_instance_id() {
+        let temp_home = TempDir::new().unwrap();
+        std::env::set_var("HOME", temp_home.path());
+        #[cfg(target_os = "linux")]
+        std::env::set_var("XDG_CONFIG_HOME", temp_home.path().join(".config"));
+
+        let project_dir = TempDir::new().unwrap();
+        git2::Repository::init(project_dir.path()).unwrap();
+
+        let sandbox_info = super::super::instance::SandboxInfo {
+            enabled: true,
+            container_id: None,
+            image: "test:latest".to_string(),
+            container_name: "test-container".to_string(),
+            extra_env: None,
+            custom_instruction: None,
+        };
+
+        let result = build_container_config(
+            project_dir.path().to_str().unwrap(),
+            &sandbox_info,
+            ContainerAgentSelection::new("codex", None),
+            false,
+            "../etc",
+            None,
+            "",
+        );
+
+        let err = match result {
+            Ok(_) => panic!("must refuse unsafe instance id"),
+            Err(e) => e,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("AOE_INSTANCE_ID"),
+            "error must surface validator failure, got: {msg}"
+        );
     }
 
     #[test]
