@@ -2060,37 +2060,19 @@ impl Instance {
         }
     }
 
-    /// Atomic single-flock CAS+clear of `agent_session_id` and (when disk
-    /// still pins the just-invalidated sid) downgrade of `resume_intent`
-    /// from `Use(stale_sid)` to `Default`.
+    /// Atomic single-flock CAS+clear of `agent_session_id` and (when
+    /// disk still pins `Use(stale_sid)`) downgrade of `resume_intent`
+    /// to `Default`. A split would let a daemon crash freeze disk at
+    /// `(None, Use(stale_sid))`, forcing one extra cascade cycle on
+    /// the next launch.
     ///
-    /// Inverse direction of `persist_session_id`: the resume-fallback
-    /// cascade has just declared `stale_sid` dead, so we erase it from
-    /// disk and, if the user's pin still names that dead sid, drop the
-    /// pin so Tier-2 doesn't loop on it. Both writes happen inside one
-    /// `Storage::update` closure, so peers (and the next launch after a
-    /// daemon SIGKILL) never observe the intermediate
-    /// `(agent_session_id=None, resume_intent=Use(stale_sid))` state
-    /// that the previous two-flock implementation could leave on disk.
+    /// Intent downgrade is gated on disk's `resume_intent` (read under
+    /// the flock), not the caller's memory: a user repin landing
+    /// between the probe and the clear keeps its fresh pin.
     ///
-    /// CAS contract:
-    /// - `stale_sid`: the sid the caller observed dead. Both writes are
-    ///   skipped (`Skipped` outcome) if disk has diverged (peer wrote a
-    ///   fresh sid, or peer already cleared the row).
-    /// - Intent downgrade is conditional on `inst.resume_intent` (read
-    ///   from disk under the flock) matching `Use(stale_sid)`. Reading
-    ///   disk rather than memory means a user repin landing between the
-    ///   probe and this call wins: sid is cleared, the fresh pin is
-    ///   preserved.
-    ///
-    /// Post-condition (memory): on `Applied` and `Skipped`, both
-    /// `agent_session_id` and `resume_intent` are reloaded from disk so
-    /// memory matches whatever the closure committed (or the peer's
-    /// state on Skipped). On `Failed` (row missing or storage error),
-    /// memory is unchanged and a warn is logged.
-    ///
-    /// Sister atomic write: `persist_session_id` (capture path).
-    /// Tracking issue: #1742.
+    /// On sid CAS skip: skip both writes. On Applied or Skipped:
+    /// reload both fields from disk so memory matches whatever the
+    /// closure committed (or the peer's state on Skipped).
     fn clear_session_for_resume_fallback(&mut self, profile: &str, stale_sid: &str) -> SidWrite {
         let storage = match super::storage::Storage::new(profile) {
             Ok(s) => s,
@@ -6208,11 +6190,9 @@ mod tests {
             let mut inst = Instance::new("title", "/tmp/x");
             inst.source_profile = profile.to_string();
             inst.agent_session_id = Some("stale".to_string());
-            // Memory says the daemon's pre-cascade view (Use(stale)).
             inst.resume_intent = ResumeIntent::Use("stale".to_string());
             seed_disk(profile, &inst);
 
-            // Peer (CLI / cockpit) repins to fresh between probe and clear.
             let storage = crate::session::storage::Storage::new(profile).unwrap();
             storage
                 .update(|i, _g| {
@@ -6253,7 +6233,6 @@ mod tests {
             inst.resume_intent = ResumeIntent::Use("stale".to_string());
             seed_disk(profile, &inst);
 
-            // Peer fully replaced sid + intent.
             let storage = crate::session::storage::Storage::new(profile).unwrap();
             storage
                 .update(|i, _g| {
@@ -6299,7 +6278,6 @@ mod tests {
             inst.resume_intent = ResumeIntent::Use("stale".to_string());
             seed_disk(profile, &inst);
 
-            // Peer already cleared sid (e.g. concurrent cascade run).
             let storage = crate::session::storage::Storage::new(profile).unwrap();
             storage
                 .update(|i, _g| {
