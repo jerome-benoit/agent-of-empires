@@ -585,13 +585,13 @@ fn append_resume_flags(
     is_existing_session: bool,
     cmd: &mut String,
     context: &str,
-) {
+) -> bool {
     use crate::agents::{get_agent, ResumeStrategy};
 
     if let Some(session_id) = session_id {
         let resume_part = build_resume_flags(tool, session_id, is_existing_session);
         if resume_part.is_empty() {
-            return;
+            return false;
         }
         let is_subcommand = matches!(
             get_agent(tool).map(|a| &a.resume_strategy),
@@ -609,7 +609,9 @@ fn append_resume_flags(
             *cmd = format!("{} {}", cmd, resume_part);
         }
         tracing::debug!(target: "session.store", "Added resume flags to {} command: {}", context, resume_part);
+        return true;
     }
+    false
 }
 
 /// Outcome of a CAS-guarded `agent_session_id` or `resume_intent` write.
@@ -1455,8 +1457,9 @@ impl Instance {
 
     fn apply_session_flags(&mut self, cmd: &mut String, context: &str) -> bool {
         let (session_id, is_existing) = self.acquire_session_id();
-        append_resume_flags(&self.tool, session_id.as_deref(), is_existing, cmd, context);
-        is_existing
+        let emitted =
+            append_resume_flags(&self.tool, session_id.as_deref(), is_existing, cmd, context);
+        is_existing && emitted
     }
 
     pub fn has_custom_command(&self) -> bool {

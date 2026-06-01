@@ -43,10 +43,14 @@ fn start_with_size_opts_returns_skipped_when_pane_preexists() {
     inst.agent_session_id = Some(VALID_CLAUDE_UUID.to_string());
     let session_name = tmux::Session::generate_name(&inst.id, &inst.title);
 
-    Command::new("tmux")
+    let status = Command::new("tmux")
         .args(["new-session", "-d", "-s", &session_name])
         .status()
         .expect("tmux new-session");
+    assert!(
+        status.success(),
+        "tmux new-session failed for {session_name}"
+    );
     let _cleanup = TmuxCleanup(&session_name);
 
     // `Session::exists()` consults a 2s-TTL cache; refresh after the raw
