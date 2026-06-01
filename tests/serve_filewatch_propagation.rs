@@ -1,18 +1,15 @@
-//! Integration test for the server-consumer Local + Kernel propagation path
-//! (server-migration doc §8.1 test 1).
+//! Integration test for the server-consumer Local + Kernel propagation path.
 //!
-//! Subtest (c) Local-Kernel collapse semantics is verified directly: drive
-//! `Storage::update` from inside the test process so both the in-process
-//! Local notify and the kernel echo race the dispatcher; assert exactly
-//! ONE delivery per logical write within the 75ms debounce window.
+//! Local-Kernel collapse semantics: drive `Storage::update` from inside the
+//! test process so both the in-process Local notify and the kernel echo
+//! race the dispatcher; assert exactly ONE delivery per logical write
+//! within the 75ms debounce window.
 //!
-//! Subtests (a) and (b) of the migration doc require spawning a real
-//! `aoe serve` subprocess and driving its REST API; that requires
-//! tunnel / port / auth setup beyond what's practical in a unit-style
-//! integration test. The collapse-semantics subtest verifies the
+//! Full end-to-end coverage from `aoe serve` REST through the dispatcher
+//! requires tunnel / port / auth setup beyond what's practical here. This
+//! test verifies the in-process path:
 //! Storage::update -> notify_local_change -> dispatcher Local arm ->
-//! debounce-collapse with kernel echo -> subscriber receipt path
-//! end-to-end through the actual production code path.
+//! debounce-collapse with kernel echo -> subscriber receipt.
 
 #![cfg(feature = "serve")]
 

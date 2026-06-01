@@ -1,5 +1,5 @@
 //! Helper-equivalence regression for the `reload_state_instances_from_disk`
-//! extraction (server-migration design doc §5 / §8.1 test 2).
+//! extraction.
 //!
 //! Verifies that the helper preserves the per-id ordering contract for both
 //! `StatusSource` variants: `DiskOnly` keeps the prior in-memory `status` and

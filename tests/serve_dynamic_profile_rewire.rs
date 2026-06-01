@@ -1,5 +1,4 @@
-//! Dynamic per-profile disk-watch rewire (server-migration design doc §6 /
-//! §8.1 test 3). Two layers of coverage:
+//! Dynamic per-profile disk-watch rewire. Two layers of coverage:
 //!
 //! * Lower layer (`dynamic_profile_rewire_inserts_and_removes_entries`):
 //!   drives `rewire_disk_watch_for_profile_{add,remove}` directly against an
@@ -12,8 +11,7 @@
 //!   subprocess against an isolated `HOME` and drives `POST /api/profiles`
 //!   and `DELETE /api/profiles/{name}`. These are the entry points that
 //!   trigger `rewire_disk_watch_for_profile_add` / `_remove` in
-//!   production, so this layer guards the daemon-boot path the design
-//!   commits to.
+//!   production, so this layer guards the daemon-boot path.
 
 #![cfg(feature = "serve")]
 
