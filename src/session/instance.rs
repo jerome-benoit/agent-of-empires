@@ -1627,8 +1627,9 @@ impl Instance {
         );
 
         if self.tool == "claude" {
-            let sidecar = crate::hooks::hook_status_dir(&self.id).join("session_id");
-            let _ = std::fs::remove_file(&sidecar);
+            if let Ok(dir) = crate::hooks::hook_status_dir(&self.id) {
+                let _ = std::fs::remove_file(dir.join("session_id"));
+            }
         }
 
         session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
@@ -2769,7 +2770,9 @@ impl Instance {
             .with_context(|| format!("kill_clean before resume fallback for {}", self.id))?;
 
         self.agent_session_id = None;
-        let _ = std::fs::remove_file(crate::hooks::hook_status_dir(&self.id).join("session_id"));
+        if let Ok(dir) = crate::hooks::hook_status_dir(&self.id) {
+            let _ = std::fs::remove_file(dir.join("session_id"));
+        }
         // Populate the poller exclusion before calling
         // `clear_session_for_resume_fallback` so its `Failed` bail
         // still keeps the bad sid out of the next retroactive capture
@@ -5721,7 +5724,8 @@ mod tests {
         }
 
         fn write_sidecar(instance_id: &str, sid: &str) -> std::path::PathBuf {
-            let dir = crate::hooks::hook_status_dir(instance_id);
+            let dir =
+                crate::hooks::hook_status_dir(instance_id).expect("test id must be allowlist-safe");
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("session_id"), sid).unwrap();
             dir

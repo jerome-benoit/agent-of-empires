@@ -1175,19 +1175,26 @@ pub(crate) fn build_container_config(
             let hermes_hooks = agent.name == "hermes";
             let kiro_hooks = agent.name == "kiro";
             if hermes_hooks || kiro_hooks || agent.hook_config.is_some() {
-                let hook_dir = crate::hooks::hook_status_dir(instance_id);
-                if let Err(e) = std::fs::create_dir_all(&hook_dir) {
-                    tracing::warn!(target: "session.profile",
-                        "Failed to create hook directory {}: {}",
-                        hook_dir.display(),
-                        e
-                    );
+                match crate::hooks::hook_status_dir(instance_id) {
+                    Ok(hook_dir) => {
+                        if let Err(e) = std::fs::create_dir_all(&hook_dir) {
+                            tracing::warn!(target: "session.profile",
+                                "Failed to create hook directory {}: {}",
+                                hook_dir.display(),
+                                e
+                            );
+                        }
+                        volumes.push(VolumeMount {
+                            host_path: hook_dir.to_string_lossy().to_string(),
+                            container_path: hook_dir.to_string_lossy().to_string(),
+                            read_only: false,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(target: "session.profile",
+                            "Skipping hook bind-mount for invalid instance id: {e}");
+                    }
                 }
-                volumes.push(VolumeMount {
-                    host_path: hook_dir.to_string_lossy().to_string(),
-                    container_path: hook_dir.to_string_lossy().to_string(),
-                    read_only: false,
-                });
             }
 
             if hermes_hooks {
@@ -2725,7 +2732,8 @@ extra_volumes = ["/host/screenshots:/root/screenshots"]
             v.host_path == codex_sandbox.to_string_lossy() && v.container_path == "/root/.codex"
         }));
 
-        let hook_dir = crate::hooks::hook_status_dir(instance_id);
+        let hook_dir =
+            crate::hooks::hook_status_dir(instance_id).expect("test id must be allowlist-safe");
         assert!(
             config
                 .volumes
@@ -2777,7 +2785,8 @@ extra_volumes = ["/host/screenshots:/root/screenshots"]
         let codex_sandbox = temp_home.path().join(".codex").join(SANDBOX_SUBDIR);
         assert!(!codex_sandbox.join("config.toml").exists());
 
-        let hook_dir = crate::hooks::hook_status_dir(instance_id);
+        let hook_dir =
+            crate::hooks::hook_status_dir(instance_id).expect("test id must be allowlist-safe");
         assert!(
             !config
                 .volumes
@@ -2843,7 +2852,8 @@ agent_detect_as = { "wrapped-codex" = "codex" }
         assert!(codex_config.contains("[[hooks.PreToolUse]]"));
         assert!(codex_config.contains("aoe-hooks"));
 
-        let hook_dir = crate::hooks::hook_status_dir(instance_id);
+        let hook_dir =
+            crate::hooks::hook_status_dir(instance_id).expect("test id must be allowlist-safe");
         assert!(
             config
                 .volumes
