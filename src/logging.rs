@@ -936,7 +936,7 @@ pub async fn watch_runtime_filter(
             // `apply_filter_file` is idempotent; no debounce needed.
             debounce: None,
         },
-        // Capacity 4: low-rate source per design §10.2.
+        // Capacity 4: low-rate source.
         4,
     );
     let (mut rx, _handle) = match result {

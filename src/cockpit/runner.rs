@@ -128,8 +128,8 @@ pub async fn run(args: CockpitRunnerArgs) -> Result<()> {
 
     // Watch the shared runtime_filter file so `aoe log-level` from the
     // daemon propagates to this runner subprocess without restart. The
-    // FileWatchService primitive is process-local to this subprocess; per
-    // design §3.4.1 each entry path constructs its own Arc.
+    // FileWatchService primitive is process-local to this subprocess; each
+    // entry path constructs its own Arc.
     if let Ok(app_dir) = crate::session::get_app_dir() {
         match crate::file_watch::FileWatchService::new() {
             Ok(svc) => {
