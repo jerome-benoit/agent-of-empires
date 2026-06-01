@@ -913,19 +913,14 @@ impl Instance {
         *self = disk;
     }
 
-    /// Adopt a fresh hook-sidecar `session_id` into disk if it diverges from
-    /// the disk-loaded value. Closes the data-loss window where a `/clear`
-    /// in the previous daemon lifecycle wrote a fresh sid to the sidecar
-    /// but the poller never persisted it before the daemon crashed:
-    /// without this step, the next `start_with_size_opts` resumes the
-    /// pre-`/clear` sid and the sidecar wipe at launch silently destroys
-    /// the fresh value.
+    /// CAS-adopt a fresh hook-sidecar sid into disk. Closes the data-loss
+    /// window where `/clear` writes the sidecar but the daemon crashes
+    /// before the next poll tick persists it: without this, the next
+    /// launch's wipe destroys the fresh sid.
     ///
-    /// Gated on `tool == "claude"` (only Claude has a sidecar) and
-    /// `resume_intent == Default` (`Use(X)` and `Cleared` are explicit
-    /// user directives that override sidecar evidence). Sids already in
-    /// `retroactive_capture_excludes` are not adopted, so a sidecar that
-    /// the cascade just cleared cannot re-poison the disk row.
+    /// Claude-only (sole sidecar tool); `Default` intent only (`Use(X)`
+    /// and `Cleared` override); excluded sids skipped (cascade re-poison
+    /// guard).
     fn reconcile_sidecar_into_disk(&mut self) {
         if self.tool != "claude" {
             return;
@@ -1674,9 +1669,6 @@ impl Instance {
         // cascade since both call this function.
         self.reconcile_from_disk();
 
-        // Adopt a fresh hook-sidecar value the prior daemon crashed before
-        // persisting; without this, the wipe at L1652 would silently drop
-        // a `/clear`'d conversation. Tool/intent/exclusion-gated.
         self.reconcile_sidecar_into_disk();
 
         // CAS baseline for `persist_session_id`. `build_launch_command` ->
