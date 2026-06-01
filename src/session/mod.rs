@@ -309,6 +309,39 @@ mod profile_listing_tests {
     }
 }
 
+/// Reject any `AOE_INSTANCE_ID` that is not safe to use as a single
+/// path component when joined onto a trusted base directory, or to
+/// interpolate into a sandbox shell snippet, or to interpolate into
+/// the launch-time tmux command line.
+///
+/// Production IDs come from `instance::generate_id()` (16 lowercase hex)
+/// and trivially satisfy the allowlist. The wider `[A-Za-z0-9_-]`
+/// allowlist accommodates dev / test labels (`compact`, `nested_first`,
+/// `a-b-c`) and matches `cockpit::worker_registry::validate_session_id`,
+/// which guards an identical "user-string-as-path-component" threat.
+///
+/// Defense in depth on a tampered `sessions.json`: every consumer that
+/// joins this value onto a base path, or interpolates it into a shell
+/// command (host launch, docker exec, in-container hook), calls this
+/// first. The sandbox shell hooks ALSO carry their own in-shell
+/// allowlist guard because the host validator does not run inside the
+/// container.
+pub(crate) fn validate_instance_id(id: &str) -> Result<()> {
+    if id.is_empty() {
+        anyhow::bail!("AOE_INSTANCE_ID must not be empty");
+    }
+    if id.len() > 64 {
+        anyhow::bail!("AOE_INSTANCE_ID too long ({} bytes, max 64)", id.len());
+    }
+    if !id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        anyhow::bail!("AOE_INSTANCE_ID contains disallowed characters");
+    }
+    Ok(())
+}
+
 /// Validate that `name` is a safe, single-component profile name.
 ///
 /// Defense in depth: `get_profile_dir` and `delete_profile` ultimately
@@ -834,6 +867,58 @@ mod tests {
         assert!(
             !unknown_dir.exists(),
             "load_profile_config must not create profiles/<unknown>/ as a side effect",
+        );
+    }
+
+    #[test]
+    fn validate_instance_id_rejects_unsafe() {
+        assert!(validate_instance_id("").is_err(), "empty");
+        assert!(validate_instance_id("..").is_err(), "parent ref");
+        assert!(validate_instance_id(".").is_err(), "current ref");
+        assert!(validate_instance_id("/etc").is_err(), "absolute path");
+        assert!(validate_instance_id("foo/bar").is_err(), "subdir traversal");
+        assert!(validate_instance_id("foo\\bar").is_err(), "backslash");
+        assert!(validate_instance_id("foo\0bar").is_err(), "NUL byte");
+        assert!(validate_instance_id("foo bar").is_err(), "whitespace");
+        assert!(
+            validate_instance_id(&"x".repeat(65)).is_err(),
+            "over length cap"
+        );
+    }
+
+    #[test]
+    fn validate_instance_id_accepts_production_and_test() {
+        assert!(
+            validate_instance_id("a3f7c2d1e4b89012").is_ok(),
+            "production hex"
+        );
+        assert!(
+            validate_instance_id("0123456789abcdef").is_ok(),
+            "production hex lower"
+        );
+        assert!(validate_instance_id("compact").is_ok(), "test label");
+        assert!(validate_instance_id("nested_first").is_ok(), "underscore");
+        assert!(validate_instance_id("a-b-c").is_ok(), "hyphen");
+    }
+
+    #[test]
+    fn validate_instance_id_error_messages_do_not_echo_input() {
+        const SENTINEL: &str = "ZZ_unique_sentinel_aabbcc";
+
+        let bad = format!("{SENTINEL}/x");
+        let e = validate_instance_id(&bad).unwrap_err().to_string();
+        assert!(e.contains("disallowed"));
+        assert!(
+            !e.contains(SENTINEL),
+            "must not echo input bytes; risk of log injection"
+        );
+
+        let bad = format!("{SENTINEL}{}", "x".repeat(70));
+        let e = validate_instance_id(&bad).unwrap_err().to_string();
+        assert!(e.contains("too long"));
+        assert!(
+            !e.contains(SENTINEL),
+            "must not echo input bytes from oversize branch"
         );
     }
 }
