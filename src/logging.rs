@@ -922,11 +922,6 @@ pub fn persist_runtime_filter(directive: &str, app_dir: &std::path::Path) {
 /// returned `SubscriptionHandle` for its entire lifetime; dropping the
 /// future deregisters the subscription and unwatches the directory if no
 /// other consumer needs it.
-///
-/// Breaking change vs. the pre-`FileWatchService` signature: this function
-/// now takes `svc` as its first argument. The only call site is
-/// `src/cockpit/runner.rs::run` which constructs the service after
-/// `init_runner_logging` and threads it in.
 pub async fn watch_runtime_filter(
     svc: std::sync::Arc<crate::file_watch::FileWatchService>,
     app_dir: std::path::PathBuf,
@@ -938,9 +933,7 @@ pub async fn watch_runtime_filter(
         WatchSpec {
             dir: app_dir.clone(),
             matcher: FileMatcher::Exact(target.clone()),
-            // Byte-identical to the pre-migration behavior at the original
-            // logging.rs:951-954: every kernel event triggers a re-apply.
-            // `apply_filter_file` is idempotent.
+            // `apply_filter_file` is idempotent; no debounce needed.
             debounce: None,
         },
         // Capacity 4: low-rate source per design §10.2.
