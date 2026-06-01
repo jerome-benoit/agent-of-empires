@@ -1,4 +1,4 @@
-//! Graceful-degradation integration test (design §13.2 test 3e).
+//! Graceful-degradation integration test for `AOE_FILE_WATCH=off`.
 //!
 //! With `AOE_FILE_WATCH=off`, `FileWatchService::new()` must return the
 //! noop fallback. Subscribers register but never receive events: the
