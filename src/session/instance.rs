@@ -2070,6 +2070,11 @@ impl Instance {
     /// the flock), not the caller's memory: a user repin landing
     /// between the probe and the clear keeps its fresh pin.
     ///
+    /// Also heals the legacy `(None, Use(stale_sid))` shape that a
+    /// pre-flock daemon could persist mid-cascade: when disk's sid is
+    /// already `None` but intent still pins the dead sid, downgrade
+    /// intent to `Default` and return `Applied`.
+    ///
     /// On sid CAS skip: skip both writes. On Applied or Skipped:
     /// reload both fields from disk so memory matches whatever the
     /// closure committed (or the peer's state on Skipped).
@@ -2092,6 +2097,21 @@ impl Instance {
             let Some(inst) = instances.iter_mut().find(|i| i.id == instance_id) else {
                 return Ok(SidWrite::Failed);
             };
+
+            // Heal legacy `(None, Use(stale_sid))` stuck state from a
+            // pre-flock daemon crash between the two writes. Rare
+            // post-migration; tracing is for forensic visibility.
+            if inst.agent_session_id.is_none()
+                && matches!(&inst.resume_intent, ResumeIntent::Use(p) if p == &stale_for_closure)
+            {
+                tracing::info!(target: "session.store",
+                    instance_id = %instance_id,
+                    stale_sid = %stale_for_closure,
+                    "healing legacy (None, Use(stale)) stuck state in resume-fallback clear"
+                );
+                inst.resume_intent = ResumeIntent::Default;
+                return Ok(SidWrite::Applied);
+            }
 
             if inst.agent_session_id.as_deref() != Some(stale_for_closure.as_str()) {
                 tracing::warn!(target: "session.store",
@@ -2695,8 +2715,20 @@ impl Instance {
 
         self.agent_session_id = None;
         let _ = std::fs::remove_file(crate::hooks::hook_status_dir(&self.id).join("session_id"));
-        let _ = self.clear_session_for_resume_fallback(&profile, &stale_sid);
+        // Populate the poller exclusion before the disk write so a
+        // bail on Failed below still keeps the bad sid out of the
+        // next retroactive capture cycle.
         self.retroactive_capture_excludes.insert(stale_sid.clone());
+        match self.clear_session_for_resume_fallback(&profile, &stale_sid) {
+            SidWrite::Applied | SidWrite::Skipped => {}
+            SidWrite::Failed => {
+                anyhow::bail!(
+                    "resume-fallback could not clear stale sid {} for {}",
+                    stale_sid,
+                    self.id,
+                );
+            }
+        }
 
         self.start_with_size_opts(size, true).with_context(|| {
             format!(
@@ -6265,13 +6297,13 @@ mod tests {
 
         #[test]
         #[serial]
-        fn clear_for_resume_fallback_skipped_when_disk_already_none() {
+        fn clear_for_resume_fallback_heals_legacy_stuck_state() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
             #[cfg(target_os = "linux")]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
-            let profile = "fallback-clear-already-none";
+            let profile = "fallback-clear-heal-legacy";
             let mut inst = Instance::new("title", "/tmp/x");
             inst.source_profile = profile.to_string();
             inst.agent_session_id = Some("stale".to_string());
@@ -6287,16 +6319,58 @@ mod tests {
                 .unwrap();
 
             let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
+            assert_eq!(outcome, super::SidWrite::Applied);
+
+            let loaded = storage.load().unwrap();
+            assert_eq!(loaded[0].agent_session_id, None);
+            assert_eq!(
+                loaded[0].resume_intent,
+                ResumeIntent::Default,
+                "legacy (None, Use(stale)) state must heal to Default",
+            );
+            assert_eq!(inst.agent_session_id, None);
+            assert_eq!(inst.resume_intent, ResumeIntent::Default);
+        }
+
+        #[test]
+        #[serial]
+        fn clear_for_resume_fallback_skips_on_user_repin_with_none_sid() {
+            let temp = tempdir().unwrap();
+            std::env::set_var("HOME", temp.path());
+            #[cfg(target_os = "linux")]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+
+            let profile = "fallback-clear-repin-none-sid";
+            let mut inst = Instance::new("title", "/tmp/x");
+            inst.source_profile = profile.to_string();
+            inst.agent_session_id = Some("stale".to_string());
+            inst.resume_intent = ResumeIntent::Use("stale".to_string());
+            seed_disk(profile, &inst);
+
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            storage
+                .update(|i, _g| {
+                    i[0].agent_session_id = None;
+                    i[0].resume_intent = ResumeIntent::Use("other".to_string());
+                    Ok(())
+                })
+                .unwrap();
+
+            let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
             assert_eq!(outcome, super::SidWrite::Skipped);
 
             let loaded = storage.load().unwrap();
             assert_eq!(loaded[0].agent_session_id, None);
             assert_eq!(
                 loaded[0].resume_intent,
-                ResumeIntent::Use("stale".to_string()),
-                "intent stays untouched when sid CAS skips",
+                ResumeIntent::Use("other".to_string()),
+                "pin to a different sid must not be healed",
             );
-            assert_eq!(inst.agent_session_id, None);
+            assert_eq!(
+                inst.resume_intent,
+                ResumeIntent::Use("other".to_string()),
+                "memory must reload the user's repin",
+            );
         }
 
         #[test]
@@ -6486,6 +6560,15 @@ mod tests {
             inst.agent_session_id = Some(stale_sid.clone());
             inst.status = Status::Idle;
 
+            let xs = vec![inst.clone()];
+            _storage
+                .update(|i, g| {
+                    *i = xs.to_vec();
+                    *g = crate::session::GroupTree::new_with_groups(&xs, &[]).get_all_groups();
+                    Ok(())
+                })
+                .unwrap();
+
             let tmux_name = crate::tmux::Session::generate_name(&inst.id, &inst.title);
             let _ = std::process::Command::new("tmux")
                 .args(["kill-session", "-t", &tmux_name])
@@ -6564,6 +6647,15 @@ mod tests {
             );
             inst.agent_session_id = Some(stale_sid.clone());
             inst.status = Status::Idle;
+
+            let xs = vec![inst.clone()];
+            _storage
+                .update(|i, g| {
+                    *i = xs.to_vec();
+                    *g = crate::session::GroupTree::new_with_groups(&xs, &[]).get_all_groups();
+                    Ok(())
+                })
+                .unwrap();
 
             let tmux_name = crate::tmux::Session::generate_name(&inst.id, &inst.title);
             let _ = std::process::Command::new("tmux")
