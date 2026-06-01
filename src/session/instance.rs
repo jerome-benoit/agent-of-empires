@@ -660,108 +660,6 @@ pub(crate) fn persist_session_to_storage(
     }
 }
 
-/// Clear the persisted `agent_session_id` for an instance.
-///
-/// Inverse of `persist_session_to_storage`. Used by the resume-fallback
-/// cascade after Tier 1 detects a crashed pane: the bad sid was already
-/// flushed to `sessions.json` by the Tier-1 `finalize_launch`, so an
-/// in-memory clear is not enough. If the daemon dies between Tier 1 and
-/// Tier 2's `finalize_launch`, the next launch would otherwise re-load the
-/// bad sid from disk and pass `--resume <bad>` again, looping.
-///
-/// Concurrent callers within and across processes (TUI tick, server
-/// `spawn_blocking` workers, CLI `restart --all` JoinSet workers, peer
-/// `aoe` invocations) are serialised via `Storage::update`'s two-layer
-/// lock (in-process mutex + cross-process flock; see `storage.rs` module
-/// rustdoc).
-fn clear_session_id_on_disk(
-    profile: &str,
-    instance_id: &str,
-    expected_prior: Option<&str>,
-) -> SidWrite {
-    let storage = match super::storage::Storage::new(profile) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!(target: "session.store", "Failed to create storage to clear session ID: {}", e);
-            return SidWrite::Failed;
-        }
-    };
-
-    let outcome = storage.update(|instances, _groups| {
-        if let Some(inst) = instances.iter_mut().find(|i| i.id == instance_id) {
-            if inst.agent_session_id.as_deref() != expected_prior {
-                tracing::warn!(target: "session.store",
-                    instance_id = %instance_id,
-                    expected = ?expected_prior,
-                    disk = ?inst.agent_session_id,
-                    "sid CAS mismatch; skipping clear"
-                );
-                return Ok(SidWrite::Skipped);
-            }
-            inst.agent_session_id = None;
-            Ok(SidWrite::Applied)
-        } else {
-            Ok(SidWrite::Failed)
-        }
-    });
-
-    match outcome {
-        Ok(SidWrite::Applied) => {
-            tracing::debug!(target: "session.store", "Session ID cleared on disk for {}", instance_id);
-            SidWrite::Applied
-        }
-        Ok(other) => other,
-        Err(e) => {
-            tracing::warn!(target: "session.store", "Failed to clear session ID for {}: {}", instance_id, e);
-            SidWrite::Failed
-        }
-    }
-}
-
-/// CAS-write `resume_intent = Default` to disk, used to auto-promote a
-/// one-shot intent (`Cleared`, or a `Use(X)` whose pin has been invalidated
-/// by the cascade) after the launch it gated. CAS-skipped if the user
-/// re-set their intent during the launch sequence.
-fn reset_resume_intent_to_default(
-    profile: &str,
-    instance_id: &str,
-    expected_prior: ResumeIntent,
-) -> SidWrite {
-    let storage = match super::storage::Storage::new(profile) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!(target: "session.store", "Failed to create storage to reset resume_intent: {}", e);
-            return SidWrite::Failed;
-        }
-    };
-
-    let outcome = storage.update(|instances, _groups| {
-        if let Some(inst) = instances.iter_mut().find(|i| i.id == instance_id) {
-            if inst.resume_intent != expected_prior {
-                tracing::warn!(target: "session.store",
-                    instance_id = %instance_id,
-                    expected = ?expected_prior,
-                    disk = ?inst.resume_intent,
-                    "resume_intent CAS mismatch; skipping reset"
-                );
-                return Ok(SidWrite::Skipped);
-            }
-            inst.resume_intent = ResumeIntent::Default;
-            Ok(SidWrite::Applied)
-        } else {
-            Ok(SidWrite::Failed)
-        }
-    });
-
-    match outcome {
-        Ok(w) => w,
-        Err(e) => {
-            tracing::warn!(target: "session.store", "Failed to reset resume_intent for {}: {}", instance_id, e);
-            SidWrite::Failed
-        }
-    }
-}
-
 /// Publish a captured session ID to the tmux environment only.
 ///
 /// Background threads (poller on_change) call this so that
@@ -2161,6 +2059,107 @@ impl Instance {
             }
         }
     }
+
+    /// Atomic single-flock CAS+clear of `agent_session_id` and (when disk
+    /// still pins the just-invalidated sid) downgrade of `resume_intent`
+    /// from `Use(stale_sid)` to `Default`.
+    ///
+    /// Inverse direction of `persist_session_id`: the resume-fallback
+    /// cascade has just declared `stale_sid` dead, so we erase it from
+    /// disk and, if the user's pin still names that dead sid, drop the
+    /// pin so Tier-2 doesn't loop on it. Both writes happen inside one
+    /// `Storage::update` closure, so peers (and the next launch after a
+    /// daemon SIGKILL) never observe the intermediate
+    /// `(agent_session_id=None, resume_intent=Use(stale_sid))` state
+    /// that the previous two-flock implementation could leave on disk.
+    ///
+    /// CAS contract:
+    /// - `stale_sid`: the sid the caller observed dead. Both writes are
+    ///   skipped (`Skipped` outcome) if disk has diverged (peer wrote a
+    ///   fresh sid, or peer already cleared the row).
+    /// - Intent downgrade is conditional on `inst.resume_intent` (read
+    ///   from disk under the flock) matching `Use(stale_sid)`. Reading
+    ///   disk rather than memory means a user repin landing between the
+    ///   probe and this call wins: sid is cleared, the fresh pin is
+    ///   preserved.
+    ///
+    /// Post-condition (memory): on `Applied` and `Skipped`, both
+    /// `agent_session_id` and `resume_intent` are reloaded from disk so
+    /// memory matches whatever the closure committed (or the peer's
+    /// state on Skipped). On `Failed` (row missing or storage error),
+    /// memory is unchanged and a warn is logged.
+    ///
+    /// Sister atomic write: `persist_session_id` (capture path).
+    /// Tracking issue: #1742.
+    fn clear_session_for_resume_fallback(&mut self, profile: &str, stale_sid: &str) -> SidWrite {
+        let storage = match super::storage::Storage::new(profile) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(target: "session.store",
+                    "Failed to create storage for resume-fallback clear for {}: {}",
+                    self.id,
+                    e
+                );
+                return SidWrite::Failed;
+            }
+        };
+
+        let instance_id = self.id.clone();
+        let stale_for_closure = stale_sid.to_string();
+        let outcome = storage.update(|instances, _groups| {
+            let Some(inst) = instances.iter_mut().find(|i| i.id == instance_id) else {
+                return Ok(SidWrite::Failed);
+            };
+
+            if inst.agent_session_id.as_deref() != Some(stale_for_closure.as_str()) {
+                tracing::warn!(target: "session.store",
+                    instance_id = %instance_id,
+                    expected_sid = %stale_for_closure,
+                    disk_sid = ?inst.agent_session_id,
+                    "sid CAS mismatch in resume-fallback clear; skipping both writes"
+                );
+                return Ok(SidWrite::Skipped);
+            }
+
+            inst.agent_session_id = None;
+
+            // Downgrade only when the pin still names the dead sid. The
+            // "user repinned to fresh-sid mid-cascade" and "intent was
+            // already Default/Cleared" paths are legitimate, no warn.
+            if matches!(&inst.resume_intent, ResumeIntent::Use(p) if p == &stale_for_closure) {
+                inst.resume_intent = ResumeIntent::Default;
+            }
+
+            Ok(SidWrite::Applied)
+        });
+
+        match outcome {
+            Ok(write @ (SidWrite::Applied | SidWrite::Skipped)) => {
+                if let Ok(insts) = storage.load() {
+                    if let Some(disk) = insts.into_iter().find(|i| i.id == self.id) {
+                        self.agent_session_id = disk.agent_session_id;
+                        self.resume_intent = disk.resume_intent;
+                    }
+                }
+                write
+            }
+            Ok(SidWrite::Failed) => {
+                tracing::warn!(target: "session.store",
+                    "Resume-fallback clear found no instance row for {}",
+                    self.id
+                );
+                SidWrite::Failed
+            }
+            Err(e) => {
+                tracing::warn!(target: "session.store",
+                    "Failed to clear sid for resume fallback for {}: {}",
+                    self.id,
+                    e
+                );
+                SidWrite::Failed
+            }
+        }
+    }
 }
 
 impl Instance {
@@ -2714,27 +2713,8 @@ impl Instance {
 
         self.agent_session_id = None;
         let _ = std::fs::remove_file(crate::hooks::hook_status_dir(&self.id).join("session_id"));
-        let _ = clear_session_id_on_disk(&profile, &self.id, Some(&stale_sid));
+        let _ = self.clear_session_for_resume_fallback(&profile, &stale_sid);
         self.retroactive_capture_excludes.insert(stale_sid.clone());
-
-        // Tier-2 will retry through `acquire_session_id`. If the user had
-        // pinned the just-invalidated sid via `Use(stale_sid)`, retrying
-        // would loop on the dead pin. Downgrade to `Default` so Tier-2
-        // generates a fresh start.
-        //
-        // Two-flock window with the `clear_session_id_on_disk` call above:
-        // a daemon crash here leaves disk at `(None, Use(stale_sid))`,
-        // which the next launch self-heals via the cascade re-firing.
-        // Tracked for atomic single-flock unification in #1742.
-        if matches!(&self.resume_intent, ResumeIntent::Use(pinned) if pinned == &stale_sid) {
-            let prior = self.resume_intent.clone();
-            if matches!(
-                reset_resume_intent_to_default(&profile, &self.id, prior),
-                SidWrite::Applied
-            ) {
-                self.resume_intent = ResumeIntent::Default;
-            }
-        }
 
         self.start_with_size_opts(size, true).with_context(|| {
             format!(
@@ -5323,10 +5303,7 @@ mod tests {
     }
 
     mod resume_fallback {
-        use super::super::{
-            clear_session_id_on_disk, should_attempt_resume, Instance, ResumeIntent, StartOutcome,
-            Status,
-        };
+        use super::super::{should_attempt_resume, Instance, ResumeIntent, StartOutcome, Status};
         use serial_test::serial;
         use tempfile::tempdir;
 
@@ -5370,64 +5347,6 @@ mod tests {
         #[test]
         fn unknown_tool_does_not_attempt_resume() {
             assert!(!should_attempt_resume(Some("uuid-abc-123"), "nonexistent"));
-        }
-
-        #[test]
-        #[serial]
-        fn clear_session_id_on_disk_is_idempotent_when_already_none() {
-            let temp = tempdir().unwrap();
-            std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
-            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
-
-            let storage =
-                crate::session::storage::Storage::new("test-profile-already-none").unwrap();
-            let inst = Instance::new("title", "/tmp/x");
-            let id = inst.id.clone();
-            assert!(inst.agent_session_id.is_none());
-            let xs = vec![inst];
-            storage
-                .update(|i, g| {
-                    *i = xs.to_vec();
-                    *g = crate::session::GroupTree::new_with_groups(&xs, &[]).get_all_groups();
-                    Ok(())
-                })
-                .unwrap();
-
-            let _ = clear_session_id_on_disk("test-profile-already-none", &id, None);
-
-            let loaded = storage.load().unwrap();
-            assert_eq!(loaded.len(), 1);
-            assert_eq!(loaded[0].agent_session_id, None);
-            assert_eq!(loaded[0].id, id);
-        }
-
-        #[test]
-        #[serial]
-        fn clear_session_id_on_disk_clears_persisted_value() {
-            let temp = tempdir().unwrap();
-            std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
-            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
-
-            let storage = crate::session::storage::Storage::new("clear-test").unwrap();
-            let mut inst = Instance::new("title", "/tmp/x");
-            inst.agent_session_id = Some("stale-uuid-1234".to_string());
-            let id = inst.id.clone();
-            let xs = vec![inst];
-            storage
-                .update(|i, g| {
-                    *i = xs.to_vec();
-                    *g = crate::session::GroupTree::new_with_groups(&xs, &[]).get_all_groups();
-                    Ok(())
-                })
-                .unwrap();
-
-            let _ = clear_session_id_on_disk("clear-test", &id, Some("stale-uuid-1234"));
-
-            let loaded = storage.load().unwrap();
-            assert_eq!(loaded.len(), 1);
-            assert_eq!(loaded[0].agent_session_id, None);
         }
 
         #[test]
@@ -5490,34 +5409,6 @@ mod tests {
 
         #[test]
         #[serial]
-        fn clear_session_id_on_disk_skips_on_cas_mismatch() {
-            let temp = tempdir().unwrap();
-            std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
-            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
-
-            let storage = crate::session::storage::Storage::new("cas-clear-mismatch").unwrap();
-            let mut inst = Instance::new("title", "/tmp/x");
-            inst.agent_session_id = Some("peer-wrote".to_string());
-            let id = inst.id.clone();
-            let xs = vec![inst];
-            storage
-                .update(|i, g| {
-                    *i = xs.to_vec();
-                    *g = crate::session::GroupTree::new_with_groups(&xs, &[]).get_all_groups();
-                    Ok(())
-                })
-                .unwrap();
-
-            let outcome = clear_session_id_on_disk("cas-clear-mismatch", &id, Some("stale"));
-            assert_eq!(outcome, super::SidWrite::Skipped);
-
-            let loaded = storage.load().unwrap();
-            assert_eq!(loaded[0].agent_session_id.as_deref(), Some("peer-wrote"));
-        }
-
-        #[test]
-        #[serial]
         fn reconcile_from_disk_picks_up_peer_persist() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
@@ -5567,7 +5458,6 @@ mod tests {
             let mut inst = Instance::new("title", "/tmp/x");
             inst.source_profile = "reconcile-clear".to_string();
             inst.agent_session_id = Some("old-sid".to_string());
-            let id = inst.id.clone();
             let on_disk = inst.clone();
             storage
                 .update(|i, g| {
@@ -5581,7 +5471,12 @@ mod tests {
                 })
                 .unwrap();
 
-            let _ = clear_session_id_on_disk("reconcile-clear", &id, Some("old-sid"));
+            storage
+                .update(|i, _g| {
+                    i[0].agent_session_id = None;
+                    Ok(())
+                })
+                .unwrap();
 
             inst.reconcile_from_disk();
             assert_eq!(inst.agent_session_id, None);
@@ -5699,80 +5594,6 @@ mod tests {
 
             let back: Instance = serde_json::from_value(stripped).unwrap();
             assert_eq!(back.resume_intent, ResumeIntent::Default);
-        }
-
-        #[test]
-        #[serial]
-        fn reset_resume_intent_to_default_auto_promotes_cleared() {
-            let temp = tempdir().unwrap();
-            std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
-            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
-
-            let storage = crate::session::storage::Storage::new("intent-promote").unwrap();
-            let mut inst = Instance::new("title", "/tmp/x");
-            inst.source_profile = "intent-promote".to_string();
-            inst.resume_intent = ResumeIntent::Cleared;
-            let id = inst.id.clone();
-            let on_disk = inst.clone();
-            storage
-                .update(|i, g| {
-                    *i = vec![on_disk.clone()];
-                    *g = crate::session::GroupTree::new_with_groups(
-                        std::slice::from_ref(&on_disk),
-                        &[],
-                    )
-                    .get_all_groups();
-                    Ok(())
-                })
-                .unwrap();
-
-            let outcome =
-                super::reset_resume_intent_to_default("intent-promote", &id, ResumeIntent::Cleared);
-            assert_eq!(outcome, super::SidWrite::Applied);
-
-            let loaded = storage.load().unwrap();
-            assert_eq!(loaded[0].resume_intent, ResumeIntent::Default);
-        }
-
-        #[test]
-        #[serial]
-        fn reset_resume_intent_to_default_skips_on_cas_mismatch() {
-            let temp = tempdir().unwrap();
-            std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
-            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
-
-            let storage = crate::session::storage::Storage::new("intent-mismatch").unwrap();
-            let mut inst = Instance::new("title", "/tmp/x");
-            inst.source_profile = "intent-mismatch".to_string();
-            inst.resume_intent = ResumeIntent::Use("peer-pinned".to_string());
-            let id = inst.id.clone();
-            let on_disk = inst.clone();
-            storage
-                .update(|i, g| {
-                    *i = vec![on_disk.clone()];
-                    *g = crate::session::GroupTree::new_with_groups(
-                        std::slice::from_ref(&on_disk),
-                        &[],
-                    )
-                    .get_all_groups();
-                    Ok(())
-                })
-                .unwrap();
-
-            let outcome = super::reset_resume_intent_to_default(
-                "intent-mismatch",
-                &id,
-                ResumeIntent::Cleared,
-            );
-            assert_eq!(outcome, super::SidWrite::Skipped);
-
-            let loaded = storage.load().unwrap();
-            assert_eq!(
-                loaded[0].resume_intent,
-                ResumeIntent::Use("peer-pinned".to_string())
-            );
         }
 
         #[test]
@@ -6091,43 +5912,6 @@ mod tests {
 
         #[test]
         #[serial]
-        fn cascade_tier1_downgrades_use_pin_to_default_when_dead() {
-            let temp = tempdir().unwrap();
-            std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
-            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
-
-            let storage = crate::session::storage::Storage::new("cascade-use-downgrade").unwrap();
-            let mut inst = Instance::new("title", "/tmp/x");
-            inst.source_profile = "cascade-use-downgrade".to_string();
-            inst.resume_intent = ResumeIntent::Use("dead-sid".to_string());
-            let id = inst.id.clone();
-            let on_disk = inst.clone();
-            storage
-                .update(|i, g| {
-                    *i = vec![on_disk.clone()];
-                    *g = crate::session::GroupTree::new_with_groups(
-                        std::slice::from_ref(&on_disk),
-                        &[],
-                    )
-                    .get_all_groups();
-                    Ok(())
-                })
-                .unwrap();
-
-            let outcome = super::reset_resume_intent_to_default(
-                "cascade-use-downgrade",
-                &id,
-                ResumeIntent::Use("dead-sid".to_string()),
-            );
-            assert_eq!(outcome, super::SidWrite::Applied);
-
-            let loaded = storage.load().unwrap();
-            assert_eq!(loaded[0].resume_intent, ResumeIntent::Default);
-        }
-
-        #[test]
-        #[serial]
         fn persist_session_id_reloads_memory_on_skipped() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
@@ -6343,6 +6127,251 @@ mod tests {
                 ResumeIntent::Use("peer-pinned".to_string()),
                 "intent must reload from disk on sid CAS skip",
             );
+        }
+
+        fn seed_disk(profile: &str, inst: &Instance) {
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let on_disk = inst.clone();
+            storage
+                .update(|i, g| {
+                    *i = vec![on_disk.clone()];
+                    *g = crate::session::GroupTree::new_with_groups(
+                        std::slice::from_ref(&on_disk),
+                        &[],
+                    )
+                    .get_all_groups();
+                    Ok(())
+                })
+                .unwrap();
+        }
+
+        #[test]
+        #[serial]
+        fn clear_for_resume_fallback_atomically_clears_and_downgrades() {
+            let temp = tempdir().unwrap();
+            std::env::set_var("HOME", temp.path());
+            #[cfg(target_os = "linux")]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+
+            let profile = "fallback-clear-happy";
+            let mut inst = Instance::new("title", "/tmp/x");
+            inst.source_profile = profile.to_string();
+            inst.agent_session_id = Some("stale".to_string());
+            inst.resume_intent = ResumeIntent::Use("stale".to_string());
+            seed_disk(profile, &inst);
+
+            let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
+            assert_eq!(outcome, super::SidWrite::Applied);
+
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let loaded = storage.load().unwrap();
+            assert_eq!(loaded[0].agent_session_id, None);
+            assert_eq!(loaded[0].resume_intent, ResumeIntent::Default);
+            assert_eq!(inst.agent_session_id, None);
+            assert_eq!(inst.resume_intent, ResumeIntent::Default);
+        }
+
+        #[test]
+        #[serial]
+        fn clear_for_resume_fallback_intent_already_default() {
+            let temp = tempdir().unwrap();
+            std::env::set_var("HOME", temp.path());
+            #[cfg(target_os = "linux")]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+
+            let profile = "fallback-clear-default";
+            let mut inst = Instance::new("title", "/tmp/x");
+            inst.source_profile = profile.to_string();
+            inst.agent_session_id = Some("stale".to_string());
+            inst.resume_intent = ResumeIntent::Default;
+            seed_disk(profile, &inst);
+
+            let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
+            assert_eq!(outcome, super::SidWrite::Applied);
+
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let loaded = storage.load().unwrap();
+            assert_eq!(loaded[0].agent_session_id, None);
+            assert_eq!(loaded[0].resume_intent, ResumeIntent::Default);
+            assert_eq!(inst.resume_intent, ResumeIntent::Default);
+        }
+
+        #[test]
+        #[serial]
+        fn clear_for_resume_fallback_preserves_user_repin() {
+            let temp = tempdir().unwrap();
+            std::env::set_var("HOME", temp.path());
+            #[cfg(target_os = "linux")]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+
+            let profile = "fallback-clear-repin";
+            let mut inst = Instance::new("title", "/tmp/x");
+            inst.source_profile = profile.to_string();
+            inst.agent_session_id = Some("stale".to_string());
+            // Memory says the daemon's pre-cascade view (Use(stale)).
+            inst.resume_intent = ResumeIntent::Use("stale".to_string());
+            seed_disk(profile, &inst);
+
+            // Peer (CLI / cockpit) repins to fresh between probe and clear.
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            storage
+                .update(|i, _g| {
+                    i[0].resume_intent = ResumeIntent::Use("fresh".to_string());
+                    Ok(())
+                })
+                .unwrap();
+
+            let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
+            assert_eq!(outcome, super::SidWrite::Applied);
+
+            let loaded = storage.load().unwrap();
+            assert_eq!(loaded[0].agent_session_id, None);
+            assert_eq!(
+                loaded[0].resume_intent,
+                ResumeIntent::Use("fresh".to_string()),
+                "user's repin must survive the cascade clear",
+            );
+            assert_eq!(
+                inst.resume_intent,
+                ResumeIntent::Use("fresh".to_string()),
+                "memory must reload to honor the repin so Tier-2 picks it up",
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn clear_for_resume_fallback_skips_on_sid_cas_mismatch() {
+            let temp = tempdir().unwrap();
+            std::env::set_var("HOME", temp.path());
+            #[cfg(target_os = "linux")]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+
+            let profile = "fallback-clear-sid-mismatch";
+            let mut inst = Instance::new("title", "/tmp/x");
+            inst.source_profile = profile.to_string();
+            inst.agent_session_id = Some("stale".to_string());
+            inst.resume_intent = ResumeIntent::Use("stale".to_string());
+            seed_disk(profile, &inst);
+
+            // Peer fully replaced sid + intent.
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            storage
+                .update(|i, _g| {
+                    i[0].agent_session_id = Some("peer-fresh".to_string());
+                    i[0].resume_intent = ResumeIntent::Use("peer-fresh".to_string());
+                    Ok(())
+                })
+                .unwrap();
+
+            let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
+            assert_eq!(outcome, super::SidWrite::Skipped);
+
+            let loaded = storage.load().unwrap();
+            assert_eq!(loaded[0].agent_session_id.as_deref(), Some("peer-fresh"));
+            assert_eq!(
+                loaded[0].resume_intent,
+                ResumeIntent::Use("peer-fresh".to_string()),
+            );
+            assert_eq!(
+                inst.agent_session_id.as_deref(),
+                Some("peer-fresh"),
+                "memory must reload sid to converge on peer",
+            );
+            assert_eq!(
+                inst.resume_intent,
+                ResumeIntent::Use("peer-fresh".to_string()),
+                "memory must reload intent to converge on peer",
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn clear_for_resume_fallback_skipped_when_disk_already_none() {
+            let temp = tempdir().unwrap();
+            std::env::set_var("HOME", temp.path());
+            #[cfg(target_os = "linux")]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+
+            let profile = "fallback-clear-already-none";
+            let mut inst = Instance::new("title", "/tmp/x");
+            inst.source_profile = profile.to_string();
+            inst.agent_session_id = Some("stale".to_string());
+            inst.resume_intent = ResumeIntent::Use("stale".to_string());
+            seed_disk(profile, &inst);
+
+            // Peer already cleared sid (e.g. concurrent cascade run).
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            storage
+                .update(|i, _g| {
+                    i[0].agent_session_id = None;
+                    Ok(())
+                })
+                .unwrap();
+
+            let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
+            assert_eq!(outcome, super::SidWrite::Skipped);
+
+            let loaded = storage.load().unwrap();
+            assert_eq!(loaded[0].agent_session_id, None);
+            assert_eq!(
+                loaded[0].resume_intent,
+                ResumeIntent::Use("stale".to_string()),
+                "intent stays untouched when sid CAS skips",
+            );
+            assert_eq!(inst.agent_session_id, None);
+        }
+
+        #[test]
+        #[serial]
+        fn clear_for_resume_fallback_intent_cleared_not_downgraded() {
+            let temp = tempdir().unwrap();
+            std::env::set_var("HOME", temp.path());
+            #[cfg(target_os = "linux")]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+
+            let profile = "fallback-clear-intent-cleared";
+            let mut inst = Instance::new("title", "/tmp/x");
+            inst.source_profile = profile.to_string();
+            inst.agent_session_id = Some("stale".to_string());
+            inst.resume_intent = ResumeIntent::Cleared;
+            seed_disk(profile, &inst);
+
+            let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
+            assert_eq!(outcome, super::SidWrite::Applied);
+
+            let storage = crate::session::storage::Storage::new(profile).unwrap();
+            let loaded = storage.load().unwrap();
+            assert_eq!(loaded[0].agent_session_id, None);
+            assert_eq!(
+                loaded[0].resume_intent,
+                ResumeIntent::Cleared,
+                "Cleared is not Use(stale_sid); downgrade must not fire",
+            );
+            assert_eq!(inst.resume_intent, ResumeIntent::Cleared);
+        }
+
+        #[test]
+        #[serial]
+        fn clear_for_resume_fallback_returns_failed_on_missing_row() {
+            let temp = tempdir().unwrap();
+            std::env::set_var("HOME", temp.path());
+            #[cfg(target_os = "linux")]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+
+            let profile = "fallback-clear-missing";
+            let other = Instance::new("other", "/tmp/x");
+            seed_disk(profile, &other);
+
+            let mut inst = Instance::new("missing", "/tmp/x");
+            inst.source_profile = profile.to_string();
+            inst.agent_session_id = Some("stale".to_string());
+            inst.resume_intent = ResumeIntent::Use("stale".to_string());
+
+            let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
+            assert_eq!(outcome, super::SidWrite::Failed);
+
+            assert_eq!(inst.agent_session_id.as_deref(), Some("stale"));
+            assert_eq!(inst.resume_intent, ResumeIntent::Use("stale".to_string()));
         }
 
         #[cfg(feature = "serve")]
