@@ -1585,6 +1585,16 @@ impl Instance {
         size: Option<(u16, u16)>,
         skip_on_launch: bool,
     ) -> Result<LaunchSidOutcome> {
+        // Reject any tampered id BEFORE any shell-command construction
+        // happens in `build_launch_command`. Covers both
+        // `status_hook_env_prefix` (host path) and the docker_args
+        // interpolation `format!("... -e AOE_INSTANCE_ID={}", self.id)`
+        // (sandbox path). `build_container_config` validates separately
+        // for the bind-mount; this gate is the launch-line-injection
+        // guard.
+        crate::session::validate_instance_id(&self.id)
+            .context("refusing to launch: AOE_INSTANCE_ID failed validation")?;
+
         // Cockpit-mode sessions are not backed by tmux. The cockpit
         // worker supervisor spawns the ACP agent process directly;
         // calling start() on a cockpit session is a no-op (status
@@ -6767,6 +6777,32 @@ mod tests {
             }
             assert!(inst.retroactive_capture_excludes.contains(&stale_sid));
             assert!(inst.agent_session_id.as_deref() != Some(stale_sid.as_str()));
+        }
+    }
+
+    fn instance_with_id(id: &str) -> Instance {
+        let mut inst = Instance::new("tampered-id-test", "/tmp");
+        inst.id = id.to_string();
+        inst
+    }
+
+    #[test]
+    fn start_with_size_opts_rejects_tampered_instance_id() {
+        for poisoned in ["; rm -rf $HOME #", "../etc", ""] {
+            let mut instance = instance_with_id(poisoned);
+            let result = instance.start_with_size_opts(None, false);
+            let err = match result {
+                Ok(_) => panic!("must refuse tampered id at launch (id={poisoned:?})"),
+                Err(e) => e,
+            };
+            assert!(
+                err.to_string().contains("AOE_INSTANCE_ID"),
+                "error must surface validator failure for id={poisoned:?}, got: {err}"
+            );
+            assert!(
+                !instance.tmux_session().map(|s| s.exists()).unwrap_or(false),
+                "no tmux session must exist after refusal for id={poisoned:?}"
+            );
         }
     }
 }
