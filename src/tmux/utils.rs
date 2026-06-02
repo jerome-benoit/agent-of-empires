@@ -257,9 +257,12 @@ pub fn tmux_prefix_display() -> &'static str {
 /// treated as success: callers commonly kill the pane's process tree
 /// first, which can cause tmux to tear down the session before this call
 /// lands. Any other tmux failure returns `Err`. Caller is responsible for
-/// `refresh_session_cache` after a successful kill.
+/// `refresh_session_cache` after a successful kill. tmux is forced to
+/// emit messages in the C locale so the stderr match is independent of
+/// the user's `LC_*` settings.
 pub(crate) fn kill_session_if_present(name: &str) -> Result<()> {
     let output = Command::new("tmux")
+        .env("LC_ALL", "C")
         .args(["kill-session", "-t", name])
         .output()?;
     if !output.status.success() {
