@@ -930,6 +930,11 @@ fn test_cli_rm_kills_agent_tmux_session() {
         "tmux session '{}' should be gone after aoe rm",
         tmux_name
     );
+
+    // Cleanup
+    let _ = Command::new("tmux")
+        .args(["kill-session", "-t", &tmux_name])
+        .output();
 }
 
 /// Initialize a bare-minimum git repo at the given path so worktree operations work.
