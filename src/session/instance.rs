@@ -6920,6 +6920,33 @@ mod tests {
 
         #[test]
         #[serial]
+        fn finalize_publish_applied_writes_env_for_non_claude_tool() {
+            if skip_if_no_tmux() {
+                return;
+            }
+            let temp = tempdir().unwrap();
+            isolate_home(&temp);
+
+            let profile = "publish-applied-opencode";
+            let mut inst = make_inst(profile, "fpaw-oc");
+            inst.tool = "opencode".to_string();
+            inst.agent_session_id = None;
+            seed_disk_row(profile, &inst);
+
+            let tmux = TmuxSession::create(&inst.id, &inst.title);
+
+            inst.agent_session_id = Some(VALID_SID.to_string());
+            inst.finalize_launch(tmux.name(), profile, None, ResumeIntent::Default);
+
+            assert_eq!(
+                captured_env(tmux.name()).as_deref(),
+                Some(VALID_SID),
+                "non-claude tools must also publish AOE_CAPTURED_SESSION_ID at finalize"
+            );
+        }
+
+        #[test]
+        #[serial]
         fn finalize_publish_skipped_disk_some_publishes_disk_value() {
             if skip_if_no_tmux() {
                 return;
