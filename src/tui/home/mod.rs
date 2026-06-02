@@ -1467,13 +1467,13 @@ impl HomeView {
                         }
                     }
                     if !reloaded {
-                        // Disk reload failed; republish memory to overwrite
-                        // `on_change`'s unvalidated value. Memory may not
-                        // match disk; next reconcile cycle corrects it.
+                        // Memory is known stale (Skipped CAS proved
+                        // memory != disk) and we cannot read disk.
+                        // Leave env at the poller's last write; the next
+                        // poller event reconciles.
                         tracing::warn!(target: "tui.home",
                             instance = %id,
-                            "Skipped reload failed; republishing memory mirror");
-                        filtered_ids.insert(id.clone());
+                            "Skipped reload failed; deferring env reconcile");
                     }
                 }
                 crate::session::SidWrite::Failed => {

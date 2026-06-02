@@ -298,9 +298,9 @@ impl SessionPoller {
 
     #[cfg(test)]
     pub(crate) fn inject_test_update(&self, instance_id: &str, session_id: &str) {
-        let _ = self
-            .result_tx
-            .send((instance_id.to_string(), session_id.to_string()));
+        self.result_tx
+            .send((instance_id.to_string(), session_id.to_string()))
+            .expect("inject_test_update: result channel disconnected");
     }
 
     /// Stop the poller thread and wait for it to finish

@@ -1964,7 +1964,7 @@ impl Instance {
 
         // Skip outcomes leave AOE_CAPTURED_SESSION_ID untouched: this path
         // runs before any poller publish, so env is empty for fresh sessions.
-        let publish_sid = matches!(outcome, SidPersistOutcome::Published) && self.tool == "claude";
+        let publish_sid = matches!(outcome, SidPersistOutcome::Published);
         let captured_sid: Option<String> = if publish_sid {
             self.agent_session_id.clone()
         } else {
