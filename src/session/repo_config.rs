@@ -838,6 +838,9 @@ fn run_hook_with_timeout(
     timeout: std::time::Duration,
     cmd_label: &str,
 ) -> Result<std::process::Output> {
+    // Mirror Command::output's stdin handling: a hook that reads stdin must
+    // see EOF, not inherit the recovery worker's stdin and block forever.
+    command.stdin(std::process::Stdio::null());
     let child = command
         .spawn()
         .with_context(|| format!("Failed to spawn hook: {}", cmd_label))?;

@@ -47,7 +47,7 @@
 //! the lock still releases when the direct child exits, but the orphan is
 //! the operator's to reap.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 #[cfg(feature = "serve")]
 use std::sync::Arc;
@@ -281,33 +281,36 @@ pub fn recovery_hook_timeout() -> Duration {
 }
 
 thread_local! {
-    static HOOK_TIMEOUT_OVERRIDE: Cell<Option<Duration>> = const { Cell::new(None) };
+    static HOOK_TIMEOUT_STACK: RefCell<Vec<(u64, Duration)>> =
+        const { RefCell::new(Vec::new()) };
+    static NEXT_SLOT: Cell<u64> = const { Cell::new(0) };
 }
 
-/// Current thread's on_launch hook deadline, if a [`HookTimeoutScope`] is set.
+/// Top of the current thread's [`HookTimeoutScope`] stack, if any.
 pub(crate) fn current_hook_timeout() -> Option<Duration> {
-    HOOK_TIMEOUT_OVERRIDE.with(|c| c.get())
+    HOOK_TIMEOUT_STACK.with(|s| s.borrow().last().map(|(_, t)| *t))
 }
 
-/// RAII guard that scopes a per-thread on_launch hook deadline. The previous
-/// override is restored on drop and on panic, so nested scopes compose and
-/// the override cannot leak onto a reused `spawn_blocking` thread.
+/// RAII guard that pushes a per-thread on_launch hook deadline onto a
+/// slot-keyed stack, so non-LIFO drops do not leak the deadline onto a
+/// reused `spawn_blocking` thread.
 pub struct HookTimeoutScope {
-    prev: Option<Duration>,
+    slot: u64,
 }
 
 impl HookTimeoutScope {
-    /// Install `timeout` for the current thread.
+    /// Push `timeout` onto the current thread's deadline stack.
     pub fn new(timeout: Duration) -> Self {
-        let prev = HOOK_TIMEOUT_OVERRIDE.with(|c| {
-            let prev = c.get();
-            c.set(Some(timeout));
-            prev
+        let slot = NEXT_SLOT.with(|c| {
+            let n = c.get();
+            c.set(n.wrapping_add(1));
+            n
         });
-        Self { prev }
+        HOOK_TIMEOUT_STACK.with(|s| s.borrow_mut().push((slot, timeout)));
+        Self { slot }
     }
 
-    /// Install [`recovery_hook_timeout`] for the current thread.
+    /// Push [`recovery_hook_timeout`] onto the current thread's deadline stack.
     pub fn for_recovery() -> Self {
         Self::new(recovery_hook_timeout())
     }
@@ -315,7 +318,7 @@ impl HookTimeoutScope {
 
 impl Drop for HookTimeoutScope {
     fn drop(&mut self) {
-        HOOK_TIMEOUT_OVERRIDE.with(|c| c.set(self.prev));
+        HOOK_TIMEOUT_STACK.with(|s| s.borrow_mut().retain(|(slot, _)| *slot != self.slot));
     }
 }
 

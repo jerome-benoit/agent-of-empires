@@ -103,3 +103,60 @@ fn nested_scopes_restore_outer_timeout_on_drop() {
     );
     drop(outer_scope);
 }
+
+#[test]
+#[serial]
+fn out_of_order_drop_keeps_inner_active_no_leak() {
+    let outer = HookTimeoutScope::new(Duration::from_millis(100));
+    let inner = HookTimeoutScope::new(Duration::from_millis(500));
+    drop(outer);
+
+    let project = TempDir::new().expect("tempdir");
+    let started = Instant::now();
+    let result = execute_hooks(&["sleep 60".to_string()], project.path(), &[]);
+    let elapsed = started.elapsed();
+    assert!(
+        result.is_err(),
+        "inner deadline must apply after outer drops out of order"
+    );
+    assert!(
+        elapsed >= Duration::from_millis(400),
+        "inner (500ms) must outlive the dropped outer, took {:?}",
+        elapsed
+    );
+    assert!(
+        elapsed < Duration::from_secs(3),
+        "inner deadline must still bound the wait, took {:?}",
+        elapsed
+    );
+
+    drop(inner);
+
+    let project = TempDir::new().expect("tempdir");
+    let started = Instant::now();
+    let result = execute_hooks(&["true".to_string()], project.path(), &[]);
+    let elapsed = started.elapsed();
+    assert!(result.is_ok(), "no scope active after both drops");
+    assert!(elapsed < Duration::from_secs(1));
+}
+
+#[test]
+#[serial]
+fn hook_reading_stdin_does_not_block_under_timeout_scope() {
+    let _scope = HookTimeoutScope::new(Duration::from_secs(2));
+
+    let project = TempDir::new().expect("tempdir");
+    let started = Instant::now();
+    let result = execute_hooks(&["cat".to_string()], project.path(), &[]);
+    let elapsed = started.elapsed();
+    assert!(
+        result.is_ok(),
+        "cat must EOF on null stdin and succeed, got {:?}",
+        result
+    );
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "cat must not block on stdin, took {:?}",
+        elapsed
+    );
+}
