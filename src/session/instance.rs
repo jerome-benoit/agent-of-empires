@@ -3028,13 +3028,22 @@ impl Instance {
                 "kill_all_tmux_sessions: kill failed"
             );
         }
+        self.kill_ancillary_tmux_sessions();
+    }
+
+    /// Kill every tmux session owned by this instance EXCEPT the agent
+    /// session (web terminal, container terminal, tool sub-sessions).
+    /// Used by call sites that want to handle the agent kill failure
+    /// with caller-specific tracing while still letting all other
+    /// kinds be cleaned up consistently.
+    pub fn kill_ancillary_tmux_sessions(&self) {
         if let Err(e) = self.kill_terminal() {
             tracing::debug!(
                 target: "session.tmux_cleanup",
                 session_id = %self.id,
                 kind = "terminal",
                 error = %e,
-                "kill_all_tmux_sessions: kill failed"
+                "kill_ancillary_tmux_sessions: kill failed"
             );
         }
         if let Err(e) = self.kill_container_terminal() {
@@ -3043,7 +3052,7 @@ impl Instance {
                 session_id = %self.id,
                 kind = "container_terminal",
                 error = %e,
-                "kill_all_tmux_sessions: kill failed"
+                "kill_ancillary_tmux_sessions: kill failed"
             );
         }
         crate::tmux::kill_all_tool_sessions_for_id(&self.id);

@@ -126,8 +126,7 @@ impl PairedTerminal {
             process::kill_process_tree(pane_pid);
         }
 
-        super::utils::kill_session_if_present(&self.name)
-            .map_err(|e| anyhow::anyhow!("Failed to kill {}: {}", self.kind.label(), e))?;
+        super::utils::kill_session_if_present(&self.name)?;
 
         refresh_session_cache();
 
