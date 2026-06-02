@@ -20,6 +20,9 @@ pub struct Config {
     pub updates: UpdatesConfig,
 
     #[serde(default)]
+    pub telemetry: TelemetryConfig,
+
+    #[serde(default)]
     pub worktree: WorktreeConfig,
 
     #[serde(default)]
@@ -507,6 +510,13 @@ pub struct AppStateConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_preview_info: Option<bool>,
 
+    /// True once the user has answered the telemetry opt-in prompt (in any
+    /// surface, either by enabling or declining). Gates the one-time
+    /// standalone consent popup shown to users who completed the walkthrough
+    /// before telemetry existed, so it appears once and never again.
+    #[serde(default)]
+    pub has_responded_to_telemetry: bool,
+
     #[serde(default)]
     pub has_seen_custom_instruction_warning: bool,
 
@@ -613,6 +623,19 @@ pub struct SessionConfig {
     /// Default: 30 minutes.
     #[serde(default = "default_snooze_duration_minutes")]
     pub snooze_duration_minutes: u32,
+
+    /// Seconds of inactivity after which a plain TUI/tmux session that has
+    /// been `Idle` this long is auto-stopped (its tmux session and any
+    /// sandbox container are killed and the row becomes a restartable
+    /// `Stopped` row). `0` disables (default); no session is ever auto-stopped
+    /// for inactivity. Idle age is anchored on the later of the last
+    /// transition into `Idle` and the last user interaction, and a session
+    /// with a currently attached tmux client is never stopped, so a session
+    /// the user is reading is spared. Checked about once a minute, so the stop
+    /// can lag the threshold by up to a minute. Cockpit workers use the
+    /// separate `cockpit.auto_stop_idle_secs` knob; see #1689 and #1690.
+    #[serde(default = "default_auto_stop_idle_secs")]
+    pub auto_stop_idle_secs: u32,
 
     /// Text sent to the agent after a successful `aoe session restart` /
     /// `e`-keybind restart, once the post-restart readiness probe says the
@@ -774,6 +797,7 @@ impl Default for SessionConfig {
             agent_cockpit_cmd: HashMap::new(),
             strict_hotkeys: false,
             snooze_duration_minutes: 30,
+            auto_stop_idle_secs: default_auto_stop_idle_secs(),
             restart_wake_message: default_restart_wake_message(),
             row_tag: RowTagMode::default(),
             session_id_poller_max_threads: default_session_id_poller_max_threads(),
@@ -819,6 +843,17 @@ pub fn validate_snooze_duration(minutes: u64) -> Result<(), String> {
         return Err(format!(
             "Snooze duration must be between 1 and {} minutes (got {})",
             SNOOZE_MAX_MINUTES, minutes
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_auto_stop_idle_secs(secs: u64) -> Result<(), String> {
+    if secs > u32::MAX as u64 {
+        return Err(format!(
+            "Auto-stop idle seconds must be at most {} (got {})",
+            u32::MAX,
+            secs
         ));
     }
     Ok(())
@@ -1137,6 +1172,21 @@ fn default_check_interval() -> u64 {
 
 fn default_web_poll_interval_minutes() -> u64 {
     60
+}
+
+/// Anonymous, opt-in usage telemetry. Off by default; mirrors the privacy
+/// posture of [`UpdatesConfig`] (the only other outbound call in the tool).
+///
+/// The single `enabled` flag is the consent boundary the user controls in
+/// every settings surface. The anonymous install id lives in a dedicated
+/// `telemetry.json` (NOT here), so pasting `config.toml` into a bug report
+/// can never leak it. `DO_NOT_TRACK` overrides this flag at runtime and
+/// suppresses both sending and id generation regardless of its value.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    /// User opted in to anonymous usage telemetry. Defaults to `false`.
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1555,6 +1605,10 @@ pub fn effective_profile(profile: &str) -> String {
 
 pub fn get_update_settings() -> UpdatesConfig {
     Config::load_or_warn().updates
+}
+
+pub fn get_telemetry_settings() -> TelemetryConfig {
+    Config::load_or_warn().telemetry
 }
 
 #[cfg(test)]
@@ -2322,6 +2376,18 @@ mod tests {
     fn test_validate_snooze_duration_rejects_out_of_range() {
         assert!(validate_snooze_duration(0).is_err());
         assert!(validate_snooze_duration(SNOOZE_MAX_MINUTES + 1).is_err());
+    }
+
+    #[test]
+    fn test_validate_auto_stop_idle_secs_accepts_u32_range() {
+        assert!(validate_auto_stop_idle_secs(0).is_ok());
+        assert!(validate_auto_stop_idle_secs(3600).is_ok());
+        assert!(validate_auto_stop_idle_secs(u32::MAX as u64).is_ok());
+    }
+
+    #[test]
+    fn test_validate_auto_stop_idle_secs_rejects_above_u32() {
+        assert!(validate_auto_stop_idle_secs(u32::MAX as u64 + 1).is_err());
     }
 
     #[test]

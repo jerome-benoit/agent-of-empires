@@ -25,6 +25,7 @@ import { ThemeSettings } from "./settings/ThemeSettings";
 import { DiffSettings } from "./settings/DiffSettings";
 import { SoundSettings } from "./settings/SoundSettings";
 import { UpdateSettings } from "./settings/UpdateSettings";
+import { TelemetrySettings } from "./settings/TelemetrySettings";
 import { TmuxSettings } from "./settings/TmuxSettings";
 import { LoggingSettings } from "./settings/LoggingSettings";
 import { SettingsHeader } from "./settings/SettingsHeader";
@@ -38,6 +39,7 @@ type TabId =
   | "sound"
   | "tmux"
   | "updates"
+  | "telemetry"
   | "notifications"
   | "terminal"
   | "security"
@@ -79,6 +81,7 @@ export function buildSidebar(): SidebarItem[] {
     { kind: "tab", id: "devices", label: "Devices" },
     { kind: "divider", label: "System" },
     { kind: "tab", id: "updates", label: "Updates" },
+    { kind: "tab", id: "telemetry", label: "Telemetry" },
     { kind: "tab", id: "logging", label: "Logging" },
   ];
 }
@@ -106,6 +109,7 @@ const ALL_TAB_IDS = new Set<TabId>([
   "sound",
   "tmux",
   "updates",
+  "telemetry",
   "notifications",
   "terminal",
   "security",
@@ -274,7 +278,7 @@ export function SettingsView({
   );
 
   const renderTabContent = () => {
-    if (!settings && activeTab !== "notifications" && activeTab !== "terminal" && activeTab !== "security" && activeTab !== "devices" && activeTab !== "cockpit") {
+    if (!settings && activeTab !== "notifications" && activeTab !== "terminal" && activeTab !== "security" && activeTab !== "devices" && activeTab !== "cockpit" && activeTab !== "telemetry") {
       return <div className="text-sm text-text-dim">Loading settings...</div>;
     }
 
@@ -313,6 +317,17 @@ export function SettingsView({
               description="Install status-detection hooks into agent settings files for reliable status tracking"
               checked={(session.agent_status_hooks as boolean) ?? true}
               onChange={(v) => saveField("session", session, "agent_status_hooks", v)}
+            />
+            <NumberField
+              label="Auto-stop idle sessions (s)"
+              description="Seconds a plain tmux session may sit Idle before it is auto-stopped (its tmux session and any sandbox container are killed, leaving a restartable Stopped row). 0 disables (default). A session with an attached tmux client, or used more recently than the threshold, is spared. Checked about once a minute, so the stop can lag by up to a minute. Cockpit workers use the separate cockpit setting. Persists to config.toml as session.auto_stop_idle_secs; cross-device. See #1690."
+              value={
+                typeof session.auto_stop_idle_secs === "number"
+                  ? (session.auto_stop_idle_secs as number)
+                  : 0
+              }
+              min={0}
+              onChange={(v) => saveField("session", session, "auto_stop_idle_secs", v)}
             />
           </div>
         );
@@ -501,6 +516,8 @@ export function SettingsView({
         return <TmuxSettings settings={settings!} onSaveField={saveSubField} onUpdate={updateLocal} />;
       case "updates":
         return <UpdateSettings settings={settings!} onSaveField={saveSubField} onUpdate={updateLocal} />;
+      case "telemetry":
+        return <TelemetrySettings />;
       case "logging":
         return <LoggingSettings settings={settings!} onSaveField={saveSubField} onUpdate={updateLocal} />;
 

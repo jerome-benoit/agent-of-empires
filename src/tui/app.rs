@@ -232,6 +232,15 @@ impl App {
             home.show_changelog(config.app_state.last_seen_version.clone());
             config.app_state.last_seen_version = Some(current_version);
             save_config(&config)?;
+        } else if !config.app_state.has_responded_to_telemetry {
+            // Existing users who finished the walkthrough before telemetry
+            // existed get a one-time opt-in popup. Gated behind the changelog
+            // branch above (mutually exclusive in this if/else chain), so it
+            // never co-renders with the changelog; and because it is a modal
+            // dialog, the version update modal (opened only by an explicit
+            // keypress) can't open on top of it while it is up. No save here:
+            // the dialog's response handler persists the answer.
+            home.show_telemetry_consent();
         }
 
         let dismissed_update_version = config.app_state.dismissed_update_version.clone();
@@ -427,6 +436,7 @@ impl App {
         // before the intro walkthrough.
         self.home.intro_dialog = None;
         self.home.changelog_dialog = None;
+        self.home.telemetry_consent_dialog = None;
         tracing::info!(target: "tui.dialog", dialog = "warning", "opening warning dialog");
         self.home.info_dialog =
             Some(crate::tui::dialogs::InfoDialog::new("Warning", message).with_size(WIDTH, height));
@@ -533,6 +543,7 @@ impl App {
         let mut last_spinner_redraw = std::time::Instant::now();
         let mut last_heartbeat = std::time::Instant::now();
         let mut last_presence_refresh = std::time::Instant::now();
+        let mut last_session_idle_reap = std::time::Instant::now();
         // Throttle for how often the periodic block re-reads settings;
         // without this, the inner guards would re-fire on every loop
         // iteration once any time has passed, hitting the config file at
@@ -548,6 +559,11 @@ impl App {
         // "another instance appeared/left" signal responsive without disk I/O
         // on the hot render path.
         const PRESENCE_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
+        // How often the standalone TUI evaluates plain tmux sessions for idle
+        // auto-stop (`session.auto_stop_idle_secs`, #1690). Matches the serve
+        // daemon's cadence; both reapers claim under the storage lock so they
+        // never double-stop a session when run side by side.
+        const SESSION_IDLE_REAP_INTERVAL: Duration = Duration::from_secs(60);
         // A presence file counts as live while its mtime is within this window.
         // Larger than HEARTBEAT_INTERVAL so a couple of missed beats (busy loop,
         // brief stall) don't drop an instance; matches the push consumer.
@@ -558,6 +574,14 @@ impl App {
         // so other TUIs can count this instance.
         crate::session::write_tui_heartbeat();
         self.home.active_tui_count = crate::session::count_active_tuis(PRESENCE_FRESH_WINDOW);
+
+        // Telemetry (opt-in, no-op otherwise): announce this surface on boot,
+        // send an initial snapshot, then refresh it periodically and once more
+        // on graceful exit. All sends are detached and swallow errors.
+        const TELEMETRY_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(12 * 60 * 60);
+        crate::telemetry::spawn_process_start(crate::telemetry::Surface::Tui);
+        self.emit_telemetry_snapshot();
+        let mut last_telemetry_snapshot = std::time::Instant::now();
 
         loop {
             // Force full redraw if needed (e.g., after returning from tmux).
@@ -695,6 +719,12 @@ impl App {
                                                             // Click consumed by the context menu
                                                             // (item dispatched, kept open, or
                                                             // dismissed on outside-click).
+                                                        } else if self.home.handle_dialog_click(mouse.column, mouse.row) {
+                                                            // A modal (e.g. the telemetry consent
+                                                            // popup) swallowed the click. Mirrors the
+                                                            // non-burst path so dialog buttons are
+                                                            // clickable even when a mouse event lands
+                                                            // right after a paste/dictation burst.
                                                         } else if hit_list {
                                                             let action = self.home.handle_click(mouse.column, mouse.row);
                                                             if action.is_none() {
@@ -1088,6 +1118,14 @@ impl App {
                 needs_full_refresh = true;
             }
 
+            if last_session_idle_reap.elapsed() >= SESSION_IDLE_REAP_INTERVAL {
+                last_session_idle_reap = std::time::Instant::now();
+                if self.reap_idle_sessions() {
+                    refresh_needed = true;
+                    needs_full_refresh = true;
+                }
+            }
+
             if self.home.apply_session_id_updates() {
                 refresh_needed = true;
                 needs_full_refresh = true;
@@ -1141,6 +1179,11 @@ impl App {
             if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
                 crate::session::write_tui_heartbeat();
                 last_heartbeat = std::time::Instant::now();
+            }
+
+            if last_telemetry_snapshot.elapsed() >= TELEMETRY_SNAPSHOT_INTERVAL {
+                last_telemetry_snapshot = std::time::Instant::now();
+                self.emit_telemetry_snapshot();
             }
 
             if last_presence_refresh.elapsed() >= PRESENCE_REFRESH_INTERVAL {
@@ -1259,7 +1302,36 @@ impl App {
             tracing::error!(target: "tui.input", "Failed to save on quit: {}", e);
         }
 
+        // Best-effort final snapshot on graceful exit, bounded so a dead
+        // endpoint can't delay quit. Deduped against the boot/periodic snapshot
+        // so a launch-then-quit with unchanged sessions doesn't post the same
+        // counts twice within seconds.
+        if let Some(snapshot) = self.build_telemetry_snapshot() {
+            crate::telemetry::flush_snapshot_if_changed(snapshot).await;
+        }
+
         Ok(())
+    }
+
+    /// Build a `usage_snapshot` from the current session list, or `None` when
+    /// telemetry is not opted in. The TUI never hosts the web dashboard, so
+    /// `web_seen` / `cockpit_seen` are false and the create-trend counter is
+    /// left at 0 (the `aoe serve` daemon is the surface that tracks those).
+    fn build_telemetry_snapshot(&self) -> Option<crate::telemetry::UsageSnapshot> {
+        crate::telemetry::build_usage_snapshot(
+            crate::telemetry::Surface::Tui,
+            self.home.instances(),
+            false,
+            false,
+            0,
+        )
+    }
+
+    /// Build and send a snapshot, detached. No-op when not opted in.
+    fn emit_telemetry_snapshot(&self) {
+        if let Some(snapshot) = self.build_telemetry_snapshot() {
+            crate::telemetry::spawn_snapshot(snapshot);
+        }
     }
 
     fn render(&mut self, frame: &mut Frame) {
@@ -1772,6 +1844,77 @@ impl App {
             self.update_status = Some(UpdateStatus::transient(format!("cockpit closed: {e}")));
         }
         Ok(())
+    }
+
+    /// Auto-stop plain tmux sessions idle past `session.auto_stop_idle_secs`
+    /// (#1690). Runs on a 60s gate from the main loop. Each candidate is
+    /// claimed under the per-profile storage lock (so a co-running `aoe serve`
+    /// cannot double-stop it), marked `Stopped` in memory, then handed to the
+    /// background `StopPoller`; the result is reconciled by `apply_stop_results`
+    /// like a manual stop. Returns true if any session was reaped.
+    fn reap_idle_sessions(&mut self) -> bool {
+        // Live attach state; on a tmux query failure skip this pass rather
+        // than risk reaping a session the user is attached to.
+        let Ok(attached) = crate::tmux::attached_session_names() else {
+            return false;
+        };
+        let now = chrono::Utc::now();
+        let candidates = crate::session::idle_reap::idle_reap_candidates(
+            self.home.instances(),
+            now,
+            &attached,
+            |profile| {
+                crate::session::profile_config::resolve_config_or_warn(profile)
+                    .session
+                    .auto_stop_idle_secs
+            },
+        );
+        let mut reaped = false;
+        for cand in candidates {
+            match crate::session::idle_reap::claim_idle_stop(
+                &cand.profile,
+                &cand.session_id,
+                now,
+                cand.threshold_secs,
+            ) {
+                Ok(Some(instance)) => {
+                    // Mirror Action::StopSession: the claim already persisted
+                    // `Stopped`; reassert it in memory and run the kill off the
+                    // UI thread so a sandbox `docker stop` cannot freeze the TUI.
+                    self.home
+                        .set_instance_status(&cand.session_id, crate::session::Status::Stopped);
+                    self.home
+                        .stop_poller
+                        .request_stop(crate::tui::stop_poller::StopRequest {
+                            session_id: cand.session_id.clone(),
+                            instance,
+                        });
+                    tracing::info!(
+                        target: "tui.idle_reap",
+                        session = %cand.session_id,
+                        profile = %cand.profile,
+                        threshold_secs = cand.threshold_secs,
+                        "auto-stopped idle tmux session",
+                    );
+                    reaped = true;
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        target: "tui.idle_reap",
+                        session = %cand.session_id,
+                        error = %e,
+                        "idle auto-stop claim failed",
+                    );
+                }
+            }
+        }
+        if reaped {
+            if let Err(e) = self.home.save() {
+                tracing::error!(target: "tui.idle_reap", "failed to save after idle reap: {e}");
+            }
+        }
+        reaped
     }
 
     fn execute_action(

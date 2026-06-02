@@ -150,6 +150,19 @@
       ]
     },
     {
+      "id": "settings.telemetry-consent",
+      "kind": "vitest",
+      "risk": "medium",
+      "specs": [
+        "src/components/settings/__tests__/TelemetrySettings.test.tsx",
+        "src/components/__tests__/TelemetryConsentModal.test.tsx"
+      ],
+      "components": [
+        "web/src/components/settings/TelemetrySettings.tsx",
+        "web/src/components/TelemetryConsentModal.tsx"
+      ]
+    },
+    {
       "id": "settings.theme-persistence-passphrase",
       "kind": "live-playwright",
       "risk": "high",
@@ -242,6 +255,18 @@
       "risk": "medium",
       "specs": [
         "src/components/__tests__/SettingsView.folds.test.tsx"
+      ],
+      "components": [
+        "web/src/components/SettingsView.tsx",
+        "web/src/components/settings/FormFields.tsx"
+      ]
+    },
+    {
+      "id": "settings.session-auto-stop-idle",
+      "kind": "vitest",
+      "risk": "medium",
+      "specs": [
+        "src/components/__tests__/SettingsView.session.test.tsx"
       ],
       "components": [
         "web/src/components/SettingsView.tsx",

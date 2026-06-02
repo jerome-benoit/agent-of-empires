@@ -774,6 +774,11 @@ impl SettingsView {
                     s.snooze_duration_minutes = None;
                 }
             }
+            FieldKey::SessionAutoStopIdleSecs => {
+                if let Some(ref mut s) = config.session {
+                    s.auto_stop_idle_secs = None;
+                }
+            }
             FieldKey::RestartWakeMessage => {
                 if let Some(ref mut s) = config.session {
                     s.restart_wake_message = None;
@@ -1092,6 +1097,7 @@ impl SettingsView {
             | FieldKey::LoggingMaxSizeMib
             | FieldKey::LoggingKeepCount
             | FieldKey::LoggingShowSpans
+            | FieldKey::TelemetryEnabled
             | FieldKey::SessionIdPollerMaxThreads => {}
             FieldKey::HostEnvironment => {
                 config.environment = None;
