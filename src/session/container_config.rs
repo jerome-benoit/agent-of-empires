@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::containers::{ContainerConfig, EnvEntry, NamedVolumeMount, VolumeMount};
 use crate::git::GitWorktree;
@@ -1175,7 +1175,9 @@ pub(crate) fn build_container_config(
             let hermes_hooks = agent.name == "hermes";
             let kiro_hooks = agent.name == "kiro";
             if hermes_hooks || kiro_hooks || agent.hook_config.is_some() {
-                let hook_dir = crate::hooks::hook_status_dir(instance_id);
+                let hook_dir = crate::hooks::hook_status_dir(instance_id).context(
+                    "refusing to mount hook directory: AOE_INSTANCE_ID failed validation",
+                )?;
                 if let Err(e) = std::fs::create_dir_all(&hook_dir) {
                     tracing::warn!(target: "session.profile",
                         "Failed to create hook directory {}: {}",
@@ -1219,7 +1221,11 @@ pub(crate) fn build_container_config(
                         let result = if agent.name == "codex" {
                             crate::hooks::install_codex_hooks(&settings_file, hook_cfg.events)
                         } else {
-                            crate::hooks::install_hooks(&settings_file, hook_cfg.events)
+                            crate::hooks::install_hooks(
+                                &settings_file,
+                                hook_cfg.events,
+                                crate::hooks::HookInstallTarget::Sandbox,
+                            )
                         };
                         if let Err(e) = result {
                             tracing::warn!(target: "session.profile", "Failed to install hooks in sandbox config: {}", e);
@@ -2721,7 +2727,8 @@ extra_volumes = ["/host/screenshots:/root/screenshots"]
             v.host_path == codex_sandbox.to_string_lossy() && v.container_path == "/root/.codex"
         }));
 
-        let hook_dir = crate::hooks::hook_status_dir(instance_id);
+        let hook_dir =
+            crate::hooks::hook_status_dir(instance_id).expect("test id must be allowlist-safe");
         assert!(
             config
                 .volumes
@@ -2730,6 +2737,47 @@ extra_volumes = ["/host/screenshots:/root/screenshots"]
             "status hook directory should be mounted"
         );
         crate::hooks::cleanup_hook_status_dir(instance_id);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_build_container_config_refuses_unsafe_instance_id() {
+        let temp_home = TempDir::new().unwrap();
+        std::env::set_var("HOME", temp_home.path());
+        #[cfg(target_os = "linux")]
+        std::env::set_var("XDG_CONFIG_HOME", temp_home.path().join(".config"));
+
+        let project_dir = TempDir::new().unwrap();
+        git2::Repository::init(project_dir.path()).unwrap();
+
+        let sandbox_info = super::super::instance::SandboxInfo {
+            enabled: true,
+            container_id: None,
+            image: "test:latest".to_string(),
+            container_name: "test-container".to_string(),
+            extra_env: None,
+            custom_instruction: None,
+        };
+
+        let result = build_container_config(
+            project_dir.path().to_str().unwrap(),
+            &sandbox_info,
+            ContainerAgentSelection::new("codex", None),
+            false,
+            "../etc",
+            None,
+            "",
+        );
+
+        let err = match result {
+            Ok(_) => panic!("must refuse unsafe instance id"),
+            Err(e) => e,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("AOE_INSTANCE_ID"),
+            "error must surface validator failure, got: {msg}"
+        );
     }
 
     #[test]
@@ -2773,7 +2821,8 @@ extra_volumes = ["/host/screenshots:/root/screenshots"]
         let codex_sandbox = temp_home.path().join(".codex").join(SANDBOX_SUBDIR);
         assert!(!codex_sandbox.join("config.toml").exists());
 
-        let hook_dir = crate::hooks::hook_status_dir(instance_id);
+        let hook_dir =
+            crate::hooks::hook_status_dir(instance_id).expect("test id must be allowlist-safe");
         assert!(
             !config
                 .volumes
@@ -2839,7 +2888,8 @@ agent_detect_as = { "wrapped-codex" = "codex" }
         assert!(codex_config.contains("[[hooks.PreToolUse]]"));
         assert!(codex_config.contains("aoe-hooks"));
 
-        let hook_dir = crate::hooks::hook_status_dir(instance_id);
+        let hook_dir =
+            crate::hooks::hook_status_dir(instance_id).expect("test id must be allowlist-safe");
         assert!(
             config
                 .volumes
