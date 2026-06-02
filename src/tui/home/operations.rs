@@ -462,11 +462,8 @@ impl HomeView {
     /// container cleanup are skipped (the original deletion already
     /// attempted them); tmux teardown is fired off-thread so a hung
     /// tmux call cannot block the storage update on the TUI input
-    /// thread. The teardown closure is wrapped in `catch_unwind` so
-    /// a panic in any kill helper surfaces in the log instead of
-    /// being lost to the detached thread. Used for sessions stuck in
-    /// the Deleting state where the background deletion thread never
-    /// returned a result.
+    /// thread. Used for sessions stuck in the Deleting state where
+    /// the background deletion thread never returned a result.
     pub(super) fn force_remove_session(&mut self, session_id: &str) -> anyhow::Result<()> {
         if let Some(inst) = self.instances.iter().find(|i| i.id == session_id) {
             let inst = inst.clone();

@@ -1283,12 +1283,9 @@ pub async fn cockpit_enable(
 
     // Tear down the tmux side. Best-effort: a stale tmux name should
     // not block the swap. Run on a blocking pool worker because each
-    // kill shells out and the four kinds add up to multiple subprocess
-    // waits we don't want on a tokio runtime thread. Warn on the agent
-    // kill failure to keep user-visible signal for this user-initiated
-    // action; ancillary kinds (terminal, container terminal, tool sub-
-    // sessions) are silent and rely on `session.tmux_cleanup` debug
-    // tracing for forensics.
+    // kill shells out. Warn on agent kill failure to keep signal for
+    // this user-initiated action; ancillary kinds rely on
+    // `session.tmux_cleanup` debug tracing.
     let inst_for_kill = instance.clone();
     let id_for_log = id.clone();
     let _ = tokio::task::spawn_blocking(move || {

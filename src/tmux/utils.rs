@@ -253,13 +253,11 @@ pub fn tmux_prefix_display() -> &'static str {
     })
 }
 
-/// Run `tmux kill-session -t <name>`. The `can't find session` stderr is
-/// treated as success: callers commonly kill the pane's process tree
-/// first, which can cause tmux to tear down the session before this call
-/// lands. Any other tmux failure returns `Err`. Caller is responsible for
-/// `refresh_session_cache` after a successful kill. tmux is forced to
-/// emit messages in the C locale so the stderr match is independent of
-/// the user's `LC_*` settings.
+/// Run `tmux kill-session -t <name>`. The `can't find session` stderr (in
+/// C locale) is treated as success: callers commonly kill the pane's
+/// process tree first, which can cause tmux to tear down the session
+/// before this call lands. Any other tmux failure returns `Err`. Caller
+/// is responsible for `refresh_session_cache` after a successful kill.
 pub(crate) fn kill_session_if_present(name: &str) -> Result<()> {
     let output = Command::new("tmux")
         .env("LC_ALL", "C")

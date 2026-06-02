@@ -3013,15 +3013,11 @@ impl Instance {
         Ok(())
     }
 
-    /// Kill every tmux session owned by this instance: the agent session,
-    /// the web terminal pane, the container terminal, and any tool
-    /// sub-sessions sharing this instance's id. Best-effort and silent at
-    /// the user-facing layer; agent, terminal, and container terminal
-    /// failures log at `debug!` (target `session.tmux_cleanup`) for
-    /// forensics. Tool sub-session failures are silent by design via
-    /// `kill_all_tool_sessions_for_id`. Use this from any path that
-    /// severs an instance from its tmux footprint (deletion, force-
-    /// remove, mode switch) so no kind is forgotten.
+    /// Kill every tmux session owned by this instance (agent, web
+    /// terminal, container terminal, tool sub-sessions). Best-effort
+    /// and silent; agent/terminal/container terminal failures log at
+    /// `debug!` target `session.tmux_cleanup`. Tool sub-sessions are
+    /// silent by design via `kill_all_tool_sessions_for_id`.
     pub fn kill_all_tmux_sessions(&self) {
         if let Err(e) = self.kill() {
             tracing::debug!(
