@@ -829,12 +829,10 @@ fn run_hooks_captured(
     Ok(())
 }
 
-/// Spawn a hook child, drain its pipes concurrently, and enforce a wall-clock
-/// deadline. On timeout, the child process tree is killed via SIGTERM-then-
-/// SIGKILL escalation through [`crate::process::kill_process_tree`] so the
-/// recovery cascade can release its cross-process lock; the timeout surfaces
-/// as an `Err` to the caller, which is what the recovery worker observes
-/// when an `on_launch` hook hangs (issue #1265).
+/// Spawn a hook child, drain its pipes concurrently, and enforce a per-call
+/// wall-clock deadline. On timeout, [`crate::process::kill_process_tree`]
+/// reaps the descendant tree (SIGTERM, 100 ms grace, then SIGKILL) so the
+/// recovery cascade can release its cross-process lock (#1265).
 fn run_hook_with_timeout(
     command: &mut std::process::Command,
     timeout: std::time::Duration,
@@ -846,13 +844,19 @@ fn run_hook_with_timeout(
     let pid = child.id();
 
     let (tx, rx) = mpsc::channel::<std::io::Result<std::process::Output>>();
-    std::thread::spawn(move || {
-        let _ = tx.send(child.wait_with_output());
-    });
+    std::thread::Builder::new()
+        .name(format!("aoe-hook-drain-{}", pid))
+        .spawn(move || {
+            let _ = tx.send(child.wait_with_output());
+        })
+        .expect("hook drain thread spawn");
 
     match rx.recv_timeout(timeout) {
         Ok(Ok(output)) => Ok(output),
         Ok(Err(io_err)) => {
+            // Reap defensively: wait_with_output can Err while the child is
+            // still live, which would re-pin the recovery lock.
+            crate::process::kill_process_tree(pid);
             Err(anyhow::Error::from(io_err)
                 .context(format!("Failed to wait on hook: {}", cmd_label)))
         }

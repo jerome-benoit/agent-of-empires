@@ -31,26 +31,21 @@
 //!
 //! # Bounded on_launch hook execution
 //!
-//! `restart_with_size_opts` runs the agent's `on_launch` hooks (npm install,
-//! nvm use, env setup, etc.) inline, on the same blocking thread that holds
-//! the recovery lock. To prevent a hung hook from pinning the lock for the
-//! daemon's lifetime, the recovery worker installs a [`HookTimeoutScope`]
-//! before entering the cascade; `repo_config::run_hooks_captured` reads the
-//! scoped per-thread timeout and, if the hook has not exited within
-//! [`RECOVERY_HOOK_TIMEOUT`] (30 s, overridable in debug builds via
-//! `AOE_RECOVERY_HOOK_TIMEOUT_MS` for tests), the child process tree is
-//! killed via [`crate::process::kill_process_tree`] (SIGTERM, 100 ms grace,
-//! then SIGKILL). The cascade returns within the timeout plus the kill
-//! grace, the recovery lock is released, and peer processes can re-enter
-//! the recovery path.
+//! Recovery installs a [`HookTimeoutScope`] before entering the cascade.
+//! `repo_config::run_hooks_captured` reads the scope and bounds each
+//! `on_launch` command by [`RECOVERY_HOOK_TIMEOUT`] (30 s, debug-overridable
+//! via `AOE_RECOVERY_HOOK_TIMEOUT_MS`); on expiry the child tree is killed
+//! through [`crate::process::kill_process_tree`] (SIGTERM, 100 ms grace,
+//! then SIGKILL). An `N`-command list releases the lock within
+//! `N * (RECOVERY_HOOK_TIMEOUT + kill_grace)` per worker, with up to
+//! [`STARTUP_RECOVERY_CONCURRENCY`] workers concurrent.
 //!
-//! Container-runtime caveat: when the timing-out hook runs via
-//! `execute_hooks_in_container`, `kill_process_tree` reaps the host-side
-//! `docker exec` (or `podman exec`) child, not the in-container target. The
-//! recovery lock is released either way, but whether SIGTERM propagates
-//! into the container depends on the runtime's signal-forwarding behavior;
-//! a stray in-container hook process is theoretically possible on runtimes
-//! that do not forward signals to the entrypoint.
+//! Caveats: `execute_hooks_in_container` kills the host-side
+//! `docker`/`podman exec` child, not the in-container process; signal
+//! propagation depends on the runtime. Hooks that daemonize (own `setsid`
+//! plus reparent to PID 1) escape `kill_process_tree`'s descendant walk;
+//! the lock still releases when the direct child exits, but the orphan is
+//! the operator's to reap.
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
@@ -249,39 +244,32 @@ pub fn gc_recently_restarted(map: &RecentlyRestarted) {
     }
 }
 
-/// Run the recovery cascade for one instance. Thin wrapper around
-/// `restart_with_size_opts(None, false)` that installs a [`HookTimeoutScope`]
-/// for the duration of the cascade, so a hung `on_launch` hook cannot pin
-/// the cross-process recovery lock indefinitely (issue #1265).
+/// Run the recovery cascade for one instance. Wraps
+/// `restart_with_size_opts(None, false)` in a [`HookTimeoutScope`] so a
+/// hung `on_launch` hook cannot pin the recovery lock (#1265).
 ///
-/// `skip_on_launch=false` is mandatory: `on_launch` hooks (npm install, env
-/// setup) must run on the first start after a reboot, conceptually identical
-/// to a fresh launch. The Tier-2 retry inside `start_with_resume_fallback`
-/// hardcodes `true` internally to prevent double-firing on the same restart.
+/// `skip_on_launch=false` is mandatory: hooks must run on the first start
+/// after a reboot. The Tier-2 retry in `start_with_resume_fallback`
+/// hardcodes `true` internally to prevent double-firing.
 ///
-/// Blocks until the cascade returns (up to `RECOVERY_HOOK_TIMEOUT` plus the
-/// usual ~7s fallback latency); callers must invoke it off the main/event-loop
-/// thread (`spawn_blocking` or a dedicated worker).
+/// Blocks; callers must invoke it off the main event-loop thread. Worst
+/// case is `N_hooks * RECOVERY_HOOK_TIMEOUT + ~7 s` fallback latency.
 pub fn run_recovery_for_instance(inst: &mut Instance) -> Result<StartOutcome> {
     let _scope = HookTimeoutScope::for_recovery();
     inst.restart_with_size_opts(None, false)
 }
 
-/// Production default for the recovery on_launch hook timeout. Matches the
-/// operational guidance ("hooks must be non-interactive and complete in
-/// under 30 seconds") historically published as the only mitigation for
-/// the deadlock fixed by issue #1265.
+/// 30 s default; the operational guidance for non-interactive on_launch
+/// hooks (#1265).
 pub const RECOVERY_HOOK_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Floor applied to debug-build env-var overrides so a misconfigured test
-/// cannot race the kernel's fork+exec window and falsely trip the timeout
-/// before the hook child has finished spawning.
+/// Lower bound on `AOE_RECOVERY_HOOK_TIMEOUT_MS` so a misconfigured test
+/// cannot race fork+exec and trip the timeout before the child spawns.
 const RECOVERY_HOOK_TIMEOUT_FLOOR: Duration = Duration::from_millis(50);
 
-/// Resolve the recovery hook timeout for the current build. Release builds
-/// always return [`RECOVERY_HOOK_TIMEOUT`]; debug builds also accept
-/// `AOE_RECOVERY_HOOK_TIMEOUT_MS` so deterministic tests can shrink the
-/// deadline without waiting 30 seconds per assertion.
+/// Resolve the recovery hook timeout. Release builds always return
+/// [`RECOVERY_HOOK_TIMEOUT`]; debug builds honor `AOE_RECOVERY_HOOK_TIMEOUT_MS`
+/// for tests, clamped to [`RECOVERY_HOOK_TIMEOUT_FLOOR`].
 pub fn recovery_hook_timeout() -> Duration {
     #[cfg(debug_assertions)]
     if let Ok(raw) = std::env::var("AOE_RECOVERY_HOOK_TIMEOUT_MS") {
@@ -296,18 +284,14 @@ thread_local! {
     static HOOK_TIMEOUT_OVERRIDE: Cell<Option<Duration>> = const { Cell::new(None) };
 }
 
-/// Read the current thread's on_launch hook timeout, if a [`HookTimeoutScope`]
-/// is in scope. Consumed by `repo_config::run_hooks_captured` to decide
-/// whether to wrap the hook subprocess in a deadline-and-kill loop.
+/// Current thread's on_launch hook deadline, if a [`HookTimeoutScope`] is set.
 pub(crate) fn current_hook_timeout() -> Option<Duration> {
     HOOK_TIMEOUT_OVERRIDE.with(|c| c.get())
 }
 
-/// RAII guard that installs a per-thread on_launch hook deadline for the
-/// lifetime of one recovery cascade. The previous override (if any) is
-/// restored on drop, so nested scopes compose correctly and a panic inside
-/// the cascade cannot leak the override onto a reused `spawn_blocking`
-/// thread.
+/// RAII guard that scopes a per-thread on_launch hook deadline. The previous
+/// override is restored on drop and on panic, so nested scopes compose and
+/// the override cannot leak onto a reused `spawn_blocking` thread.
 pub struct HookTimeoutScope {
     prev: Option<Duration>,
 }
@@ -323,8 +307,7 @@ impl HookTimeoutScope {
         Self { prev }
     }
 
-    /// Install the production-default recovery timeout (or its debug-build
-    /// env override).
+    /// Install [`recovery_hook_timeout`] for the current thread.
     pub fn for_recovery() -> Self {
         Self::new(recovery_hook_timeout())
     }

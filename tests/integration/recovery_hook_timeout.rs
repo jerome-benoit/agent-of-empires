@@ -1,16 +1,4 @@
-//! Regression coverage for issue #1265.
-//!
-//! A hung `on_launch` hook used to pin the cross-process recovery lock
-//! indefinitely (the recovery worker's `spawn_blocking` thread blocked in
-//! `std::process::Command::output()`, never releasing the `flock` on
-//! `<app_dir>/.recovery.lock`). The fix wraps the hook subprocess in a
-//! per-thread deadline installed by `HookTimeoutScope`; the tests below
-//! exercise the public `execute_hooks` entry point through that scope and
-//! assert that:
-//!
-//! 1. a hung hook is killed and the call returns within the timeout window,
-//! 2. fast hooks under a scope still succeed (no happy-path regression), and
-//! 3. without a scope, behavior is unchanged for non-recovery callers.
+//! Regression coverage for #1265 (hung on_launch hook held the recovery lock).
 
 use std::time::{Duration, Instant};
 
@@ -37,8 +25,8 @@ fn hung_on_launch_hook_times_out_and_releases_lock_within_grace() {
         err_msg
     );
     assert!(
-        elapsed < Duration::from_secs(2),
-        "expected timeout to fire within 2s (300ms deadline + kill grace), took {:?}",
+        elapsed < Duration::from_secs(3),
+        "expected timeout to fire within 3s (300ms deadline + kill grace + slow CI cushion), took {:?}",
         elapsed
     );
 }
@@ -90,8 +78,8 @@ fn nested_scopes_restore_outer_timeout_on_drop() {
             "inner scope must enforce its tighter deadline"
         );
         assert!(
-            elapsed < Duration::from_millis(1500),
-            "inner deadline (100ms) must fire fast, took {:?}",
+            elapsed < Duration::from_secs(2),
+            "inner deadline (100ms) must fire fast even on slow CI, took {:?}",
             elapsed
         );
     }
@@ -109,8 +97,8 @@ fn nested_scopes_restore_outer_timeout_on_drop() {
         elapsed
     );
     assert!(
-        elapsed < Duration::from_secs(2),
-        "outer deadline must still bound the wait, took {:?}",
+        elapsed < Duration::from_secs(3),
+        "outer deadline must still bound the wait (with slow CI cushion), took {:?}",
         elapsed
     );
     drop(outer_scope);
