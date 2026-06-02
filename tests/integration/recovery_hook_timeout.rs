@@ -134,10 +134,15 @@ fn out_of_order_drop_keeps_inner_active_no_leak() {
 
     let project = TempDir::new().expect("tempdir");
     let started = Instant::now();
-    let result = execute_hooks(&["true".to_string()], project.path(), &[]);
+    let result = execute_hooks(&["sleep 1".to_string()], project.path(), &[]);
     let elapsed = started.elapsed();
     assert!(result.is_ok(), "no scope active after both drops");
-    assert!(elapsed < Duration::from_secs(1));
+    assert!(
+        elapsed >= Duration::from_millis(900),
+        "hook must run unbounded after both drops, took {:?}",
+        elapsed
+    );
+    assert!(elapsed < Duration::from_secs(3));
 }
 
 #[test]
