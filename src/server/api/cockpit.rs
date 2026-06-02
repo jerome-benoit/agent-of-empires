@@ -1217,18 +1217,6 @@ pub struct SubstrateSwitchResponse {
     pub cockpit_mode: bool,
 }
 
-/// Apply the atomic mutation contract for the cockpit-enable toggle to
-/// an [`crate::session::Instance`] slot: flip `cockpit_mode` to `true`
-/// and reset any dormant `resume_intent` written by the CLI
-/// `set-session-id`. Both fields must be touched together so the
-/// in-memory state, on-disk state (single `Storage::update` flock),
-/// and the local clone used to spawn the cockpit worker stay coherent.
-/// See #1745.
-fn apply_cockpit_enable_fields_to_slot(slot: &mut crate::session::Instance) {
-    slot.cockpit_mode = true;
-    slot.resume_intent = crate::session::ResumeIntent::Default;
-}
-
 /// Switch a tmux-mode session to cockpit. Idempotent: a session that
 /// is already cockpit-mode returns 200 with no work done.
 ///
@@ -1298,7 +1286,8 @@ pub async fn cockpit_enable(
     if let Err(e) = instance.kill() {
         tracing::warn!(target: "cockpit.switch", session = %id, "kill tmux failed: {e}");
     }
-    apply_cockpit_enable_fields_to_slot(&mut instance);
+    instance.cockpit_mode = true;
+    instance.resume_intent = crate::session::ResumeIntent::Default;
 
     // Persist before spawning so a crash mid-swap leaves us in the
     // declared end state, not a half-broken intermediate.
@@ -1318,7 +1307,8 @@ pub async fn cockpit_enable(
     {
         let mut instances = state.instances.write().await;
         if let Some(slot) = instances.iter_mut().find(|i| i.id == id) {
-            apply_cockpit_enable_fields_to_slot(slot);
+            slot.cockpit_mode = true;
+            slot.resume_intent = crate::session::ResumeIntent::Default;
         }
     }
     let id_for_save = id.clone();
@@ -1327,7 +1317,8 @@ pub async fn cockpit_enable(
         let storage = crate::session::Storage::new(&profile_for_save)?;
         storage.update(|all, _groups| {
             if let Some(slot) = all.iter_mut().find(|i| i.id == id_for_save) {
-                apply_cockpit_enable_fields_to_slot(slot);
+                slot.cockpit_mode = true;
+                slot.resume_intent = crate::session::ResumeIntent::Default;
             }
             Ok(())
         })?;
@@ -1985,29 +1976,5 @@ mod tests {
         let (files, truncated) = list_files(dir.path(), 3).unwrap();
         assert!(truncated);
         assert_eq!(files, vec!["f0.rs", "f1.rs", "f2.rs"]);
-    }
-
-    #[test]
-    fn cockpit_enable_clears_dormant_use_resume_intent() {
-        let mut inst = crate::session::Instance::new("test", "/tmp");
-        inst.cockpit_mode = false;
-        inst.resume_intent = crate::session::ResumeIntent::Use("pinned-sid".to_string());
-
-        super::apply_cockpit_enable_fields_to_slot(&mut inst);
-
-        assert!(inst.cockpit_mode);
-        assert_eq!(inst.resume_intent, crate::session::ResumeIntent::Default);
-    }
-
-    #[test]
-    fn cockpit_enable_clears_dormant_cleared_resume_intent() {
-        let mut inst = crate::session::Instance::new("test", "/tmp");
-        inst.cockpit_mode = false;
-        inst.resume_intent = crate::session::ResumeIntent::Cleared;
-
-        super::apply_cockpit_enable_fields_to_slot(&mut inst);
-
-        assert!(inst.cockpit_mode);
-        assert_eq!(inst.resume_intent, crate::session::ResumeIntent::Default);
     }
 }
