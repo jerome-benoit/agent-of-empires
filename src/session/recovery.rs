@@ -291,15 +291,13 @@ pub(crate) fn current_hook_timeout() -> Option<Duration> {
     HOOK_TIMEOUT_STACK.with(|s| s.borrow().last().map(|(_, t)| *t))
 }
 
-/// RAII guard that pushes a per-thread on_launch hook deadline onto a
-/// slot-keyed stack, so non-LIFO drops do not leak the deadline onto a
-/// reused `spawn_blocking` thread.
+/// Slot-keyed RAII guard for per-thread on_launch hook deadlines; non-LIFO
+/// drop safe.
 pub struct HookTimeoutScope {
     slot: u64,
 }
 
 impl HookTimeoutScope {
-    /// Push `timeout` onto the current thread's deadline stack.
     pub fn new(timeout: Duration) -> Self {
         let slot = NEXT_SLOT.with(|c| {
             let n = c.get();
@@ -310,7 +308,6 @@ impl HookTimeoutScope {
         Self { slot }
     }
 
-    /// Push [`recovery_hook_timeout`] onto the current thread's deadline stack.
     pub fn for_recovery() -> Self {
         Self::new(recovery_hook_timeout())
     }
