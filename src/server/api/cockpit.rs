@@ -1217,6 +1217,18 @@ pub struct SubstrateSwitchResponse {
     pub cockpit_mode: bool,
 }
 
+/// Apply the atomic mutation contract for the cockpit-enable toggle to
+/// an [`crate::session::Instance`] slot: flip `cockpit_mode` to `true`
+/// and reset any dormant `resume_intent` written by the CLI
+/// `set-session-id`. Both fields must be touched together so the
+/// in-memory state, on-disk state (single `Storage::update` flock),
+/// and the local clone used to spawn the cockpit worker stay coherent.
+/// See #1745.
+fn apply_cockpit_enable_fields_to_slot(slot: &mut crate::session::Instance) {
+    slot.cockpit_mode = true;
+    slot.resume_intent = crate::session::ResumeIntent::Default;
+}
+
 /// Switch a tmux-mode session to cockpit. Idempotent: a session that
 /// is already cockpit-mode returns 200 with no work done.
 ///
@@ -1286,21 +1298,27 @@ pub async fn cockpit_enable(
     if let Err(e) = instance.kill() {
         tracing::warn!(target: "cockpit.switch", session = %id, "kill tmux failed: {e}");
     }
-    instance.cockpit_mode = true;
+    apply_cockpit_enable_fields_to_slot(&mut instance);
 
     // Persist before spawning so a crash mid-swap leaves us in the
     // declared end state, not a half-broken intermediate.
     //
     // The on-disk and in-memory updates mutate ONLY the cockpit-specific
-    // field (`cockpit_mode = true`). Wholesale replacement with a
-    // pre-lock snapshot would clobber concurrent writes to other
-    // fields (status, last_accessed, agent_session_id) made by the
-    // status poll loop or other handlers between the snapshot and the
-    // lock acquisition.
+    // fields (`cockpit_mode = true`, `resume_intent = Default`).
+    // Wholesale replacement with a pre-lock snapshot would clobber
+    // concurrent writes to other fields (status, last_accessed,
+    // agent_session_id) made by the status poll loop or other handlers
+    // between the snapshot and the lock acquisition.
+    //
+    // Clearing `resume_intent` here closes the dormant-intent gap: the
+    // CLI `set-session-id` writes `Use(sid)` to disk, then the user
+    // toggles cockpit on; without this reset, a future `cockpit_disable`
+    // would reload the stale `Use(sid)` and the next non-cockpit launch
+    // would honor a session id the user no longer expects. See #1745.
     {
         let mut instances = state.instances.write().await;
         if let Some(slot) = instances.iter_mut().find(|i| i.id == id) {
-            slot.cockpit_mode = true;
+            apply_cockpit_enable_fields_to_slot(slot);
         }
     }
     let id_for_save = id.clone();
@@ -1309,7 +1327,7 @@ pub async fn cockpit_enable(
         let storage = crate::session::Storage::new(&profile_for_save)?;
         storage.update(|all, _groups| {
             if let Some(slot) = all.iter_mut().find(|i| i.id == id_for_save) {
-                slot.cockpit_mode = true;
+                apply_cockpit_enable_fields_to_slot(slot);
             }
             Ok(())
         })?;
@@ -1967,5 +1985,29 @@ mod tests {
         let (files, truncated) = list_files(dir.path(), 3).unwrap();
         assert!(truncated);
         assert_eq!(files, vec!["f0.rs", "f1.rs", "f2.rs"]);
+    }
+
+    #[test]
+    fn cockpit_enable_clears_dormant_use_resume_intent() {
+        let mut inst = crate::session::Instance::new("test", "/tmp");
+        inst.cockpit_mode = false;
+        inst.resume_intent = crate::session::ResumeIntent::Use("pinned-sid".to_string());
+
+        super::apply_cockpit_enable_fields_to_slot(&mut inst);
+
+        assert!(inst.cockpit_mode);
+        assert_eq!(inst.resume_intent, crate::session::ResumeIntent::Default);
+    }
+
+    #[test]
+    fn cockpit_enable_clears_dormant_cleared_resume_intent() {
+        let mut inst = crate::session::Instance::new("test", "/tmp");
+        inst.cockpit_mode = false;
+        inst.resume_intent = crate::session::ResumeIntent::Cleared;
+
+        super::apply_cockpit_enable_fields_to_slot(&mut inst);
+
+        assert!(inst.cockpit_mode);
+        assert_eq!(inst.resume_intent, crate::session::ResumeIntent::Default);
     }
 }
