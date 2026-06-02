@@ -1282,10 +1282,11 @@ pub async fn cockpit_enable(
     }
 
     // Tear down the tmux side. Best-effort: a stale tmux name should
-    // not block the swap.
-    if let Err(e) = instance.kill() {
-        tracing::warn!(target: "cockpit.switch", session = %id, "kill tmux failed: {e}");
-    }
+    // not block the swap. Run on a blocking pool worker because each
+    // kill shells out and the four kinds add up to multiple subprocess
+    // waits we don't want on a tokio runtime thread.
+    let inst_for_kill = instance.clone();
+    let _ = tokio::task::spawn_blocking(move || inst_for_kill.kill_all_tmux_sessions()).await;
     instance.cockpit_mode = true;
 
     // Persist before spawning so a crash mid-swap leaves us in the

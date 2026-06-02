@@ -3013,6 +3013,44 @@ impl Instance {
         Ok(())
     }
 
+    /// Kill every tmux session owned by this instance: the agent session,
+    /// the web terminal pane, the container terminal, and any tool
+    /// sub-sessions sharing this instance's id. Best-effort and silent at
+    /// the user-facing layer; per-kind failures are logged at `debug!`
+    /// level for forensics. Use this from any path that severs an
+    /// instance from its tmux footprint (deletion, force-remove, mode
+    /// switch) so no kind is forgotten.
+    pub fn kill_all_tmux_sessions(&self) {
+        if let Err(e) = self.kill() {
+            tracing::debug!(
+                target: "session.tmux_cleanup",
+                session_id = %self.id,
+                kind = "agent",
+                error = %e,
+                "kill_all_tmux_sessions: kill failed"
+            );
+        }
+        if let Err(e) = self.kill_terminal() {
+            tracing::debug!(
+                target: "session.tmux_cleanup",
+                session_id = %self.id,
+                kind = "terminal",
+                error = %e,
+                "kill_all_tmux_sessions: kill failed"
+            );
+        }
+        if let Err(e) = self.kill_container_terminal() {
+            tracing::debug!(
+                target: "session.tmux_cleanup",
+                session_id = %self.id,
+                kind = "container_terminal",
+                error = %e,
+                "kill_all_tmux_sessions: kill failed"
+            );
+        }
+        crate::tmux::kill_all_tool_sessions_for_id(&self.id);
+    }
+
     /// Stop the session: kill the tmux session and stop the Docker container
     /// (if sandboxed). The container is stopped but not removed, so it can be
     /// restarted on re-attach.
