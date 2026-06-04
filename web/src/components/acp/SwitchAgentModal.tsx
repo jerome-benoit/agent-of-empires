@@ -64,11 +64,22 @@ export function SwitchAgentModal({
 
   const rateLimited = trigger === "rate_limit";
 
+  // Reset loading/error when deps change (render-time to avoid effect-based setState).
+  // Track the key even while closed so reopening with the same agent/trigger still
+  // re-triggers the reset (the key flips on the close, then again on the reopen).
+  const [depKey, setDepKey] = useState(() => `${open}-${currentAgent}-${rateLimited}`);
+  const currentKey = `${open}-${currentAgent}-${rateLimited}`;
+  if (currentKey !== depKey) {
+    setDepKey(currentKey);
+    if (open) {
+      setLoading(true);
+      setError(null);
+    }
+  }
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     fetchAcpAgents()
       .then((list) => {
         if (cancelled) return;
@@ -99,7 +110,7 @@ export function SwitchAgentModal({
     return () => {
       cancelled = true;
     };
-  }, [open, currentAgent, rateLimited]);
+  }, [open, currentAgent, rateLimited, depKey]);
 
   // Escape closes; while submitting we don't dismiss so a half-completed
   // switch can finish without leaving the UI in an unknown state.
