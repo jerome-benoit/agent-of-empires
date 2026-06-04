@@ -60,9 +60,12 @@ base("edit a project's base branch from the Projects view", async ({ page }, tes
       timeout: 5_000,
     });
 
-    // Edit the base branch inline.
+    // Edit the base branch via the edit modal.
     await page.getByRole("button", { name: "Edit", exact: true }).click();
-    const editor = page.getByDisplayValue("develop");
+    const editor = page.getByPlaceholder(
+      "blank = inherit global default, then auto-detect",
+    );
+    await expect(editor).toHaveValue("develop");
     await editor.fill("release");
     await page.getByRole("button", { name: "Save", exact: true }).click();
 
