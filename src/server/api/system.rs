@@ -935,8 +935,18 @@ pub async fn rename_profile(
     }
     let old = name;
     let new = body.new_name;
+    let old_for_rewire = old.clone();
+    let new_for_rewire = new.clone();
     match tokio::task::spawn_blocking(move || crate::session::rename_profile(&old, &new)).await {
-        Ok(Ok(())) => (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response(),
+        Ok(Ok(())) => {
+            // Drop the old name's stale handle (its canonical dir no longer
+            // matches kernel events) and subscribe the new name. The ~ms gap
+            // between unsubscribe and subscribe is covered by the 2s polling
+            // canonical path; the watcher only adds latency reduction.
+            crate::server::unsubscribe_profile_disk_watch(&state, &old_for_rewire).await;
+            crate::server::rewire_disk_watch_for_profile_add(&state, &new_for_rewire).await;
+            (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
+        }
         Ok(Err(e)) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "rename_failed", "message": e.to_string()})),

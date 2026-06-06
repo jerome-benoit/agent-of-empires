@@ -25,6 +25,7 @@ use agent_of_empires::file_watch::FileWatchService;
 use agent_of_empires::server::test_support::build_test_app_state;
 use agent_of_empires::server::{
     rewire_disk_watch_for_profile_add, rewire_disk_watch_for_profile_remove,
+    unsubscribe_profile_disk_watch,
 };
 use serial_test::serial;
 use tempfile::TempDir;
@@ -59,6 +60,47 @@ async fn dynamic_profile_rewire_inserts_and_removes_entries() {
             "remove must drop the per-profile entry"
         );
     }
+}
+
+#[tokio::test]
+#[serial]
+async fn rewire_after_rename_drops_old_subscribes_new() {
+    // Locks the rewire pair invoked by `rename_profile` in
+    // `src/server/api/system.rs`. Without these two calls the old
+    // canonical dir's handle leaks and the renamed dir is unwatched.
+    let temp = tempfile::tempdir().unwrap();
+    isolate_home(temp.path());
+    let _ = agent_of_empires::session::get_profile_dir("rename-old").expect("profile dir");
+    let _ = agent_of_empires::session::get_profile_dir("rename-new").expect("profile dir");
+
+    let state = build_test_app_state(Vec::new());
+    let live = FileWatchService::new().expect("live svc");
+    let mut state_mut = Arc::try_unwrap(state).map_err(|_| ()).expect("unique");
+    state_mut.file_watch = live;
+    let state = Arc::new(state_mut);
+
+    rewire_disk_watch_for_profile_add(&state, "rename-old").await;
+    assert!(
+        state
+            .disk_watch_handles
+            .lock()
+            .await
+            .contains_key("rename-old"),
+        "precondition: old profile subscription must be present"
+    );
+
+    unsubscribe_profile_disk_watch(&state, "rename-old").await;
+    rewire_disk_watch_for_profile_add(&state, "rename-new").await;
+
+    let handles = state.disk_watch_handles.lock().await;
+    assert!(
+        !handles.contains_key("rename-old"),
+        "old subscription must be removed; otherwise rename leaks the stale handle"
+    );
+    assert!(
+        handles.contains_key("rename-new"),
+        "new subscription must be installed; otherwise renamed profile loses live propagation"
+    );
 }
 
 #[tokio::test]
