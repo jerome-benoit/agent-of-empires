@@ -64,6 +64,22 @@ impl Status {
             Status::Creating => "creating",
         }
     }
+
+    /// Whether this status blocks an in-place worktree edit (move dir /
+    /// rename branch). The worktree's checkout must be quiescent: an
+    /// actively running agent, a session mid-start, or one being
+    /// created/deleted can hold the directory or race the metadata write.
+    /// Idle/Stopped/Error/Unknown sessions are safe to edit.
+    pub fn blocks_worktree_edit(self) -> bool {
+        matches!(
+            self,
+            Status::Running
+                | Status::Waiting
+                | Status::Starting
+                | Status::Creating
+                | Status::Deleting
+        )
+    }
 }
 
 /// Outcome of a `start_with_resume_fallback` cascade.
@@ -80,7 +96,7 @@ pub enum StartOutcome {
     /// conversation is gone. `stale_sid` is the sid that was cleared.
     Restarted { stale_sid: String },
     /// No resume cascade ran. Either no prior sid, the agent doesn't support
-    /// resume, the sid was invalid, the session is cockpit-mode (no tmux
+    /// resume, the sid was invalid, the session is structured view-mode (no tmux
     /// pane), or the tmux session was already alive when entered (so
     /// `start_with_size_opts` was a no-op and the probe had nothing to
     /// detect). The pane is alive on return; whether a fresh launch
@@ -105,7 +121,7 @@ pub enum LaunchSidOutcome {
     /// or `None`. No prior conversation continued.
     Fresh,
     /// `start_with_size_opts` short-circuited before `apply_session_flags`
-    /// ran: cockpit-mode session, or pre-existing tmux pane (kill_clean
+    /// ran: structured view-mode session, or pre-existing tmux pane (kill_clean
     /// cache race). `agent_session_id` was not mutated this call.
     Skipped,
 }
@@ -163,6 +179,26 @@ pub enum EnsureReadyOutcome {
     Started { stale_sid: Option<String> },
 }
 
+/// How a session is rendered. `Structured` uses the ACP-based native
+/// rendering (plan panels, tool-call cards, approvals); `Terminal` streams
+/// the raw tmux/PTY through xterm.js. `Terminal` is the conservative
+/// deserialization default; session creation sets the value explicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum View {
+    #[default]
+    Terminal,
+    Structured,
+}
+
+impl View {
+    /// `skip_serializing_if` predicate: only the non-default `Structured`
+    /// value is persisted, mirroring the old `structured_view` bool shape.
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, View::Terminal)
+    }
+}
+
 /// Errors `ensure_pane_ready` can return. Separating transient lifecycle
 /// states from real tmux failures lets HTTP callers map them to 409 (retry)
 /// vs 500 (real failure) instead of lumping everything as a tmux error.
@@ -170,8 +206,8 @@ pub enum EnsureReadyOutcome {
 pub enum EnsureReadyError {
     /// Instance is mid-lifecycle (Creating/Deleting). Caller should retry.
     Transient(Status),
-    /// Instance is cockpit-mode (no backing tmux pane); send is not supported.
-    CockpitMode,
+    /// Instance is structured view-mode (no backing tmux pane); send is not supported.
+    StructuredView,
     /// Underlying tmux operation failed.
     Tmux(anyhow::Error),
 }
@@ -185,9 +221,9 @@ impl std::fmt::Display for EnsureReadyError {
                     "Session is mid-lifecycle ({status:?}); cannot send right now"
                 )
             }
-            EnsureReadyError::CockpitMode => write!(
+            EnsureReadyError::StructuredView => write!(
                 f,
-                "Cockpit-mode sessions have no tmux pane; send is not supported"
+                "Acp-mode sessions have no tmux pane; send is not supported"
             ),
             EnsureReadyError::Tmux(e) => write!(f, "{e}"),
         }
@@ -196,7 +232,7 @@ impl std::fmt::Display for EnsureReadyError {
 
 impl std::error::Error for EnsureReadyError {}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorktreeInfo {
     pub branch: String,
     pub main_repo_path: String,
@@ -374,9 +410,9 @@ pub struct Instance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snoozed_until: Option<DateTime<Utc>>,
 
-    /// Internal cockpit idle-dormancy marker. Set by the reconciler's
-    /// idle-reap pass when a cockpit worker is shut down for inactivity
-    /// (`cockpit.auto_stop_idle_secs`); while set, the reconciler skips
+    /// Internal structured view idle-dormancy marker. Set by the reconciler's
+    /// idle-reap pass when a structured view worker is shut down for inactivity
+    /// (`acp.auto_stop_idle_secs`); while set, the reconciler skips
     /// respawning the worker, so the session stays stopped until the
     /// user comes back. Cleared by `touch_last_accessed()` (the same
     /// wake path that clears archive/snooze), so the next prompt revives
@@ -470,32 +506,33 @@ pub struct Instance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch_override: Option<String>,
 
-    /// Whether this session uses the ACP cockpit instead of a tmux pane.
-    /// When true, aoe spawns an ACP agent subprocess and renders structured
-    /// events natively; tmux integration is bypassed for this session.
+    /// How this session is rendered: `Structured` (ACP native rendering) or
+    /// `Terminal` (raw tmux pane). When `Structured`, aoe spawns an ACP agent
+    /// subprocess and renders structured events natively; tmux integration is
+    /// bypassed for this session.
     #[cfg(feature = "serve")]
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub cockpit_mode: bool,
-    /// Optional cockpit agent name (e.g., "claude-code", "aoe-agent",
-    /// "gemini"). When None, the cockpit picks the default for the
+    #[serde(default, skip_serializing_if = "View::is_terminal")]
+    pub view: View,
+    /// Optional structured view agent name (e.g., "claude-code", "aoe-agent",
+    /// "gemini"). When None, the structured view picks the default for the
     /// session's tool.
     #[cfg(feature = "serve")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cockpit_agent: Option<String>,
+    pub agent_name: Option<String>,
     /// Optional model id forwarded to aoe-agent (e.g., "claude-opus-4-7",
     /// "gpt-5", "llama3.3:ollama").
     #[cfg(feature = "serve")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cockpit_model: Option<String>,
+    pub agent_model: Option<String>,
     /// Agent-assigned ACP session id captured from `session/new`. When
     /// the agent advertises `agent_capabilities.load_session = true`
     /// (claude-agent-acp does), the next spawn calls `session/load`
     /// with this id so the agent reloads its on-disk transcript and
     /// the model retains context across `aoe serve` restarts. Cleared
-    /// on cockpit_disable, session delete, or `session/load` failure.
+    /// on acp_disable, session delete, or `session/load` failure.
     #[cfg(feature = "serve")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cockpit_acp_session_id: Option<String>,
+    pub acp_session_id: Option<String>,
 
     // Runtime state (not serialized)
     #[serde(skip)]
@@ -627,6 +664,20 @@ pub(crate) enum SidWrite {
     Failed,
 }
 
+/// Caller contract for `persist_session_id`: whether to publish the
+/// post-CAS `agent_session_id` to the tmux hidden env.
+///
+/// `Published`: memory reflects disk (Applied: just committed; Skipped:
+/// reloaded). Caller publishes.
+/// `Skip`: memory unchanged on invalid sid, storage error, or row gone.
+/// Caller must not touch env.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SidPersistOutcome {
+    Published,
+    Skip,
+}
+
 /// CAS-write `agent_session_id` to disk. Caller passes the value the
 /// in-memory mirror held at last reconcile as `expected_prior`; the closure
 /// inside `Storage::update`'s flock skips the write if disk has diverged
@@ -740,13 +791,13 @@ impl Instance {
             notify_on_error: None,
             base_branch_override: None,
             #[cfg(feature = "serve")]
-            cockpit_mode: false,
+            view: View::Terminal,
             #[cfg(feature = "serve")]
-            cockpit_agent: None,
+            agent_name: None,
             #[cfg(feature = "serve")]
-            cockpit_model: None,
+            agent_model: None,
             #[cfg(feature = "serve")]
-            cockpit_acp_session_id: None,
+            acp_session_id: None,
             last_error_check: None,
             last_start_time: None,
             last_error: None,
@@ -776,14 +827,14 @@ impl Instance {
         self.idle_dormant_since = None;
     }
 
-    /// Whether this session's cockpit worker was auto-stopped for
+    /// Whether this session's structured view worker was auto-stopped for
     /// inactivity and should not be respawned by the reconciler until the
     /// user wakes it. See `idle_dormant_since` and #1689.
     pub fn is_idle_dormant(&self) -> bool {
         self.idle_dormant_since.is_some()
     }
 
-    /// Mark the session dormant after its cockpit worker was auto-stopped
+    /// Mark the session dormant after its structured view worker was auto-stopped
     /// for inactivity. Idempotent: re-marking refreshes the timestamp.
     pub fn mark_idle_dormant(&mut self) {
         self.idle_dormant_since = Some(Utc::now());
@@ -945,6 +996,15 @@ impl Instance {
         }
         if pre.base_branch_override != post.base_branch_override {
             self.base_branch_override = post.base_branch_override.clone();
+        }
+        // Worktree workdir edit (move dir / rename branch) mutates these two;
+        // both the TUI and the CLI can write them, so they go through the
+        // same conditional-diff path as the triage fields. See #1723.
+        if pre.project_path != post.project_path {
+            self.project_path = post.project_path.clone();
+        }
+        if pre.worktree_info != post.worktree_info {
+            self.worktree_info = post.worktree_info.clone();
         }
         if pre.status != post.status {
             self.status = post.status;
@@ -1177,14 +1237,13 @@ impl Instance {
         self.yolo_mode
     }
 
-    /// True when this session runs through the ACP cockpit (managed by
-    /// `aoe serve`'s supervisor) rather than a tmux pane. Always false
-    /// when the `serve` feature is disabled, since the field doesn't
-    /// exist and no session can be in cockpit mode.
-    pub fn is_cockpit_mode(&self) -> bool {
+    /// True when this session renders in the structured (ACP) view rather
+    /// than a tmux pane. Always false when the `serve` feature is disabled,
+    /// since the field doesn't exist and no session can be structured.
+    pub fn is_structured(&self) -> bool {
         #[cfg(feature = "serve")]
         {
-            self.cockpit_mode
+            self.view == View::Structured
         }
         #[cfg(not(feature = "serve"))]
         {
@@ -1502,7 +1561,7 @@ impl Instance {
 
         let cmd = container.exec_command(
             Some(&format!("-w {} {}", container_workdir, env_part)),
-            "/bin/bash",
+            CONTAINER_TERMINAL_AUTODETECT_CMD,
         );
 
         // If there are secret env vars, prepend shell exports and use `exec`
@@ -1594,17 +1653,17 @@ impl Instance {
         // Validate before any shell-command construction in
         // `build_launch_command` (covers `status_hook_env_prefix` and
         // the sandbox docker_args interpolation). Runs before the
-        // cockpit short-circuit so a tampered id surfaces as `Err` for
-        // cockpit sessions too.
+        // structured view short-circuit so a tampered id surfaces as `Err` for
+        // structured view sessions too.
         crate::session::validate_instance_id(&self.id)
             .context("refusing to launch: AOE_INSTANCE_ID failed validation")?;
 
-        // Cockpit-mode sessions are not backed by tmux. The cockpit
+        // Acp-mode sessions are not backed by tmux. The structured view
         // worker supervisor spawns the ACP agent process directly;
-        // calling start() on a cockpit session is a no-op (status
+        // calling start() on a structured view session is a no-op (status
         // updates flow through the ACP event channel, not tmux).
         #[cfg(feature = "serve")]
-        if self.cockpit_mode {
+        if self.is_structured() {
             return Ok(LaunchSidOutcome::Skipped);
         }
 
@@ -1663,7 +1722,7 @@ impl Instance {
     }
 
     /// Build the launch command string the way `start_with_size_opts` would,
-    /// but without creating a tmux session. Returns `None` for cockpit or
+    /// but without creating a tmux session. Returns `None` for structured view or
     /// other modes where there is no command to launch.
     ///
     /// Side effects mirror the start path: agent status hooks are installed,
@@ -1961,7 +2020,12 @@ impl Instance {
         expected_prior_sid: Option<&str>,
         expected_prior_intent: ResumeIntent,
     ) {
-        let claude_sid: Option<String> = if self.tool == "claude" {
+        let outcome = self.persist_session_id(profile, expected_prior_sid, expected_prior_intent);
+
+        // Skip outcomes leave AOE_CAPTURED_SESSION_ID untouched: this path
+        // runs before any poller publish, so env is empty for fresh sessions.
+        let publish_sid = matches!(outcome, SidPersistOutcome::Published);
+        let captured_sid: Option<String> = if publish_sid {
             self.agent_session_id.clone()
         } else {
             None
@@ -1972,7 +2036,7 @@ impl Instance {
             crate::tmux::env::AOE_INSTANCE_ID_KEY,
             &self.id,
         )];
-        if let Some(ref sid) = claude_sid {
+        if let Some(ref sid) = captured_sid {
             entries.push((
                 session_name,
                 crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
@@ -1985,7 +2049,17 @@ impl Instance {
                 "Failed to set tmux env keys [{}] at finalize_launch: {}", keys.join(", "), e);
         }
 
-        self.persist_session_id(profile, expected_prior_sid, expected_prior_intent);
+        if publish_sid && self.agent_session_id.is_none() {
+            if let Err(e) = crate::tmux::env::remove_hidden_env(
+                session_name,
+                crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
+            ) {
+                tracing::warn!(target: "session.store",
+                    instance = %self.id,
+                    "Failed to clear captured sid in tmux env: {}", e);
+            }
+        }
+
         self.maybe_start_poller();
 
         self.status = Status::Starting;
@@ -2032,12 +2106,17 @@ impl Instance {
     /// On sid CAS skip: rollback both fields from disk.
     /// On intent CAS skip with sid match: persist sid, leave intent as
     /// peer wrote it, reload intent in memory.
+    ///
+    /// Returns `Published` if `self.agent_session_id` after return reflects
+    /// disk (Applied: committed under flock; Skipped: reloaded). Returns
+    /// `Skip` for invalid sid early-return, storage error, or `SidWrite::Failed`:
+    /// memory is unchanged and the caller must not touch the tmux env.
     fn persist_session_id(
         &mut self,
         profile: &str,
         expected_prior_sid: Option<&str>,
         expected_prior_intent: ResumeIntent,
-    ) {
+    ) -> SidPersistOutcome {
         let new_sid = self.agent_session_id.clone();
         let promote_cleared = matches!(expected_prior_intent, ResumeIntent::Cleared);
 
@@ -2048,7 +2127,7 @@ impl Instance {
                     sid,
                     self.id
                 );
-                return;
+                return SidPersistOutcome::Skip;
             }
         }
 
@@ -2063,7 +2142,7 @@ impl Instance {
                     self.id,
                     e
                 );
-                return;
+                return SidPersistOutcome::Skip;
             }
         };
 
@@ -2112,20 +2191,37 @@ impl Instance {
                         }
                     }
                 }
+                SidPersistOutcome::Published
             }
-            Ok(SidWrite::Skipped) => {
-                if let Ok(insts) = storage.load() {
-                    if let Some(disk) = insts.into_iter().find(|i| i.id == self.id) {
+            Ok(SidWrite::Skipped) => match storage.load() {
+                Ok(insts) => match insts.into_iter().find(|i| i.id == self.id) {
+                    Some(disk) => {
                         self.agent_session_id = disk.agent_session_id;
                         self.resume_intent = disk.resume_intent;
+                        SidPersistOutcome::Published
                     }
+                    None => {
+                        tracing::warn!(target: "session.store",
+                            "Skipped reload found no row for {}; leaving memory and env untouched",
+                            self.id
+                        );
+                        SidPersistOutcome::Skip
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(target: "session.store",
+                        "Skipped reload failed for {}: {}; leaving memory and env untouched",
+                        self.id, e
+                    );
+                    SidPersistOutcome::Skip
                 }
-            }
+            },
             Ok(SidWrite::Failed) => {
                 tracing::warn!(target: "session.store",
                     "Finalize persist found no instance row for {}",
                     self.id
                 );
+                SidPersistOutcome::Skip
             }
             Err(e) => {
                 tracing::warn!(target: "session.store",
@@ -2133,6 +2229,7 @@ impl Instance {
                     self.id,
                     e
                 );
+                SidPersistOutcome::Skip
             }
         }
     }
@@ -2650,9 +2747,9 @@ impl Instance {
     /// (~100ms macOS grace) + Tier-2 spawn + a second `RESUME_PROBE_MAX`
     /// window: ~6-7s total worst-case.
     ///
-    /// Cockpit-mode sessions short-circuit (no tmux pane to probe).
-    /// `StartOutcome::Fresh` is honest there: cockpit's resume concept lives
-    /// in `cockpit_acp_session_id` and is handled by the ACP supervisor, not
+    /// Acp-mode sessions short-circuit (no tmux pane to probe).
+    /// `StartOutcome::Fresh` is honest there: structured view's resume concept lives
+    /// in `acp_session_id` and is handled by the ACP supervisor, not
     /// by this cascade.
     pub(crate) fn start_with_resume_fallback(
         &mut self,
@@ -2661,7 +2758,7 @@ impl Instance {
     ) -> Result<StartOutcome> {
         // Clear `Status::Error` on entry so a successful relaunch from any
         // restart surface (REST `ensure_session`, TUI Enter/restart, CLI
-        // `aoe session restart [id|--all]`, cockpit-mode short-circuit)
+        // `aoe session restart [id|--all]`, structured view-mode short-circuit)
         // does not leave a stale error chip up. REST `ensure_session`
         // re-asserts `status=Starting`, `last_error=None` pre-call as
         // defense in depth.
@@ -2680,7 +2777,7 @@ impl Instance {
         }
 
         #[cfg(feature = "serve")]
-        if self.cockpit_mode {
+        if self.is_structured() {
             let _ = self.start_with_size_opts(size, skip_on_launch)?;
             return Ok(StartOutcome::Fresh);
         }
@@ -2872,7 +2969,7 @@ impl Instance {
     /// - Already alive: no-op.
     ///
     /// Bails on Creating/Deleting (transient lifecycle states) and on
-    /// cockpit-mode sessions (no backing tmux pane).
+    /// structured view-mode sessions (no backing tmux pane).
     ///
     /// On `Started` / `Respawned`, polls briefly so keystrokes don't race the
     /// agent's startup splash. Best-effort: returns after the timeout even if
@@ -2896,8 +2993,8 @@ impl Instance {
             return Err(EnsureReadyError::Transient(self.status));
         }
         #[cfg(feature = "serve")]
-        if self.cockpit_mode {
-            return Err(EnsureReadyError::CockpitMode);
+        if self.is_structured() {
+            return Err(EnsureReadyError::StructuredView);
         }
         let session = self.tmux_session().map_err(EnsureReadyError::Tmux)?;
         if !session.exists() {
@@ -2973,6 +3070,51 @@ impl Instance {
         Ok(())
     }
 
+    /// Kill every tmux session owned by this instance (agent, web
+    /// terminal, container terminal, tool sub-sessions). Best-effort
+    /// and silent; agent/terminal/container terminal failures log at
+    /// `debug!` target `session.tmux_cleanup`. Tool sub-sessions are
+    /// silent by design via `kill_all_tool_sessions_for_id`.
+    pub fn kill_all_tmux_sessions(&self) {
+        if let Err(e) = self.kill() {
+            tracing::debug!(
+                target: "session.tmux_cleanup",
+                session_id = %self.id,
+                kind = "agent",
+                error = %e,
+                "kill_all_tmux_sessions: kill failed"
+            );
+        }
+        self.kill_ancillary_tmux_sessions();
+    }
+
+    /// Kill every tmux session owned by this instance EXCEPT the agent
+    /// session (web terminal, container terminal, tool sub-sessions).
+    /// Used by call sites that want to handle the agent kill failure
+    /// with caller-specific tracing while still letting all other
+    /// kinds be cleaned up consistently.
+    pub fn kill_ancillary_tmux_sessions(&self) {
+        if let Err(e) = self.kill_terminal() {
+            tracing::debug!(
+                target: "session.tmux_cleanup",
+                session_id = %self.id,
+                kind = "terminal",
+                error = %e,
+                "kill_ancillary_tmux_sessions: kill failed"
+            );
+        }
+        if let Err(e) = self.kill_container_terminal() {
+            tracing::debug!(
+                target: "session.tmux_cleanup",
+                session_id = %self.id,
+                kind = "container_terminal",
+                error = %e,
+                "kill_ancillary_tmux_sessions: kill failed"
+            );
+        }
+        crate::tmux::kill_all_tool_sessions_for_id(&self.id);
+    }
+
     /// Stop the session: kill the tmux session and stop the Docker container
     /// (if sandboxed). The container is stopped but not removed, so it can be
     /// restarted on re-attach.
@@ -3015,15 +3157,15 @@ impl Instance {
             return;
         }
 
-        // Cockpit-mode sessions are not backed by a tmux pane; the cockpit
+        // Acp-mode sessions are not backed by a tmux pane; the structured view
         // worker supervisor owns their lifecycle and emits typed health
         // events over the broadcast. Probing tmux here only ever produces
         // a spurious "tmux session is gone" Error transition.
         #[cfg(feature = "serve")]
-        if self.cockpit_mode {
+        if self.is_structured() {
             // Clear any stale tmux-derived error so the UI doesn't show
             // a misleading message after a session is converted or
-            // restarted with cockpit_mode on.
+            // restarted in the structured view.
             if self.last_error.as_deref()
                 == Some("tmux session is gone. The agent process may have exited or been killed.")
             {
@@ -3125,15 +3267,26 @@ impl Instance {
                     self.last_error = Some(summarize_error_from_pane(&pane_content));
                 }
             } else {
-                self.status = if detection_tool == "codex" && hook_status == Status::Running {
+                // Codex and Claude both report Running from hooks while their
+                // pane is actually parked on a blocking prompt, so when the
+                // hook says Running we capture the pane and let the agent's
+                // reconciler downgrade it (Codex: plan/numbered prompts;
+                // Claude: tool-approval prompts, see #1913).
+                let reconciles_running = detection_tool == "codex" || detection_tool == "claude";
+                self.status = if reconciles_running && hook_status == Status::Running {
                     match session.capture_pane(50) {
                         Ok(pane_content) => {
-                            tmux::reconcile_codex_hook_status(hook_status, &pane_content)
+                            if detection_tool == "codex" {
+                                tmux::reconcile_codex_hook_status(hook_status, &pane_content)
+                            } else {
+                                tmux::reconcile_claude_hook_status(hook_status, &pane_content)
+                            }
                         }
                         Err(e) => {
                             tracing::trace!(
-                                "status '{}': codex hook fallback pane capture failed: {}",
+                                "status '{}': {} hook fallback pane capture failed: {}",
                                 self.title,
+                                detection_tool,
                                 e
                             );
                             hook_status
@@ -3308,6 +3461,25 @@ fn apply_agent_launch_env(cmd: &mut String, agent: Option<&'static crate::agents
 
 /// Wrap a command to disable Ctrl-Z (SIGTSTP) suspension.
 ///
+/// Command run inside the sandbox container for the web Container terminal tab.
+///
+/// Resolves the container user's login shell at spawn time, inside the container,
+/// and execs it as a login shell so profile/rc files load (parity with the Host
+/// terminal tab, which launches the user's default shell as a login shell).
+/// Resolution order: the passwd entry (the authoritative login shell, what
+/// `chsh` writes and what `login(1)` reads into `$SHELL`), then the container's
+/// `$SHELL`, then bash, sh. Passwd comes first because `docker exec` never goes
+/// through `login(1)`, so `$SHELL` is usually unset or a generic image default
+/// rather than the user's configured shell. Each candidate is run through
+/// `command -v` so an unset, stale, or non-executable value falls through to the
+/// next instead of killing the pane.
+///
+/// The single-quoted body is evaluated by the container's `sh`, not the host
+/// shell tmux uses to spawn the session, so the embedded `$()` runs in the
+/// container. The host does not propagate its own `$SHELL` into the container,
+/// so this reads the container's value, not the host's.
+const CONTAINER_TERMINAL_AUTODETECT_CMD: &str = r#"sh -c 'exec "$(command -v "$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f7)" 2>/dev/null || command -v "$SHELL" 2>/dev/null || command -v bash || command -v sh)" -l'"#;
+
 /// When running agents directly as tmux session commands (without a parent shell),
 /// pressing Ctrl-Z suspends the process with no way to recover via job control.
 /// This wrapper disables the suspend character at the terminal level before exec'ing
@@ -3449,6 +3621,26 @@ fn pane_has_agent_content(raw_content: &str, tool: &str) -> bool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn container_terminal_autodetect_cmd_resolves_login_shell() {
+        let cmd = CONTAINER_TERMINAL_AUTODETECT_CMD;
+        // Resolution order: passwd entry first (authoritative, since docker exec
+        // skips login(1) and so $SHELL is usually unset), then $SHELL, then
+        // bash, sh. Each candidate is guarded by `command -v` so an unset, stale,
+        // or non-executable value falls through rather than killing the pane.
+        assert!(cmd.contains("getent passwd"));
+        assert!(cmd.contains(r#"command -v "$SHELL""#));
+        assert!(cmd.contains("command -v bash"));
+        assert!(cmd.contains("command -v sh"));
+        // Passwd is resolved ahead of $SHELL.
+        assert!(cmd.find("getent passwd").unwrap() < cmd.find(r#"command -v "$SHELL""#).unwrap());
+        // Login shell so profile/rc files load, matching the Host terminal tab.
+        assert!(cmd.contains("-l"));
+        // Single-quoted body: the embedded command substitution is evaluated by
+        // the container's sh, not the host shell tmux spawns the session with.
+        assert!(cmd.starts_with("sh -c '"));
+    }
+
     struct CodexHomeGuard(Option<String>);
     impl CodexHomeGuard {
         fn unset() -> Self {
@@ -3490,7 +3682,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let _codex_home_guard = CodexHomeGuard::unset();
         std::env::set_var("HOME", tmp.path());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         std::env::set_var("XDG_CONFIG_HOME", tmp.path().join(".config"));
 
         let mut inst = Instance::new("wrapped", "/tmp/test");
@@ -3511,7 +3703,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let _codex_home_guard = CodexHomeGuard::unset();
         std::env::set_var("HOME", tmp.path());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         std::env::set_var("XDG_CONFIG_HOME", tmp.path().join(".config"));
 
         let codex_home = tmp.path().join("profile-codex-home");
@@ -3541,7 +3733,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let _codex_home_guard = CodexHomeGuard::unset();
         std::env::set_var("HOME", tmp.path());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         std::env::set_var("XDG_CONFIG_HOME", tmp.path().join(".config"));
 
         let profile_dir = crate::session::get_profile_dir("hooks-disabled").unwrap();
@@ -3566,7 +3758,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let _codex_home_guard = CodexHomeGuard::unset();
         std::env::set_var("HOME", tmp.path());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         std::env::set_var("XDG_CONFIG_HOME", tmp.path().join(".config"));
 
         let mut global = crate::session::config::Config::default();
@@ -4153,12 +4345,12 @@ mod tests {
 
     #[cfg(feature = "serve")]
     #[test]
-    fn test_ensure_pane_ready_bails_on_cockpit_mode() {
+    fn test_ensure_pane_ready_bails_on_structured() {
         let mut inst = Instance::new("test", "/tmp/test");
-        inst.cockpit_mode = true;
+        inst.view = View::Structured;
         match inst.ensure_pane_ready() {
-            Err(EnsureReadyError::CockpitMode) => {}
-            other => panic!("expected CockpitMode, got {other:?}"),
+            Err(EnsureReadyError::StructuredView) => {}
+            other => panic!("expected StructuredView, got {other:?}"),
         }
     }
 
@@ -4628,24 +4820,24 @@ mod tests {
 
     #[cfg(feature = "serve")]
     #[test]
-    fn test_instance_cockpit_acp_session_id_roundtrip() {
+    fn test_instance_acp_acp_session_id_roundtrip() {
         let mut inst = Instance::new("Test", "/tmp/test");
-        inst.cockpit_mode = true;
-        inst.cockpit_acp_session_id = Some("acp-uuid-1234".to_string());
+        inst.view = View::Structured;
+        inst.acp_session_id = Some("acp-uuid-1234".to_string());
 
         let json = serde_json::to_string(&inst).unwrap();
-        assert!(json.contains("cockpit_acp_session_id"));
+        assert!(json.contains("acp_session_id"));
         let deserialized: Instance = serde_json::from_str(&json).unwrap();
         assert_eq!(
-            deserialized.cockpit_acp_session_id,
+            deserialized.acp_session_id,
             Some("acp-uuid-1234".to_string())
         );
 
         // None should not be serialized.
         let mut inst2 = Instance::new("Test", "/tmp/test");
-        inst2.cockpit_mode = true;
+        inst2.view = View::Structured;
         let json2 = serde_json::to_string(&inst2).unwrap();
-        assert!(!json2.contains("cockpit_acp_session_id"));
+        assert!(!json2.contains("acp_session_id"));
     }
 
     #[test]
@@ -4963,9 +5155,9 @@ mod tests {
 
     #[cfg(feature = "serve")]
     #[test]
-    fn start_with_size_opts_returns_skipped_for_cockpit_mode() {
+    fn start_with_size_opts_returns_skipped_for_structured() {
         let mut inst = Instance::new("Test", "/tmp/test");
-        inst.cockpit_mode = true;
+        inst.view = View::Structured;
         let outcome = inst.start_with_size_opts(None, false).unwrap();
         assert_eq!(outcome, LaunchSidOutcome::Skipped);
     }
@@ -5461,7 +5653,7 @@ mod tests {
         fn persist_session_to_storage_skips_on_cas_mismatch() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
@@ -5491,7 +5683,7 @@ mod tests {
         fn persist_session_to_storage_writes_on_cas_match() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
@@ -5521,7 +5713,7 @@ mod tests {
         fn reconcile_from_disk_picks_up_peer_persist() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage = crate::session::storage::Storage::new_for_test("reconcile-test").unwrap();
@@ -5560,7 +5752,7 @@ mod tests {
         fn reconcile_from_disk_picks_up_peer_clear() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
@@ -5711,7 +5903,7 @@ mod tests {
         fn reconcile_from_disk_picks_up_peer_resume_intent() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
@@ -5778,7 +5970,7 @@ mod tests {
         fn reconcile_sidecar_adopts_fresh_sid_for_claude_default() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "sidecar-adopt";
@@ -5816,7 +6008,7 @@ mod tests {
         fn reconcile_sidecar_noop_when_tool_not_claude() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "sidecar-noop-tool";
@@ -5848,7 +6040,7 @@ mod tests {
         fn reconcile_sidecar_noop_when_intent_use() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "sidecar-noop-use";
@@ -5880,7 +6072,7 @@ mod tests {
         fn reconcile_sidecar_noop_when_intent_cleared() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "sidecar-noop-cleared";
@@ -5912,7 +6104,7 @@ mod tests {
         fn reconcile_sidecar_noop_when_sid_in_retroactive_excludes() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "sidecar-noop-excluded";
@@ -5946,7 +6138,7 @@ mod tests {
         fn reconcile_sidecar_noop_when_sidecar_absent() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "sidecar-absent";
@@ -5975,7 +6167,7 @@ mod tests {
         fn reconcile_sidecar_reloads_on_cas_skip() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "sidecar-cas-skip";
@@ -6027,7 +6219,7 @@ mod tests {
         fn persist_session_id_reloads_memory_on_skipped() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
@@ -6051,7 +6243,7 @@ mod tests {
             // Daemon thinks disk is "stale" but peer wrote "peer-wrote".
             // After persist_session_id, in-memory should converge on disk.
             inst.agent_session_id = Some("daemon-fresh".to_string());
-            inst.persist_session_id(
+            let _ = inst.persist_session_id(
                 "persist-skipped-reload",
                 Some("stale"),
                 ResumeIntent::Default,
@@ -6065,7 +6257,7 @@ mod tests {
         fn persist_session_id_atomic_writes_both_fields_on_match() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
@@ -6088,7 +6280,7 @@ mod tests {
                 .unwrap();
 
             inst.agent_session_id = Some("019342ab-1234-7def-8901-abcdef012345".to_string());
-            inst.persist_session_id("persist-atomic-match", None, ResumeIntent::Cleared);
+            let _ = inst.persist_session_id("persist-atomic-match", None, ResumeIntent::Cleared);
 
             let loaded = storage.load().unwrap();
             assert_eq!(
@@ -6109,7 +6301,7 @@ mod tests {
         fn persist_session_id_writes_sid_only_on_default_intent() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
@@ -6132,7 +6324,7 @@ mod tests {
                 .unwrap();
 
             inst.agent_session_id = Some("019342ab-1234-7def-8901-abcdef012345".to_string());
-            inst.persist_session_id("persist-default-intent", None, ResumeIntent::Default);
+            let _ = inst.persist_session_id("persist-default-intent", None, ResumeIntent::Default);
 
             let loaded = storage.load().unwrap();
             assert_eq!(
@@ -6152,7 +6344,7 @@ mod tests {
         fn persist_session_id_persists_sid_when_intent_cas_mismatches() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
@@ -6182,7 +6374,7 @@ mod tests {
                 .unwrap();
 
             inst.agent_session_id = Some("019342ab-1234-7def-8901-abcdef012345".to_string());
-            inst.persist_session_id("persist-intent-mismatch", None, ResumeIntent::Cleared);
+            let _ = inst.persist_session_id("persist-intent-mismatch", None, ResumeIntent::Cleared);
 
             let loaded = storage.load().unwrap();
             assert_eq!(
@@ -6207,7 +6399,7 @@ mod tests {
         fn persist_session_id_skipped_reloads_both_fields() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
@@ -6232,7 +6424,7 @@ mod tests {
 
             inst.agent_session_id = Some("daemon-fresh".to_string());
             inst.resume_intent = ResumeIntent::Cleared;
-            inst.persist_session_id(
+            let _ = inst.persist_session_id(
                 "persist-skipped-reload-both",
                 Some("stale"),
                 ResumeIntent::Cleared,
@@ -6267,7 +6459,7 @@ mod tests {
         fn clear_for_resume_fallback_atomically_clears_and_downgrades() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "fallback-clear-happy";
@@ -6293,7 +6485,7 @@ mod tests {
         fn clear_for_resume_fallback_intent_already_default() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "fallback-clear-default";
@@ -6318,7 +6510,7 @@ mod tests {
         fn clear_for_resume_fallback_preserves_user_repin() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "fallback-clear-repin";
@@ -6358,7 +6550,7 @@ mod tests {
         fn clear_for_resume_fallback_skips_on_sid_cas_mismatch() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "fallback-clear-sid-mismatch";
@@ -6403,7 +6595,7 @@ mod tests {
         fn clear_for_resume_fallback_heals_legacy_stuck_state() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "fallback-clear-heal-legacy";
@@ -6440,7 +6632,7 @@ mod tests {
         fn clear_for_resume_fallback_skips_on_user_repin_with_none_sid() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "fallback-clear-repin-none-sid";
@@ -6481,7 +6673,7 @@ mod tests {
         fn clear_for_resume_fallback_intent_cleared_not_downgraded() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "fallback-clear-intent-cleared";
@@ -6510,7 +6702,7 @@ mod tests {
         fn clear_for_resume_fallback_returns_failed_on_missing_row() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let profile = "fallback-clear-missing";
@@ -6532,14 +6724,14 @@ mod tests {
         #[cfg(feature = "serve")]
         #[test]
         #[serial]
-        fn restart_outcome_for_cockpit_session_is_fresh() {
+        fn restart_outcome_for_acp_session_is_fresh() {
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
-            let mut inst = Instance::new("cockpit_test", "/tmp/x");
-            inst.cockpit_mode = true;
+            let mut inst = Instance::new("acp_test", "/tmp/x");
+            inst.view = crate::session::instance::View::Structured;
             inst.agent_session_id = Some("11111111-1111-1111-1111-111111111111".to_string());
             inst.tool = "claude".to_string();
 
@@ -6560,7 +6752,7 @@ mod tests {
             }
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage = crate::session::storage::Storage::new_for_test("fb-test").unwrap();
@@ -6634,7 +6826,7 @@ mod tests {
             }
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let _storage = crate::session::storage::Storage::new_for_test("fb-test-live").unwrap();
@@ -6716,7 +6908,7 @@ mod tests {
             }
             let temp = tempdir().unwrap();
             std::env::set_var("HOME", temp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let _storage = crate::session::storage::Storage::new_for_test("fb-test-grace").unwrap();
@@ -6799,6 +6991,277 @@ mod tests {
         }
     }
 
+    mod publish_captured_sid {
+        use super::super::{Instance, ResumeIntent};
+        use serial_test::serial;
+        use std::process::Command;
+        use tempfile::{tempdir, TempDir};
+
+        const VALID_SID: &str = "019342ab-1234-7def-8901-abcdef012345";
+        const PEER_SID: &str = "019342aa-2222-7eee-8fff-aaaabbbbcccc";
+
+        struct TmuxSession(String);
+
+        impl TmuxSession {
+            fn create(id: &str, title: &str) -> Self {
+                let name = crate::tmux::Session::generate_name(id, title);
+                let _ = Command::new("tmux")
+                    .args(["kill-session", "-t", &name])
+                    .output();
+                let status = Command::new("tmux")
+                    .args(["new-session", "-d", "-s", &name])
+                    .status()
+                    .expect("failed to spawn tmux");
+                assert!(status.success(), "tmux new-session failed for {}", name);
+                Self(name)
+            }
+            fn name(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl Drop for TmuxSession {
+            fn drop(&mut self) {
+                let _ = Command::new("tmux")
+                    .args(["kill-session", "-t", &self.0])
+                    .output();
+            }
+        }
+
+        fn skip_if_no_tmux() -> bool {
+            if Command::new("tmux").arg("-V").output().is_err() {
+                eprintln!("Skipping: tmux not available");
+                return true;
+            }
+            false
+        }
+
+        fn isolate_home(temp: &TempDir) {
+            std::env::set_var("HOME", temp.path());
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+        }
+
+        fn captured_env(name: &str) -> Option<String> {
+            crate::tmux::env::get_hidden_env(name, crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY)
+        }
+
+        fn make_inst(profile: &str, title: &str) -> Instance {
+            let mut inst = Instance::new(title, "/tmp/x");
+            inst.tool = "claude".to_string();
+            inst.source_profile = profile.to_string();
+            inst
+        }
+
+        fn seed_disk_row(profile: &str, inst: &Instance) {
+            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let on_disk = inst.clone();
+            storage
+                .update(|i, g| {
+                    *i = vec![on_disk.clone()];
+                    *g = crate::session::GroupTree::new_with_groups(
+                        std::slice::from_ref(&on_disk),
+                        &[],
+                    )
+                    .get_all_groups();
+                    Ok(())
+                })
+                .unwrap();
+        }
+
+        #[test]
+        #[serial]
+        fn finalize_publish_applied_writes_env() {
+            if skip_if_no_tmux() {
+                return;
+            }
+            let temp = tempdir().unwrap();
+            isolate_home(&temp);
+
+            let profile = "publish-applied";
+            let mut inst = make_inst(profile, "fpaw");
+            inst.agent_session_id = None;
+            seed_disk_row(profile, &inst);
+
+            let tmux = TmuxSession::create(&inst.id, &inst.title);
+
+            inst.agent_session_id = Some(VALID_SID.to_string());
+            inst.finalize_launch(tmux.name(), profile, None, ResumeIntent::Default);
+
+            assert_eq!(captured_env(tmux.name()).as_deref(), Some(VALID_SID));
+        }
+
+        #[test]
+        #[serial]
+        fn finalize_publish_applied_writes_env_for_non_claude_tool() {
+            if skip_if_no_tmux() {
+                return;
+            }
+            let temp = tempdir().unwrap();
+            isolate_home(&temp);
+
+            let profile = "publish-applied-opencode";
+            let mut inst = make_inst(profile, "fpaw-oc");
+            inst.tool = "opencode".to_string();
+            inst.agent_session_id = None;
+            seed_disk_row(profile, &inst);
+
+            let tmux = TmuxSession::create(&inst.id, &inst.title);
+
+            inst.agent_session_id = Some(VALID_SID.to_string());
+            inst.finalize_launch(tmux.name(), profile, None, ResumeIntent::Default);
+
+            assert_eq!(
+                captured_env(tmux.name()).as_deref(),
+                Some(VALID_SID),
+                "non-claude tools must also publish AOE_CAPTURED_SESSION_ID at finalize"
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn finalize_publish_skipped_disk_some_publishes_disk_value() {
+            if skip_if_no_tmux() {
+                return;
+            }
+            let temp = tempdir().unwrap();
+            isolate_home(&temp);
+
+            let profile = "publish-skipped-some";
+            let mut inst = make_inst(profile, "fpsdspd");
+            inst.agent_session_id = Some(PEER_SID.to_string());
+            seed_disk_row(profile, &inst);
+
+            let tmux = TmuxSession::create(&inst.id, &inst.title);
+
+            inst.agent_session_id = Some(VALID_SID.to_string());
+            inst.finalize_launch(tmux.name(), profile, Some("stale"), ResumeIntent::Default);
+
+            assert_eq!(inst.agent_session_id.as_deref(), Some(PEER_SID));
+            assert_eq!(captured_env(tmux.name()).as_deref(), Some(PEER_SID));
+        }
+
+        #[test]
+        #[serial]
+        fn finalize_publish_skipped_disk_none_unsets_env() {
+            if skip_if_no_tmux() {
+                return;
+            }
+            let temp = tempdir().unwrap();
+            isolate_home(&temp);
+
+            let profile = "publish-skipped-none";
+            let mut inst = make_inst(profile, "fpsdne");
+            inst.agent_session_id = None;
+            seed_disk_row(profile, &inst);
+
+            let tmux = TmuxSession::create(&inst.id, &inst.title);
+            crate::tmux::env::set_hidden_env(
+                tmux.name(),
+                crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
+                "stale-leftover",
+            )
+            .unwrap();
+
+            inst.agent_session_id = Some(VALID_SID.to_string());
+            inst.finalize_launch(tmux.name(), profile, Some("stale"), ResumeIntent::Default);
+
+            assert!(inst.agent_session_id.is_none());
+            assert!(captured_env(tmux.name()).is_none());
+        }
+
+        #[test]
+        #[serial]
+        fn finalize_publish_failed_leaves_env_unchanged() {
+            if skip_if_no_tmux() {
+                return;
+            }
+            let temp = tempdir().unwrap();
+            isolate_home(&temp);
+
+            let profile = "publish-failed";
+            let _ = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let mut inst = make_inst(profile, "fpfle");
+
+            let tmux = TmuxSession::create(&inst.id, &inst.title);
+            crate::tmux::env::set_hidden_env(
+                tmux.name(),
+                crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
+                "stale-untouched",
+            )
+            .unwrap();
+
+            inst.agent_session_id = Some(VALID_SID.to_string());
+            inst.finalize_launch(tmux.name(), profile, None, ResumeIntent::Default);
+
+            assert_eq!(
+                captured_env(tmux.name()).as_deref(),
+                Some("stale-untouched")
+            );
+            assert_eq!(
+                inst.agent_session_id.as_deref(),
+                Some(VALID_SID),
+                "memory must keep the daemon-set sid when persist returns Failed"
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn finalize_publish_invalid_sid_skips_publish() {
+            if skip_if_no_tmux() {
+                return;
+            }
+            let temp = tempdir().unwrap();
+            isolate_home(&temp);
+
+            let profile = "publish-invalid";
+            let mut inst = make_inst(profile, "fpisp");
+            inst.agent_session_id = None;
+            seed_disk_row(profile, &inst);
+
+            let tmux = TmuxSession::create(&inst.id, &inst.title);
+            crate::tmux::env::set_hidden_env(
+                tmux.name(),
+                crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
+                "stale-untouched",
+            )
+            .unwrap();
+
+            inst.agent_session_id = Some("bad sid!".to_string());
+            inst.finalize_launch(tmux.name(), profile, None, ResumeIntent::Default);
+
+            assert_eq!(
+                captured_env(tmux.name()).as_deref(),
+                Some("stale-untouched")
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn finalize_publish_promote_cleared_applied_uses_new_sid() {
+            if skip_if_no_tmux() {
+                return;
+            }
+            let temp = tempdir().unwrap();
+            isolate_home(&temp);
+
+            let profile = "publish-promote";
+            let mut inst = make_inst(profile, "fppca");
+            inst.agent_session_id = None;
+            inst.resume_intent = ResumeIntent::Cleared;
+            seed_disk_row(profile, &inst);
+
+            let tmux = TmuxSession::create(&inst.id, &inst.title);
+
+            inst.agent_session_id = Some(VALID_SID.to_string());
+            inst.finalize_launch(tmux.name(), profile, None, ResumeIntent::Cleared);
+
+            assert_eq!(inst.agent_session_id.as_deref(), Some(VALID_SID));
+            assert_eq!(inst.resume_intent, ResumeIntent::Default);
+            assert_eq!(captured_env(tmux.name()).as_deref(), Some(VALID_SID));
+        }
+    }
+
     fn instance_with_id(id: &str) -> Instance {
         let mut inst = Instance::new("tampered-id-test", "/tmp");
         inst.id = id.to_string();
@@ -6823,5 +7286,128 @@ mod tests {
                 "no tmux session must exist after refusal for id={poisoned:?}"
             );
         }
+    }
+
+    struct KillTmuxOnDrop(String);
+    impl Drop for KillTmuxOnDrop {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("tmux")
+                .args(["kill-session", "-t", &self.0])
+                .output();
+        }
+    }
+
+    fn tmux_available() -> bool {
+        std::process::Command::new("tmux")
+            .arg("-V")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    /// End-to-end regression for #1913 through the real status pipeline.
+    ///
+    /// A sandboxed (or hook-equipped) Claude session reports `running` from
+    /// its hook while the pane is actually parked on a tool-approval prompt:
+    /// the `Notification` -> waiting write gets clobbered by a running-mapped
+    /// hook that re-fires during concurrent turn activity, and Claude keeps
+    /// its live spinner rendered below the prompt. Before the fix the pipeline
+    /// trusted the hook's `running` and showed green; now it captures the pane
+    /// and reconciles to Waiting.
+    #[test]
+    #[serial_test::serial]
+    fn update_status_reconciles_running_hook_to_waiting_on_claude_approval_prompt() {
+        if !tmux_available() {
+            eprintln!("skipping: tmux not available");
+            return;
+        }
+
+        let mut inst = Instance::new("aoe_test_1913_wait", "/tmp");
+        assert_eq!(inst.tool, "claude");
+
+        // Pane shows the approval prompt with the live spinner still active
+        // below it, the exact shape from the issue screenshot. The spinner
+        // line means the bare pane detector would say Running, so a green
+        // reading here can only come from reconciliation doing its job.
+        let pane = "  Bash command\n    \
+touch /tmp/aoe_test_1913/marker.txt\n    Create marker file\n  \
+Do you want to proceed?\n  \u{276f} 1. Yes\n    \
+2. Yes, and always allow access to this project\n    3. No\n  \
+Esc to cancel \u{b7} Tab to amend \u{b7} ctrl+e to explain\n\
+\u{2736} Herding\u{2026} (53s \u{b7} \u{2193} 7.0k tokens)\n";
+        let pane_file = std::env::temp_dir().join(format!("aoe_test_1913_{}.txt", inst.id));
+        std::fs::write(&pane_file, pane).expect("write pane fixture");
+
+        let session_name = tmux::Session::generate_name(&inst.id, &inst.title);
+        let _guard = KillTmuxOnDrop(session_name.clone());
+        // Single-quote the path so a temp dir with spaces or shell
+        // metacharacters (e.g. macOS `$TMPDIR`) can't break the launch
+        // command; embedded single quotes are closed/escaped/reopened.
+        let quoted_pane_file =
+            format!("'{}'", pane_file.to_string_lossy().replace('\'', r#"'\''"#));
+        let launch = format!("cat {quoted_pane_file}; sleep 300");
+        let created = std::process::Command::new("tmux")
+            .args([
+                "new-session",
+                "-d",
+                "-s",
+                &session_name,
+                "-x",
+                "120",
+                "-y",
+                "40",
+                &launch,
+            ])
+            .output()
+            .expect("spawn tmux");
+        assert!(
+            created.status.success(),
+            "tmux new-session failed: {}",
+            String::from_utf8_lossy(&created.stderr)
+        );
+
+        // The clobbered hook state that produced the green row.
+        let dir = crate::hooks::hook_status_dir(&inst.id).expect("hook dir");
+        std::fs::create_dir_all(&dir).expect("create hook dir");
+        std::fs::write(dir.join("status"), "running").expect("write status");
+        assert_eq!(
+            crate::hooks::read_hook_status(&inst.id),
+            Some(Status::Running),
+            "precondition: the raw hook signal is the Running that showed green"
+        );
+
+        // Wait for the pane to actually paint the cat output before the
+        // authoritative read; a fixed sleep is flaky under parallel test load.
+        let mut painted = false;
+        for _ in 0..50 {
+            let cap = std::process::Command::new("tmux")
+                .args(["capture-pane", "-p", "-t", &session_name])
+                .output();
+            if let Ok(out) = cap {
+                if String::from_utf8_lossy(&out.stdout).contains("Do you want to proceed?") {
+                    painted = true;
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(painted, "approval prompt never painted into the tmux pane");
+
+        // `Session::exists()` reads a process-global 2s session cache that a
+        // concurrent test may have snapshotted before this session existed,
+        // which surfaces as a spurious Error (and the 30s error latch would
+        // then pin it). Refresh from live tmux now that the pane is painted so
+        // the single authoritative read sees a true existence result.
+        crate::tmux::refresh_session_cache();
+        inst.update_status();
+
+        std::fs::remove_file(&pane_file).ok();
+        crate::hooks::cleanup_hook_status_dir(&inst.id);
+
+        assert_eq!(
+            inst.status,
+            Status::Waiting,
+            "Claude blocked on an approval prompt must reconcile Running -> Waiting (#1913)"
+        );
     }
 }

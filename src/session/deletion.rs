@@ -66,10 +66,7 @@ pub fn perform_deletion(request: &DeletionRequest) -> DeletionResult {
     // first, container second, tmux last), which raced the in-container
     // agent and produced flaky deletions on Docker + worktree sessions.
     tracing::debug!(target: "session.delete", session_id = %request.session_id, stage = "tmux_kill", "perform_deletion: stage");
-    let _ = request.instance.kill();
-    let _ = request.instance.kill_terminal();
-    let _ = request.instance.kill_container_terminal();
-    crate::tmux::kill_all_tool_sessions_for_id(&request.session_id);
+    request.instance.kill_all_tmux_sessions();
 
     let is_sandboxed = request
         .instance
@@ -1162,7 +1159,7 @@ mod tests {
         fn isolate_app_dir() -> tempfile::TempDir {
             let tmp = tempfile::tempdir().expect("create temp home for scratch deletion tests");
             std::env::set_var("HOME", tmp.path());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", tmp.path().join(".config"));
             tmp
         }

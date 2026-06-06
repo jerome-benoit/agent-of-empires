@@ -4,8 +4,8 @@ For tmux-backed sessions the dashboard renders a real terminal in the
 page: the agent's pane streamed over a WebSocket PTY relay, plus an
 optional paired shell. This page covers both terminals, how reconnect
 behaves, and the close codes you may see when a connection fails. For
-the structured cockpit rendering used by ACP sessions, see the
-[Cockpit overview](../../cockpit.md).
+the structured view rendering used by ACP sessions, see the
+[Structured view overview](../../structured-view.md).
 
 ![The agent terminal rendered in the browser via the PTY relay](../../assets/web/terminal.png)
 
@@ -48,6 +48,11 @@ session's working directory. On desktop it shares the split with the
 agent terminal; on mobile it is one of the right-panel picker's views.
 The paired shell stays alive in the background when you switch away, so
 its scrollback and focus survive view switches.
+
+For sandboxed sessions, the **Container** tab launches the container
+user's login shell, resolved inside the container (the passwd entry,
+then `$SHELL`, then bash, sh), so your prompt, aliases, and oh-my-zsh
+setup load just like the Host tab.
 
 ## Reconnect
 

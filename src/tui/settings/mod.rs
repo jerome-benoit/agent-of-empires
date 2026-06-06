@@ -13,7 +13,7 @@ use crate::session::{
 };
 use crate::tui::dialogs::CustomInstructionDialog;
 
-pub use fields::{FieldKey, FieldValue, SettingField, SettingsCategory};
+pub use fields::{FieldValue, HookField, SettingField, SettingsCategory};
 pub use input::SettingsAction;
 
 /// Which scope of settings is being edited
@@ -46,8 +46,10 @@ pub struct ListEditState {
 #[derive(Debug, Clone)]
 pub(super) struct SearchHit {
     pub category: SettingsCategory,
-    pub field_key: FieldKey,
-    pub field_label: &'static str,
+    /// Stable field identity (`SettingField::ident`) used to relocate the
+    /// cursor on jump, since fields are rebuilt from the schema per category.
+    pub field_ident: String,
+    pub field_label: String,
     pub category_label: &'static str,
 }
 
@@ -284,7 +286,8 @@ impl SettingsView {
         push_tab(&mut rows, SettingsCategory::Session);
         push_tab(&mut rows, SettingsCategory::Agents);
         push_tab(&mut rows, SettingsCategory::Interaction);
-        push_tab(&mut rows, SettingsCategory::Cockpit);
+        push_tab(&mut rows, SettingsCategory::Diff);
+        push_tab(&mut rows, SettingsCategory::Acp);
 
         push_section(&mut rows, "Hooks");
         push_tab(&mut rows, SettingsCategory::Hooks);
@@ -303,6 +306,11 @@ impl SettingsView {
 
         push_section(&mut rows, "System");
         push_tab(&mut rows, SettingsCategory::Updates);
+        // Telemetry is an install-level consent toggle, not a per-profile or
+        // per-repo setting, so it only appears under the Global scope.
+        if scope == SettingsScope::Global {
+            push_tab(&mut rows, SettingsCategory::Telemetry);
+        }
         push_tab(&mut rows, SettingsCategory::Logging);
 
         rows
@@ -475,6 +483,7 @@ impl SettingsView {
         }
 
         let field = &self.fields[field_index];
+        let is_telemetry = field.ident() == "telemetry.enabled";
 
         match self.scope {
             SettingsScope::Global | SettingsScope::Profile => {
@@ -484,6 +493,12 @@ impl SettingsView {
                     &mut self.global_config,
                     &mut self.profile_config,
                 );
+                // Editing the telemetry toggle counts as responding to the
+                // opt-in prompt, so the one-time standalone consent popup
+                // never re-appears for a user who already made a choice here.
+                if is_telemetry {
+                    self.global_config.app_state.has_responded_to_telemetry = true;
+                }
             }
             SettingsScope::Repo => {
                 // Use Profile logic but against resolved_base and repo_as_profile
@@ -512,11 +527,18 @@ impl SettingsView {
 
         match self.scope {
             SettingsScope::Global => {
+                // Saving the Telemetry page counts as answering the opt-in
+                // prompt even if the toggle was left untouched, so the one-time
+                // standalone popup doesn't reappear for someone who reviewed it
+                // here and chose to leave it off.
+                if self.current_category() == SettingsCategory::Telemetry {
+                    self.global_config.app_state.has_responded_to_telemetry = true;
+                }
                 save_config(&self.global_config)?;
                 self.resolved_base =
                     merge_configs(self.global_config.clone(), &self.profile_config);
                 // Persist + live-apply the logging filter so a running
-                // `aoe serve` daemon (and its cockpit runners) pick up the
+                // `aoe serve` daemon (and its structured view runners) pick up the
                 // change without a restart. No-ops when no controller is
                 // installed (TUI-only process).
                 if let Ok(app_dir) = crate::session::get_app_dir() {
@@ -529,6 +551,10 @@ impl SettingsView {
                 crate::session::poller::set_session_id_poller_max_threads(
                     self.global_config.session.session_id_poller_max_threads,
                 );
+                // Reconcile the on-disk install id with the saved opt-in
+                // state: generate one when enabled, delete it on opt-out.
+                // Idempotent, so running it on every global save is safe.
+                crate::telemetry::apply_opt_in_change(self.global_config.telemetry.enabled);
             }
             SettingsScope::Profile => {
                 save_profile_config(&self.profile, &self.profile_config)?;
@@ -635,8 +661,8 @@ impl SettingsView {
                 }
                 hits.push(SearchHit {
                     category,
-                    field_key: field.key,
-                    field_label: field.label,
+                    field_ident: field.ident(),
+                    field_label: field.label.clone(),
                     category_label: category.label(),
                 });
             }
@@ -665,7 +691,11 @@ impl SettingsView {
             self.selected_category = idx;
         }
         self.rebuild_fields();
-        if let Some(idx) = self.fields.iter().position(|f| f.key == hit.field_key) {
+        if let Some(idx) = self
+            .fields
+            .iter()
+            .position(|f| f.ident() == hit.field_ident)
+        {
             self.selected_field = idx;
             self.ensure_field_visible(self.fields_viewport_height);
         }

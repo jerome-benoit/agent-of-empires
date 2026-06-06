@@ -47,7 +47,7 @@ test("per-profile setting override leaves global state untouched", async ({
 
   // Land on the Session settings tab and pick the `work` profile.
   await page.goto(`${serve.baseUrl}/settings/session`);
-  await expect(page.getByText("Profile", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("settings-header").getByText("Profile", { exact: true })).toBeVisible();
 
   const profileSelect = page
     .locator("label", { hasText: /^Profile$/ })
@@ -59,7 +59,7 @@ test("per-profile setting override leaves global state untouched", async ({
   // Change `session.default_tool` under `work`. The TextField commits on
   // blur via onChange, which fires onSave -> PATCH .../profiles/work/settings.
   const defaultAgentInput = page
-    .locator("label", { hasText: /^Default agent$/ })
+    .locator("label", { hasText: /^Default Tool$/ })
     .locator("..")
     .locator("input[type=text]");
   await defaultAgentInput.fill(sentinel);

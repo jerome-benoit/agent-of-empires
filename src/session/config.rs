@@ -3,6 +3,7 @@
 use super::get_app_dir;
 use super::repo_config::HooksConfig;
 use anyhow::Result;
+use aoe_settings_derive::SettingsSection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -18,6 +19,9 @@ pub struct Config {
 
     #[serde(default)]
     pub updates: UpdatesConfig,
+
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
 
     #[serde(default)]
     pub worktree: WorktreeConfig,
@@ -50,7 +54,7 @@ pub struct Config {
     pub web: WebConfig,
 
     #[serde(default)]
-    pub cockpit: CockpitConfig,
+    pub acp: AcpConfig,
 
     #[serde(default)]
     pub logging: LoggingConfig,
@@ -103,51 +107,99 @@ pub struct ToolSessionConfig {
 /// this config is ignored for the initial filter (env wins for
 /// CI/scripted runs). Runtime changes via `/api/log-level` always
 /// honor whichever is active.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SettingsSection)]
+#[setting_section(name = "logging", category = "Logging")]
 pub struct LoggingConfig {
+    /// Baseline applied to every known target root. Per-target overrides win.
     #[serde(default = "default_log_level")]
+    #[setting(
+        label = "Default level",
+        widget = "select",
+        options = "trace:trace,debug:debug,info:info,warn:warn,error:error",
+        global_only
+    )]
     pub default_level: String,
 
+    /// Per-target log level overrides. Each entry maps a tracing target root
+    /// to a level; (default) inherits the baseline.
     #[serde(default)]
+    #[setting(
+        label = "Per-target overrides",
+        widget = "custom:logging-targets",
+        global_only
+    )]
     pub targets: std::collections::BTreeMap<String, String>,
 
-    /// Where tracing output goes. `File` is the default; `Stdout` is only
-    /// honored for foreground `aoe serve` and env-overridden one-shot CLI
-    /// invocations. TUI, daemon child, and cockpit runners coerce to `File`
-    /// because their alt-screen / detached-stdio would otherwise corrupt or
-    /// discard the output.
+    /// Where tracing lands: file (default) or stdout. TUI / daemon child /
+    /// runner coerce to file regardless. Restart aoe for changes to take
+    /// effect.
     #[serde(default)]
+    #[setting(
+        label = "Output (restart req.)",
+        widget = "select",
+        options = "file:file,stdout:stdout",
+        global_only,
+        advanced
+    )]
     pub output: SinkKind,
 
     /// Log file location. Relative paths resolve under the app data dir;
-    /// absolute paths are used verbatim. Defaults to `debug.log`.
+    /// absolute paths are used verbatim. Restart aoe for changes.
     #[serde(default = "default_file_path")]
+    #[setting(
+        label = "File path (restart req.)",
+        widget = "text",
+        global_only,
+        advanced
+    )]
     pub file_path: String,
 
-    /// Rotation policy. `Size` rotates when the live file crosses
-    /// `max_size_mib`; `Never` disables rotation.
+    /// size rotates when the live file crosses the threshold; never disables
+    /// rotation. Restart aoe for changes.
     #[serde(default)]
+    #[setting(
+        label = "Rotation (restart req.)",
+        widget = "select",
+        options = "size:size,never:never",
+        global_only,
+        advanced
+    )]
     pub rotation: RotationKind,
 
-    /// Size threshold (MiB) for `RotationKind::Size`. The file may
-    /// overshoot the threshold slightly between stat checks; bounded by
-    /// the writer's stat-on-tick interval.
+    /// Rotation threshold in MiB. Ignored when rotation = never.
     #[serde(default = "default_max_size_mib")]
+    #[setting(
+        label = "Max size MiB (restart req.)",
+        widget = "number",
+        min = 0,
+        global_only,
+        advanced
+    )]
     pub max_size_mib: u64,
 
-    /// How many rotated files to retain (`.1` through `.keep_count`).
-    /// Older rotations are dropped.
+    /// How many rotated files to retain (.1 through .keep_count).
     #[serde(default = "default_keep_count")]
+    #[setting(
+        label = "Keep count (restart req.)",
+        widget = "number",
+        min = 0,
+        global_only,
+        advanced
+    )]
     pub keep_count: u8,
 
-    /// Whether the tracing formatter prefixes each event with the names
-    /// and fields of the spans wrapping it (e.g. the per-request
-    /// `http_request{request_id=... method=GET path=...}` introduced by
-    /// the axum middleware). Useful for grep-correlation when triaging
-    /// across async boundaries, noisy on idle polling endpoints.
-    /// Defaults to `false` so the log stays readable; flip to `true`
-    /// when investigating. Requires restart.
+    /// When on, every log line is prefixed with the names and fields of the
+    /// spans wrapping it (e.g. `http_request{request_id=... method=GET
+    /// path=...}` from the per-request middleware). Useful for
+    /// grep-correlation across async boundaries when triaging; noisy on idle
+    /// polling endpoints. Off by default keeps the log readable.
     #[serde(default = "default_show_spans")]
+    #[setting(
+        label = "Show span context (restart req.)",
+        widget = "toggle",
+        global_only,
+        advanced
+    )]
     pub show_spans: bool,
 }
 
@@ -202,56 +254,71 @@ fn default_show_spans() -> bool {
     false
 }
 
-/// Configuration for the cockpit (ACP-based native rendering of agent
+/// Configuration for the acp (ACP-based native rendering of agent
 /// state). Defaults match the documented v4 design and v005 migration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CockpitConfig {
-    /// Master kill switch for cockpit mode. When false, every session
-    /// runs as plain tmux even if --cockpit is passed.
-    #[serde(default)]
-    pub enabled: bool,
-    /// On mobile viewports, default new Claude sessions to cockpit mode.
-    #[serde(default = "default_true")]
-    pub default_for_claude: bool,
-    /// The agent name to use when --agent is not specified.
+///
+/// `#[derive(SettingsSection)]` makes every `#[setting]`-annotated field the
+/// single source of truth for the TUI, web dashboard, server policy, and
+/// validation (#1692). Adding a field here, with its `#[setting]` attributes,
+/// is the only edit needed for it to appear and round-trip everywhere.
+#[derive(Debug, Clone, Serialize, Deserialize, SettingsSection)]
+#[setting_section(name = "acp", category = "Acp")]
+pub struct AcpConfig {
+    /// Acp agent used when --agent is not specified (e.g. aoe-agent,
+    /// claude-code, gemini).
     #[serde(default = "default_agent")]
+    #[setting(label = "Default agent", widget = "text", validate = "nonempty")]
     pub default_agent: String,
-    /// Hard cap on simultaneously running agent worker subprocesses.
+    /// Hard cap on simultaneously running acp agent subprocesses;
+    /// additional sessions queue.
     #[serde(default = "default_max_workers")]
+    #[setting(
+        label = "Max concurrent workers",
+        widget = "number",
+        min = 1,
+        validate = "range:1",
+        advanced
+    )]
     pub max_concurrent_workers: u32,
-    /// Replay buffer event-count cap (per session).
+    /// Per-session retention cap on acp events. 0 = unlimited (default);
+    /// set a non-zero value to bound disk usage on long-running sessions.
     #[serde(default = "default_replay_events")]
+    #[setting(label = "History cap (events)", widget = "number", min = 0)]
     pub replay_events: u32,
-    /// Replay buffer byte cap (per session).
+    /// Maximum bytes of acp events kept in the per-session replay buffer.
     #[serde(default = "default_replay_bytes")]
+    #[setting(label = "Replay buffer bytes", widget = "number", min = 0, advanced)]
     pub replay_bytes: u64,
-    /// Optional path to the Node runtime used to spawn aoe-agent. If
-    /// empty, aoe resolves Node via PATH then bundled fallback.
+    /// Override Node.js binary location. Empty resolves via
+    /// AOE_ACP_NODE then PATH then the bundled fallback.
     #[serde(default)]
+    #[setting(
+        label = "Node path",
+        widget = "text",
+        web = "local_only:host Node binary path, a local execution surface"
+    )]
     pub node_path: String,
-    /// Whether the cockpit web UI shows a per-tool elapsed-time label on
-    /// every tool card. Default true. Honoured by the web client via
-    /// `ServerAbout.cockpit_show_tool_durations` so toggling here flows
-    /// across every device that connects to the same daemon. The
-    /// underlying measurement is currently imprecise on
-    /// claude-agent-acp (no `status: "in_progress"` is emitted, so we
-    /// can't re-stamp `started_at` to the real subprocess start;
-    /// see the comment on `CardChromeProps.startedAt` in
-    /// `web/src/components/cockpit/ToolCards.tsx`); this setting lets
-    /// users hide the label until upstream provides a trustworthy
-    /// "subprocess started" signal.
+    /// Render a per-tool elapsed-time label on every acp tool card.
+    /// Cross-device via config.toml. The underlying measurement is currently
+    /// imprecise on claude-agent-acp (no `status: in_progress` signal), so
+    /// durations include stream-arrival skew; turn off if the inflated
+    /// numbers are more confusing than useful.
     #[serde(default = "default_true")]
+    #[setting(label = "Show tool-call durations", widget = "toggle")]
     pub show_tool_durations: bool,
-    /// How the web composer drains client-side queued follow-up prompts
-    /// when the agent finishes a turn (see #1031). `Combined` (default)
-    /// joins every queued entry with a blank line and dispatches as one
-    /// prompt; `Serial` pops the head and waits for the next Stopped to
-    /// fire the next entry. The setting is surfaced via
-    /// `ServerAbout.cockpit_queue_drain_mode` so toggling it here flows
-    /// to every connected web client without restarting the daemon.
+    /// How the web composer dispatches follow-up prompts queued while the
+    /// agent was busy (see #1031). Combined (default) joins every queued
+    /// entry with a blank line and sends them as one prompt on the next
+    /// Stopped; Serial fires one entry at a time, each with its own response.
     #[serde(default)]
+    #[setting(
+        label = "Queue drain mode",
+        widget = "select",
+        options = "combined:Combined,serial:Serial",
+        advanced
+    )]
     pub queue_drain_mode: QueueDrainMode,
-    /// Maximum number of cockpit worker resumes (spawn or attach) the
+    /// Maximum number of acp worker resumes (spawn or attach) the
     /// reconciler runs in parallel on `aoe serve` cold start. Bounded
     /// at runtime by `min(max_concurrent_resumes, max_concurrent_workers).max(1)`
     /// so this knob can never exceed the total live worker cap. Default
@@ -259,8 +326,15 @@ pub struct CockpitConfig {
     /// claude-agent-acp processes are around 200-320MB transient. Lower
     /// it on constrained hosts; raise on beefier machines. See #1088.
     #[serde(default = "default_max_concurrent_resumes")]
+    #[setting(
+        label = "Max concurrent resumes",
+        widget = "number",
+        min = 1,
+        validate = "range:1",
+        advanced
+    )]
     pub max_concurrent_resumes: u32,
-    /// Seconds of streaming inactivity after which the cockpit web UI
+    /// Seconds of streaming inactivity after which the acp web UI
     /// shows a "Force end turn" button. When `turnActive=true` and no
     /// frame arrives for this long, the spinner is likely stuck on a
     /// missed `Stopped` (#1100); the button locally clears the
@@ -268,6 +342,12 @@ pub struct CockpitConfig {
     /// synthetic `Stopped { reason: "user_forced" }` and best-effort
     /// `session/cancel` the agent. Default 30s.
     #[serde(default = "default_force_end_turn_threshold_secs")]
+    #[setting(
+        label = "Force end turn threshold (s)",
+        widget = "number",
+        min = 0,
+        advanced
+    )]
     pub force_end_turn_threshold_secs: u32,
     /// Silent-orphan watchdog: vendor-agnostic correctness grace. When
     /// a prompt is in flight, `tool_calls_in_flight` is empty, at least
@@ -293,6 +373,12 @@ pub struct CockpitConfig {
     /// below 120 clamp up at runtime so a typo cannot disable the
     /// watchdog accidentally. See #1240, #1360.
     #[serde(default = "default_silent_orphan_grace_secs")]
+    #[setting(
+        label = "Silent-orphan grace (s)",
+        widget = "number",
+        min = 0,
+        advanced
+    )]
     pub silent_orphan_grace_secs: u32,
     /// Silent-orphan watchdog: accelerated grace used when the current
     /// prompt has already received a cost-populated `UsageUpdate`
@@ -302,8 +388,14 @@ pub struct CockpitConfig {
     /// Default 20s. If `silent_orphan_grace_secs` is 0 (disabled), this
     /// has no effect. See #1240.
     #[serde(default = "default_silent_orphan_fast_grace_secs")]
+    #[setting(
+        label = "Silent-orphan fast grace (s)",
+        widget = "number",
+        min = 0,
+        advanced
+    )]
     pub silent_orphan_fast_grace_secs: u32,
-    /// Auto-stop idle cockpit workers: seconds of inactivity (no cockpit
+    /// Auto-stop idle acp workers: seconds of inactivity (no acp
     /// events and no in-flight turn) after which the daemon shuts a
     /// worker down and marks its session dormant so the reconciler does
     /// not respawn it. The next user prompt wakes the session and the
@@ -311,7 +403,43 @@ pub struct CockpitConfig {
     /// feature entirely; no worker is ever stopped for inactivity. See
     /// #1689.
     #[serde(default = "default_auto_stop_idle_secs")]
+    #[setting(
+        label = "Auto-stop idle worker (s)",
+        widget = "number",
+        min = 0,
+        advanced
+    )]
     pub auto_stop_idle_secs: u32,
+    /// Opt-in auto-resume after a provider usage/rate-limit reset. When a
+    /// acp worker stops with `Stopped { reason: "rate_limited" }`, the
+    /// session is parked and (by default) waits for explicit user
+    /// recovery via `/acp/spawn` or agent handoff (the #1281
+    /// behavior). With this enabled, the reconciler instead respawns the
+    /// same worker automatically once the adapter-reported reset time
+    /// (plus `rate_limit_auto_resume_grace_secs`) has passed, publishing a
+    /// `RateLimitAutoResumed` breadcrumb for timeline clarity. Resume
+    /// timing is read from the persisted `RateLimit` event, so it survives
+    /// a daemon restart; a re-rate-limit writes a fresh reset time, so
+    /// there is no tight restart loop. Vendor-agnostic: any ACP backend
+    /// that reports `kind == "rate_limit"` is eligible. Default false,
+    /// preserving the manual-first behavior. See #1722.
+    #[serde(default)]
+    #[setting(label = "Auto-resume after rate limit", widget = "toggle")]
+    pub rate_limit_auto_resume: bool,
+    /// Seconds added to the adapter-reported `resets_at` before
+    /// auto-resume fires, to absorb clock skew and adapter jitter. Only
+    /// meaningful when `rate_limit_auto_resume` is true. Default 15. The
+    /// reconciler also enforces a hardcoded minimum park window from the
+    /// moment the rate limit was recorded, so a buggy adapter reporting a
+    /// past `resets_at` with grace 0 still cannot cause a tight respawn
+    /// loop. See #1722.
+    #[serde(default = "default_rate_limit_auto_resume_grace_secs")]
+    #[setting(label = "Auto-resume grace (s)", widget = "number", min = 0, advanced)]
+    pub rate_limit_auto_resume_grace_secs: u32,
+}
+
+fn default_rate_limit_auto_resume_grace_secs() -> u32 {
+    15
 }
 
 fn default_auto_stop_idle_secs() -> u32 {
@@ -334,8 +462,8 @@ fn default_silent_orphan_fast_grace_secs() -> u32 {
     20
 }
 
-/// Drain strategy for the cockpit composer's client-side prompt queue.
-/// See `CockpitConfig::queue_drain_mode`.
+/// Drain strategy for the acp composer's client-side prompt queue.
+/// See `AcpConfig::queue_drain_mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QueueDrainMode {
@@ -367,11 +495,9 @@ impl QueueDrainMode {
     }
 }
 
-impl Default for CockpitConfig {
+impl Default for AcpConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            default_for_claude: true,
             default_agent: default_agent(),
             max_concurrent_workers: default_max_workers(),
             replay_events: default_replay_events(),
@@ -384,6 +510,8 @@ impl Default for CockpitConfig {
             silent_orphan_grace_secs: default_silent_orphan_grace_secs(),
             silent_orphan_fast_grace_secs: default_silent_orphan_fast_grace_secs(),
             auto_stop_idle_secs: default_auto_stop_idle_secs(),
+            rate_limit_auto_resume: false,
+            rate_limit_auto_resume_grace_secs: default_rate_limit_auto_resume_grace_secs(),
         }
     }
 }
@@ -484,6 +612,14 @@ pub struct AppStateConfig {
     #[serde(default)]
     pub has_seen_welcome: bool,
 
+    /// Whether the user has completed or skipped the web dashboard's
+    /// first-run interactive tour. Stored server-side (rather than in
+    /// per-browser localStorage) so a new browser or device does not
+    /// re-show the tour. Distinct from `has_seen_welcome`, which gates
+    /// the native TUI intro.
+    #[serde(default)]
+    pub has_seen_web_tour: bool,
+
     #[serde(default)]
     pub last_seen_version: Option<String>,
 
@@ -506,6 +642,13 @@ pub struct AppStateConfig {
     /// users hide it with `i` when they want the full pane for live output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_preview_info: Option<bool>,
+
+    /// True once the user has answered the telemetry opt-in prompt (in any
+    /// surface, either by enabling or declining). Gates the one-time
+    /// standalone consent popup shown to users who completed the walkthrough
+    /// before telemetry existed, so it appears once and never again.
+    #[serde(default)]
+    pub has_responded_to_telemetry: bool,
 
     #[serde(default)]
     pub has_seen_custom_instruction_warning: bool,
@@ -535,56 +678,91 @@ pub struct AppStateConfig {
 }
 
 /// Session-related configuration defaults
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SettingsSection)]
+#[setting_section(name = "session", category = "Session")]
 pub struct SessionConfig {
-    /// Default coding tool for new sessions (claude, opencode, vibe, codex)
-    /// If not set or tool is unavailable, falls back to first available tool
+    /// Default coding tool for new sessions. If not set or the tool is
+    /// unavailable, falls back to the first available tool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[setting(
+        label = "Default Tool",
+        widget = "custom:default-tool",
+        category = "Agents"
+    )]
     pub default_tool: Option<String>,
 
-    /// Enable YOLO mode by default for new sessions (skip permission prompts)
+    /// Enable YOLO mode by default for new sessions (skip permission prompts).
     #[serde(default)]
+    #[setting(label = "YOLO Mode Default", widget = "toggle")]
     pub yolo_mode_default: bool,
 
-    /// Per-agent extra arguments appended after the binary (e.g., opencode = "--port 8080")
+    /// Per-agent extra arguments appended after the binary (e.g.
+    /// opencode=--port 8080).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[setting(
+        label = "Agent Extra Args",
+        widget = "list",
+        web = "local_only:per-agent argv injection, a host execution surface",
+        category = "Agents"
+    )]
     pub agent_extra_args: HashMap<String, String>,
 
-    /// Per-agent command override replacing the binary entirely (e.g., claude = "happy cli claude")
+    /// Per-agent command override replacing the binary (e.g.
+    /// claude=my-wrapper).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[setting(
+        label = "Agent Command Override",
+        widget = "list",
+        web = "local_only:replaces the agent binary, a host execution surface",
+        category = "Agents"
+    )]
     pub agent_command_override: HashMap<String, String>,
 
-    /// Install status-detection hooks into the agent's settings file (e.g. ~/.claude/settings.json).
-    /// When disabled, AoE will not modify the agent's settings file. Status detection falls back
-    /// to tmux pane content parsing, which is less reliable.
+    /// Install status-detection hooks into the agent's config file (e.g.
+    /// ~/.claude/settings.json). When disabled, AoE will not modify the
+    /// agent's settings file; status detection falls back to tmux pane
+    /// content parsing, which is less reliable.
     #[serde(default = "default_true")]
+    #[setting(label = "Agent Status Hooks", widget = "toggle", category = "Agents")]
     pub agent_status_hooks: bool,
 
-    /// Request xterm mouse tracking from the terminal so the TUI handles the
-    /// scroll wheel (preview-pane scroll, #795) and click-to-select rows.
-    /// Disable to hand wheel and text selection back to the terminal, e.g.
-    /// iOS Mosh + Termius/Blink, which don't reliably forward mouse-tracking
-    /// escapes. The `AOE_MOUSE_CAPTURE` env var stays as an opt-out backstop:
-    /// capture is requested only when this is true and the env var hasn't
-    /// disabled it. Default on.
+    /// Request xterm mouse tracking so the TUI handles the scroll wheel
+    /// (preview-pane scroll) and click-to-select rows. Disable to hand the
+    /// wheel and text selection back to the terminal, e.g. iOS Mosh +
+    /// Termius/Blink where mouse-tracking escapes aren't forwarded reliably.
+    /// The AOE_MOUSE_CAPTURE env var remains an opt-out backstop and can still
+    /// force capture off when set.
     #[serde(default = "default_true")]
+    #[setting(label = "Mouse Capture", widget = "toggle", category = "Interaction")]
     pub mouse_capture: bool,
 
-    /// User-defined custom agents: name -> launch command
-    /// (e.g., "lenovo-claude" = "ssh -t lenovo claude").
-    /// Custom agent names appear in the TUI agent picker alongside built-in agents.
+    /// User-defined agents: name=command (e.g. lenovo-claude=ssh -t lenovo
+    /// claude). Custom agent names appear in the TUI agent picker alongside
+    /// built-in agents.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[setting(
+        label = "Custom Agents",
+        widget = "list",
+        web = "local_only:maps names to arbitrary shell commands, a host execution surface",
+        category = "Agents"
+    )]
     pub custom_agents: HashMap<String, String>,
 
-    /// Status detection mapping: agent name -> built-in agent name
-    /// (e.g., "lenovo-claude" = "claude").
-    /// Maps a custom (or built-in) agent to another agent's status detection heuristics.
+    /// Status detection mapping: agent=builtin (e.g. lenovo-claude=claude).
+    /// Maps a custom (or built-in) agent to another agent's status detection
+    /// heuristics.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[setting(
+        label = "Agent Detect As",
+        widget = "list",
+        web = "local_only:part of the agent-command surface, edited locally only",
+        category = "Agents"
+    )]
     pub agent_detect_as: HashMap<String, String>,
 
     /// ACP launch command for a custom agent, enabling it to run in the
-    /// structured cockpit UI (e.g., "oc-superpowers" = "ocp run sp acp").
-    /// A custom agent with an entry here is cockpit-capable; without one it
+    /// structured acp UI (e.g., "oc-superpowers" = "ocp run sp acp").
+    /// A custom agent with an entry here is acp-capable; without one it
     /// is tmux-only.
     ///
     /// Note: unlike `custom_agents` (a shell command run in a tmux pane),
@@ -592,7 +770,24 @@ pub struct SessionConfig {
     /// directly, with no shell. For shell features, wrap explicitly, e.g.
     /// `sh -lc 'source ~/.profile && ocp run sp acp'`.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub agent_cockpit_cmd: HashMap<String, String>,
+    #[setting(
+        label = "Agent Acp Command",
+        widget = "list",
+        web = "local_only:argv launched directly to run a custom agent in acp, a host execution surface",
+        category = "Agents"
+    )]
+    pub agent_acp_cmd: HashMap<String, String>,
+
+    /// Per-agent acp startup defaults as a JSON object
+    /// (`{"<agent>": {"model": "...", "effort": "..."}}`). `model` is forwarded
+    /// at spawn; `effort` is applied through ACP config options when advertised.
+    ///
+    /// Map-of-struct, so it has no flat widget: it is edited as raw JSON through
+    /// the `acp-defaults` custom widget (a JSON textarea on the web, an inline
+    /// JSON field in the TUI) and saved like any other schema field.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[setting(label = "Structured View Defaults", widget = "custom:acp-defaults")]
+    pub acp_defaults: HashMap<String, AcpAgentDefaults>,
 
     /// Require SHIFT on letter-based TUI hotkeys (e.g. SHIFT+N for New, SHIFT+D for Delete).
     /// Guards against accidental destructive actions from dictation software, a forgotten
@@ -603,16 +798,42 @@ pub struct SessionConfig {
     /// if so, rebind tmux's send-prefix or use the `D` key from the help overlay.
     /// Off by default; existing users keep the legacy single-letter UX.
     #[serde(default)]
+    #[setting(label = "Strict Hotkeys", widget = "toggle")]
     pub strict_hotkeys: bool,
 
-    /// How long (in minutes) to snooze a session when the user presses
-    /// `w`/`W` or runs `aoe session snooze`. During the snooze window the
-    /// session is treated like archive: sinks to the bottom, renders
-    /// italic+dim with a `z ` prefix, ignored by the attention sort,
-    /// then rejoins the active list automatically when the timer expires.
-    /// Default: 30 minutes.
+    /// Default snooze for `aoe session snooze` (1-43200 min, picker overrides).
+    /// During the snooze window the session is treated like archive: sinks to
+    /// the bottom, renders italic+dim with a `z ` prefix, ignored by the
+    /// attention sort, then rejoins the active list when the timer expires.
     #[serde(default = "default_snooze_duration_minutes")]
+    #[setting(
+        label = "Snooze Duration (minutes)",
+        widget = "number",
+        min = 1,
+        max = 43200,
+        validate = "range:1:43200"
+    )]
     pub snooze_duration_minutes: u32,
+
+    /// Seconds of inactivity after which a plain TUI/tmux session that has
+    /// been `Idle` this long is auto-stopped (its tmux session and any
+    /// sandbox container are killed and the row becomes a restartable
+    /// `Stopped` row). `0` disables (default); no session is ever auto-stopped
+    /// for inactivity. Idle age is anchored on the later of the last
+    /// transition into `Idle` and the last user interaction, and a session
+    /// with a currently attached tmux client is never stopped, so a session
+    /// the user is reading is spared. Checked about once a minute, so the stop
+    /// can lag the threshold by up to a minute. Acp workers use the
+    /// separate `acp.auto_stop_idle_secs` knob; see #1689 and #1690.
+    #[serde(default = "default_auto_stop_idle_secs")]
+    #[setting(
+        label = "Auto-stop idle session (s)",
+        widget = "number",
+        min = 0,
+        category = "Interaction",
+        advanced
+    )]
+    pub auto_stop_idle_secs: u32,
 
     /// Text sent to the agent after a successful `aoe session restart` /
     /// `e`-keybind restart, once the post-restart readiness probe says the
@@ -621,33 +842,43 @@ pub struct SessionConfig {
     /// empty string to disable the wake-up message entirely (the restart
     /// itself still runs).
     #[serde(default = "default_restart_wake_message")]
+    #[setting(label = "Restart Wake Message", widget = "text")]
     pub restart_wake_message: String,
 
-    /// Per-row label shown next to the session title in the home view.
-    /// `Auto` (default) preserves the historical UX: show a profile short
-    /// code in all-profiles view and nothing in filtered views. Other
-    /// variants override that to always show the chosen tag, or to
-    /// suppress the row label entirely.
+    /// What to show next to each session title: Auto (profile in all-profiles
+    /// view), None, Profile (always), Sandbox (sb on sandboxed rows), or
+    /// Branch.
     #[serde(default)]
+    #[setting(
+        label = "Row Tag",
+        widget = "select",
+        options = "none:None,auto:Auto,profile:Profile,sandbox:Sandbox,branch:Branch"
+    )]
     pub row_tag: RowTagMode,
 
-    /// Process-wide cap on concurrent session-id poller threads (one per
-    /// live session). Edited via the TUI Settings panel; saving in Global
-    /// scope pushes the new value into the runtime atomic for new sessions
-    /// to pick up immediately.
+    /// Process-wide cap on threads polling the tmux session ID for live
+    /// sessions (one thread per session). When the cap is reached, new sessions
+    /// are not polled and their session ID will not refresh.
     #[serde(default = "default_session_id_poller_max_threads")]
+    #[setting(
+        label = "Max Session-ID Poller Threads",
+        widget = "number",
+        min = 1,
+        validate = "range:1",
+        global_only
+    )]
     pub session_id_poller_max_threads: u32,
 
-    /// Comma-separated list of chord specs that exit live-send mode.
-    /// Each chord is a tmux-style spec like `C-q`, `M-x`, `F12`; the
-    /// first chord in the list that matches an event ends live mode.
-    /// Default is `C-q` alone: mobile-friendly, passes through Termius,
-    /// well-known as a quit chord, and verified to survive every common
-    /// macOS terminal config (unlike `C-]` and `C-\`, both of which
-    /// fail silently on at least one combination). Customize when the
-    /// default conflicts with a workflow (vim quoted-insert needs `C-q`
-    /// passthrough, so swap to `F12,M-q` or any chord that's free).
+    /// Comma-separated chord specs that exit live-send mode. Tmux-style: C-q,
+    /// M-x, F12. The first chord in the list that matches an event ends live
+    /// mode. Default `C-q` works in every terminal we ship to; add entries for
+    /// additional exits if you need to send C-q through to the agent.
     #[serde(default = "default_live_send_exit_chord")]
+    #[setting(
+        label = "Live-Send Exit Chord",
+        widget = "text",
+        category = "Interaction"
+    )]
     pub live_send_exit_chord: String,
 
     /// Leader (prefix) chord for live-send mode commands, tmux-style
@@ -662,6 +893,11 @@ pub struct SessionConfig {
     /// chord (`live_send_exit_chord`, default `C-q`) is independent of the
     /// leader and stays a single-press fast exit.
     #[serde(default = "default_live_send_leader")]
+    #[setting(
+        label = "Live-Send Leader Chord",
+        widget = "text",
+        category = "Interaction"
+    )]
     pub live_send_leader: String,
 
     /// What the TUI does immediately after a new session finishes
@@ -669,37 +905,73 @@ pub struct SessionConfig {
     /// historical behavior. `LiveSend` enters live-send mode against
     /// the new session's pane instead, so users who never want to be
     /// inside tmux directly can create-and-type without an extra
-    /// keystroke. Cockpit-mode sessions ignore this setting because
+    /// keystroke. Acp-mode sessions ignore this setting because
     /// neither tmux nor live-send applies to them.
     #[serde(default)]
+    #[setting(
+        label = "New Session Attach Mode",
+        widget = "select",
+        options = "tmux:Tmux,live_send:Live mode",
+        category = "Interaction"
+    )]
     pub new_session_attach_mode: NewSessionAttachMode,
 
-    /// What `Enter` (and double-click) does on an existing session
-    /// row in the Agent view. `Tmux` (default) attaches to the tmux
-    /// pane, the historical behavior. `LiveSend` enters live-send
-    /// mode instead so the TUI keeps the home list visible and pipes
-    /// keystrokes through to the agent. Terminal/Tool views and
-    /// cockpit-mode sessions ignore this setting; they keep their
-    /// existing activation paths (terminal attach, cockpit open).
+    /// What Enter (and double-click) does on a session row in the Agent view:
+    /// attach to tmux (default, historical behavior) or enter live-send mode so
+    /// the home list stays visible and keystrokes pipe through to the agent.
+    /// Terminal/Tool views and acp sessions ignore this setting.
     #[serde(default)]
+    #[setting(
+        label = "Default Attach Mode",
+        widget = "select",
+        options = "tmux:Tmux,live_send:Live mode",
+        category = "Interaction"
+    )]
     pub default_attach_mode: NewSessionAttachMode,
 
-    /// What a single mouse click on a session row does in the Agent
-    /// view. `LiveSend` (default) enters live-send mode for that row,
-    /// the historical behavior. `SelectOnly` just moves the cursor
-    /// to the row so the user can read the preview without ever
-    /// entering live-send. Double-click still activates via
-    /// `default_attach_mode` regardless of this setting.
+    /// What a single mouse click on a session row does in the Agent view. Live
+    /// mode (default) enters live-send for the clicked row, the historical
+    /// behavior. Select only just moves the cursor so you can read the preview
+    /// without entering live-send. Double-click still activates via Default
+    /// Attach Mode regardless of this setting.
     #[serde(default)]
+    #[setting(
+        label = "Mouse Click Action",
+        widget = "select",
+        options = "live_send:Live mode,select_only:Select only",
+        category = "Interaction"
+    )]
     pub click_action: ClickAction,
 
-    /// Show a "quit aoe?" confirmation when the user presses `q` to leave
-    /// the home screen, guarding against accidental exits (e.g. a Ctrl+Q
-    /// live-mode-exit habit landing on the home view). On by default;
-    /// the dialog offers a "don't warn me again" option that flips this
-    /// off. Ctrl+C still force-quits without a prompt.
+    /// Warn before quitting aoe when you press `q` on the home screen (the
+    /// dialog can also turn this off). Ctrl+C always force-quits.
     #[serde(default = "default_true")]
+    #[setting(label = "Confirm Before Quit", widget = "toggle", global_only)]
     pub confirm_before_quit: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AcpAgentDefaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
+impl AcpAgentDefaults {
+    pub fn is_empty(&self) -> bool {
+        self.model.as_deref().is_none_or(str::is_empty)
+            && self.effort.as_deref().is_none_or(str::is_empty)
+    }
+}
+
+impl SessionConfig {
+    pub fn acp_defaults_for(&self, agent: &str) -> Option<&AcpAgentDefaults> {
+        self.acp_defaults
+            .get(agent)
+            .filter(|defaults| !defaults.is_empty())
+    }
 }
 
 /// What a single mouse click on a session row does in the Agent view.
@@ -771,9 +1043,11 @@ impl Default for SessionConfig {
             mouse_capture: true,
             custom_agents: HashMap::new(),
             agent_detect_as: HashMap::new(),
-            agent_cockpit_cmd: HashMap::new(),
+            agent_acp_cmd: HashMap::new(),
+            acp_defaults: HashMap::new(),
             strict_hotkeys: false,
             snooze_duration_minutes: 30,
+            auto_stop_idle_secs: default_auto_stop_idle_secs(),
             restart_wake_message: default_restart_wake_message(),
             row_tag: RowTagMode::default(),
             session_id_poller_max_threads: default_session_id_poller_max_threads(),
@@ -819,6 +1093,17 @@ pub fn validate_snooze_duration(minutes: u64) -> Result<(), String> {
         return Err(format!(
             "Snooze duration must be between 1 and {} minutes (got {})",
             SNOOZE_MAX_MINUTES, minutes
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_auto_stop_idle_secs(secs: u64) -> Result<(), String> {
+    if secs > u32::MAX as u64 {
+        return Err(format!(
+            "Auto-stop idle seconds must be at most {} (got {})",
+            u32::MAX,
+            secs
         ));
     }
     Ok(())
@@ -878,35 +1163,35 @@ impl SessionConfig {
                 );
             }
         }
-        for (name, command) in &self.agent_cockpit_cmd {
+        for (name, command) in &self.agent_acp_cmd {
             if name.is_empty() {
-                tracing::warn!(target: "session.store", "agent_cockpit_cmd: entry with empty agent name will be ignored");
+                tracing::warn!(target: "session.store", "agent_acp_cmd: entry with empty agent name will be ignored");
                 continue;
             }
             if crate::agents::get_agent(name).is_some() {
                 tracing::warn!(target: "session.store",
-                    "agent_cockpit_cmd: '{}' shadows a built-in agent; built-in agents already have a cockpit adapter and the entry will be ignored",
+                    "agent_acp_cmd: '{}' shadows a built-in agent; built-in agents already have an acp adapter and the entry will be ignored",
                     name
                 );
                 continue;
             }
             if !self.custom_agents.contains_key(name) {
                 tracing::warn!(target: "session.store",
-                    "agent_cockpit_cmd: '{}' has no matching custom_agents entry; it will not appear in the agent picker",
+                    "agent_acp_cmd: '{}' has no matching custom_agents entry; it will not appear in the agent picker",
                     name
                 );
             }
             match shell_words::split(command) {
                 Ok(argv) if argv.is_empty() => {
                     tracing::warn!(target: "session.store",
-                        "agent_cockpit_cmd: '{}' has an empty command, cockpit will be unavailable for it",
+                        "agent_acp_cmd: '{}' has an empty command, acp will be unavailable for it",
                         name
                     );
                 }
                 Ok(_) => {}
                 Err(e) => {
                     tracing::warn!(target: "session.store",
-                        "agent_cockpit_cmd: '{}' has a malformed command ({}), cockpit will be unavailable for it",
+                        "agent_acp_cmd: '{}' has a malformed command ({}), acp will be unavailable for it",
                         name, e
                     );
                 }
@@ -916,16 +1201,24 @@ impl SessionConfig {
 }
 
 /// Diff view configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SettingsSection)]
+#[setting_section(name = "diff", category = "Diff")]
 pub struct DiffConfig {
     /// Default branch to compare against (e.g., "main", "master")
     /// If not set, will try to auto-detect from the repository
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[setting(label = "Default Branch", widget = "optional_text")]
     pub default_branch: Option<String>,
 
     /// Number of context lines to show around changes
     #[serde(default = "default_context_lines")]
+    #[setting(label = "Context Lines", widget = "number", min = 0)]
     pub context_lines: usize,
+
+    /// Render diffs side-by-side (split) instead of unified.
+    #[serde(default)]
+    #[setting(label = "Side-by-side diff", widget = "toggle")]
+    pub split_view: bool,
 }
 
 impl Default for DiffConfig {
@@ -933,6 +1226,7 @@ impl Default for DiffConfig {
         Self {
             default_branch: None,
             context_lines: 3,
+            split_view: false,
         }
     }
 }
@@ -942,38 +1236,41 @@ fn default_context_lines() -> usize {
 }
 
 /// Web dashboard runtime configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SettingsSection)]
+#[setting_section(name = "web", category = "Web")]
 pub struct WebConfig {
-    /// Operator kill switch for browser push notifications. When false,
-    /// `/api/push/*` returns 404 and the status-change consumer drops
-    /// events without sending. Existing subscriptions persist across
-    /// flips, so toggling back to true resumes delivery without requiring
-    /// users to re-opt-in.
+    /// Allow the web dashboard to deliver browser push notifications
+    /// (server-wide kill switch). When false, `/api/push/*` returns 404 and
+    /// the status-change consumer drops events without sending. Existing
+    /// subscriptions persist across flips, so toggling back to true resumes
+    /// delivery without requiring users to re-opt-in.
     #[serde(default = "default_true")]
+    #[setting(label = "Push notifications", widget = "toggle", global_only)]
     pub notifications_enabled: bool,
 
-    /// Server-wide default: fire a push on Running to Waiting transitions.
-    /// Sessions can override per-session via `Instance.notify_on_waiting`.
+    /// Default: send a push when a session transitions Running to Waiting
+    /// (agent is asking for input). Sessions can override individually.
     #[serde(default = "default_true")]
+    #[setting(label = "Notify on waiting", widget = "toggle", global_only)]
     pub notify_on_waiting: bool,
 
-    /// Server-wide default: fire a push on Running to Idle transitions.
-    /// Off by default because Idle fires on every session completion and
-    /// gets spammy quickly. Sessions can opt in via `Instance.notify_on_idle`.
+    /// Default: send a push when a session finishes (Running to Idle). Off by
+    /// default because short sessions make this noisy; sessions can opt in
+    /// individually.
     #[serde(default)]
+    #[setting(label = "Notify on idle", widget = "toggle", global_only)]
     pub notify_on_idle: bool,
 
-    /// Server-wide default: fire a push on Running to Error transitions.
+    /// Default: send a push when a session errors (Running to Error).
     #[serde(default = "default_true")]
+    #[setting(label = "Notify on error", widget = "toggle", global_only)]
     pub notify_on_error: bool,
 
-    /// Server-wide default: fire a push when a cockpit session's
-    /// `ScheduleWakeup` timer fires (the next /loop turn starts). On by
-    /// default because the headline use case for `/loop` dynamic mode
-    /// is "walk away during the sleep window"; without a push the
-    /// user has to keep peeking at the dashboard. Suppression for
-    /// active TUI / web sessions still applies. See #1091.
+    /// Default: send a push when an acp session's ScheduleWakeup timer
+    /// fires (the next /loop turn starts). Suppressed if the TUI or web
+    /// dashboard has been active in the last 30s. See #1091.
     #[serde(default = "default_true")]
+    #[setting(label = "Notify on scheduled wake", widget = "toggle", global_only)]
     pub notify_on_wake_fire: bool,
 }
 
@@ -1012,26 +1309,29 @@ pub enum ColorMode {
     Palette,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SettingsSection)]
+#[setting_section(name = "theme", category = "Theme")]
 pub struct ThemeConfig {
+    /// Color theme for the TUI.
     #[serde(default)]
+    #[setting(label = "Theme", widget = "custom:theme-name")]
     pub name: String,
-    /// How theme colors are emitted at the escape-sequence level.
-    /// See `ColorMode` for the truecolor vs palette trade-off.
+    /// Truecolor (24-bit RGB) or palette (xterm-256). Use palette if your
+    /// terminal mangles RGB escapes.
     #[serde(default)]
+    #[setting(
+        label = "Color Mode",
+        widget = "select",
+        options = "truecolor:truecolor,palette:palette"
+    )]
     pub color_mode: ColorMode,
-    /// Minutes a freshly-stopped Idle session keeps the fresh-idle color
-    /// and animated `breathe` rattle before snapping back to the regular
-    /// static idle look. Sessions inside the window are also included in
-    /// the `w` keybind's "needs attention" bucket.
-    ///
-    /// Default is `0` (off): the freshness rattle and fresh-idle color
-    /// stay off, every Idle row renders with the regular static look
-    /// the moment its Stop hook fires. The time-since-stop column on
-    /// Idle rows is independent of this setting and shows regardless.
-    /// Set a positive value (e.g. 20) to opt in to the visual freshness
-    /// signal.
+    /// Off by default (0). Set a positive value to opt in: a freshly-stopped
+    /// Idle session keeps a fresh-idle tint and an animated breathe icon for
+    /// this many minutes before snapping back to the static look, and is
+    /// treated as actionable by the `w` keybind. The time-since-stop column
+    /// on Idle rows shows regardless of this setting.
     #[serde(default = "default_idle_decay_minutes")]
+    #[setting(label = "Idle Decay (minutes)", widget = "number", min = 0)]
     pub idle_decay_minutes: u64,
 }
 
@@ -1089,25 +1389,40 @@ impl UpdateCheckMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SettingsSection)]
+#[setting_section(name = "updates", category = "Updates")]
 pub struct UpdatesConfig {
-    /// How updates are surfaced (auto / notify / off). Replaces the
-    /// legacy `check_enabled` boolean (see migration `v009`).
+    /// auto = install in background on detection (picked up next launch).
+    /// notify = show banner / CLI notice (default). off = skip every check.
     #[serde(default)]
+    #[setting(
+        label = "Update Check Mode",
+        widget = "select",
+        options = "auto:auto,notify:notify,off:off"
+    )]
     pub update_check_mode: UpdateCheckMode,
 
+    /// How often to check for updates.
     #[serde(default = "default_check_interval")]
+    #[setting(
+        label = "Check Interval (hours)",
+        widget = "number",
+        min = 1,
+        validate = "range:1"
+    )]
     pub check_interval_hours: u64,
 
+    /// Show update notifications in CLI output.
     #[serde(default = "default_true")]
+    #[setting(label = "Notify in CLI", widget = "toggle")]
     pub notify_in_cli: bool,
 
-    /// How often the web dashboard re-polls `/api/system/update-status`
-    /// while a tab is open. Server-side cache is governed by
-    /// `check_interval_hours`; this knob only controls how aggressively
-    /// the frontend asks. Keep it lower than `check_interval_hours * 60`
-    /// or every poll is a cache hit. See #984.
+    /// How often the web dashboard re-polls for new releases. Server-side
+    /// cache is governed by `check_interval_hours`; this knob only controls
+    /// how aggressively the frontend asks. Keep it lower than
+    /// `check_interval_hours * 60` or every poll is a cache hit. See #984.
     #[serde(default = "default_web_poll_interval_minutes")]
+    #[setting(label = "Web Poll Interval (minutes)", widget = "number", min = 0)]
     pub web_poll_interval_minutes: u64,
 }
 
@@ -1134,43 +1449,116 @@ fn default_web_poll_interval_minutes() -> u64 {
     60
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorktreeConfig {
+/// Anonymous, opt-in usage telemetry. Off by default; mirrors the privacy
+/// posture of [`UpdatesConfig`] (the only other outbound call in the tool).
+///
+/// The single `enabled` flag is the consent boundary the user controls in
+/// every settings surface. The anonymous install id lives in a dedicated
+/// `telemetry.json` (NOT here), so pasting `config.toml` into a bug report
+/// can never leak it. `DO_NOT_TRACK` overrides this flag at runtime and
+/// suppresses both sending and id generation regardless of its value.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, SettingsSection)]
+#[setting_section(name = "telemetry", category = "Telemetry")]
+pub struct TelemetryConfig {
+    /// User opted in to anonymous usage telemetry. Defaults to `false`.
     #[serde(default)]
+    #[setting(label = "Anonymous usage telemetry", widget = "toggle", global_only)]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, SettingsSection)]
+#[setting_section(name = "worktree", category = "Worktree")]
+pub struct WorktreeConfig {
+    /// Enable worktree mode by default for new sessions.
+    #[serde(default)]
+    #[setting(
+        label = "Enabled by Default",
+        widget = "toggle",
+        web = "elevation:worktree config affects host filesystem"
+    )]
     pub enabled: bool,
 
+    /// Template for worktree paths ({repo-name}, {branch}).
     #[serde(default = "default_worktree_template")]
+    #[setting(
+        label = "Path Template",
+        widget = "text",
+        web = "elevation:worktree config affects host filesystem"
+    )]
     pub path_template: String,
 
-    /// Path template for bare repo setups (linked worktree pattern).
-    /// Defaults to "./{branch}" to keep worktrees as siblings within the repo directory.
+    /// Template for bare repo worktree paths. Defaults to "./{branch}" to keep
+    /// worktrees as siblings within the repo directory.
     #[serde(default = "default_bare_repo_template")]
+    #[setting(
+        label = "Bare Repo Template",
+        widget = "text",
+        web = "elevation:worktree config affects host filesystem",
+        advanced
+    )]
     pub bare_repo_path_template: String,
 
+    /// Automatically clean up worktrees on session delete.
     #[serde(default = "default_true")]
+    #[setting(
+        label = "Auto Cleanup",
+        widget = "toggle",
+        web = "elevation:worktree config affects host filesystem"
+    )]
     pub auto_cleanup: bool,
 
+    /// Show the worktree branch name in the TUI session list.
     #[serde(default = "default_true")]
+    #[setting(label = "Show Branch in TUI", widget = "toggle", advanced)]
     pub show_branch_in_tui: bool,
 
-    /// When deleting a worktree, also delete the associated git branch.
-    /// Default: false (unchecked in delete dialog)
+    /// Also delete the git branch when deleting a worktree. Default: false
+    /// (unchecked in the delete dialog).
     #[serde(default)]
+    #[setting(
+        label = "Delete Branch on Cleanup",
+        widget = "toggle",
+        web = "elevation:worktree config affects host filesystem",
+        advanced
+    )]
     pub delete_branch_on_cleanup: bool,
 
-    /// Path template for multi-repo workspace directories.
-    /// Supports {branch} and {session-id} placeholders.
+    /// Template for multi-repo workspace directories ({branch}, {session-id}).
     #[serde(default = "default_workspace_template")]
+    #[setting(
+        label = "Workspace Path Template",
+        widget = "text",
+        web = "elevation:worktree config affects host filesystem",
+        advanced
+    )]
     pub workspace_path_template: String,
 
     /// Run `git submodule update --init --recursive` after creating a worktree
-    /// when the checkout contains a `.gitmodules` file. Defaults to true to
-    /// preserve the behavior introduced in #942. Disable for repos with large
-    /// or deeply-nested submodule trees that you don't need inside agent
+    /// when the checkout contains a `.gitmodules` file. Disable for repos with
+    /// large or deeply-nested submodule trees that you don't need inside agent
     /// sessions; new sessions then finish creating instead of stalling in
-    /// `Creating…` while submodules clone.
+    /// `Creating` while submodules clone.
     #[serde(default = "default_true")]
+    #[setting(
+        label = "Init Submodules",
+        widget = "toggle",
+        web = "elevation:worktree config affects host filesystem",
+        advanced
+    )]
     pub init_submodules: bool,
+
+    /// Default base branch for new worktree branches. When empty, falls back to
+    /// the repository's detected default branch. A per-project entry in the
+    /// registry, or an explicit base branch supplied at session creation,
+    /// takes precedence over this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[setting(
+        label = "Default Base Branch",
+        widget = "optional_text",
+        web = "elevation:worktree config affects host filesystem",
+        advanced
+    )]
+    pub default_base_branch: Option<String>,
 }
 
 impl Default for WorktreeConfig {
@@ -1184,6 +1572,7 @@ impl Default for WorktreeConfig {
             delete_branch_on_cleanup: false,
             workspace_path_template: default_workspace_template(),
             init_submodules: true,
+            default_base_branch: None,
         }
     }
 }
@@ -1200,67 +1589,173 @@ fn default_workspace_template() -> String {
     "../{branch}-workspace-{session-id}".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SettingsSection)]
+#[setting_section(name = "sandbox", category = "Sandbox")]
 pub struct SandboxConfig {
+    /// Enable sandbox mode by default for new sessions.
     #[serde(default)]
+    #[setting(
+        label = "Enabled by Default",
+        widget = "toggle",
+        web = "elevation:sandbox config affects host isolation"
+    )]
     pub enabled_by_default: bool,
 
+    /// Container image to use for sandboxes.
     #[serde(default = "default_sandbox_image")]
+    #[setting(
+        label = "Default Image",
+        widget = "text",
+        web = "elevation:sandbox config affects host isolation"
+    )]
     pub default_image: String,
 
+    /// Additional volume mounts (host:container or host:container:ro).
     #[serde(default, deserialize_with = "super::serde_helpers::string_or_vec")]
+    #[setting(
+        label = "Extra Volumes",
+        widget = "list",
+        validate = "volume_list",
+        web = "elevation:sandbox config affects host isolation",
+        advanced
+    )]
     pub extra_volumes: Vec<String>,
 
+    /// Env vars injected into the container: KEY=value (literal, appears in
+    /// argv), KEY=$VAR (passthrough from host, hidden from argv), KEY=$$literal
+    /// (escape a leading $), or bare KEY (passthrough). For host (non-sandboxed)
+    /// sessions, see Session > Host Environment instead.
     #[serde(
         default = "default_sandbox_environment",
         deserialize_with = "super::serde_helpers::string_or_vec"
     )]
+    #[setting(
+        label = "Sandbox Environment",
+        widget = "list",
+        validate = "env_list",
+        web = "elevation:sandbox config affects host isolation",
+        advanced
+    )]
     pub environment: Vec<String>,
 
+    /// Remove containers when sessions are deleted.
     #[serde(default = "default_true")]
+    #[setting(
+        label = "Auto Cleanup",
+        widget = "toggle",
+        web = "elevation:sandbox config affects host isolation"
+    )]
     pub auto_cleanup: bool,
 
+    /// CPU limit for containers (e.g. "4").
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[setting(
+        label = "CPU Limit",
+        widget = "optional_text",
+        web = "elevation:sandbox config affects host isolation",
+        advanced
+    )]
     pub cpu_limit: Option<String>,
 
+    /// Memory limit for containers (e.g. "8g", "512m").
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[setting(
+        label = "Memory Limit",
+        widget = "optional_text",
+        validate = "memory_limit",
+        web = "elevation:sandbox config affects host isolation",
+        advanced
+    )]
     pub memory_limit: Option<String>,
 
+    /// Expose container ports to host (e.g. 3000:3000).
     #[serde(
         default,
         skip_serializing_if = "Vec::is_empty",
         deserialize_with = "super::serde_helpers::string_or_vec"
     )]
+    #[setting(
+        label = "Port Mappings",
+        widget = "list",
+        validate = "port_mapping_list",
+        web = "elevation:sandbox config affects host isolation",
+        advanced
+    )]
     pub port_mappings: Vec<String>,
 
-    /// Default terminal mode for sandboxed sessions (host or container)
+    /// Default terminal for sandboxed sessions (toggle with 'c' key).
     #[serde(default)]
+    #[setting(
+        label = "Default Terminal Mode",
+        widget = "select",
+        options = "host:Host,container:Container",
+        web = "elevation:sandbox config affects host isolation"
+    )]
     pub default_terminal_mode: DefaultTerminalMode,
 
-    /// Relative directory paths to exclude from the host bind mount via anonymous volumes
+    /// Directories to exclude from host mount (e.g. target, node_modules).
     #[serde(default, deserialize_with = "super::serde_helpers::string_or_vec")]
+    #[setting(
+        label = "Volume Ignores",
+        widget = "list",
+        web = "elevation:sandbox config affects host isolation",
+        advanced
+    )]
     pub volume_ignores: Vec<String>,
 
-    /// Strategy for mounting volume_ignores paths (anonymous or named)
+    /// anonymous: default, works on Linux. named: use deterministic
+    /// Docker/Podman named volumes, required on macOS/VirtioFS to reliably
+    /// shadow bind-mount subdirectories.
     #[serde(default)]
+    #[setting(
+        label = "Volume Ignores Strategy",
+        widget = "select",
+        options = "anonymous:anonymous,named:named",
+        web = "elevation:sandbox config affects host isolation",
+        advanced
+    )]
     pub volume_ignores_strategy: VolumeIgnoresStrategy,
 
-    /// Mount ~/.ssh into sandbox containers (default: false)
+    /// Mount ~/.ssh into sandbox containers (for git SSH access).
     #[serde(default)]
+    #[setting(
+        label = "Mount SSH",
+        widget = "toggle",
+        web = "elevation:sandbox config affects host isolation"
+    )]
     pub mount_ssh: bool,
 
-    /// Append the SELinux relabel flag (`:z`) to sandbox bind mounts so the
-    /// container can read them on SELinux-enforcing hosts (Fedora, RHEL). Off by
-    /// default; only emitted for Docker/Podman. Note: this relabels the host paths.
+    /// Append the :z SELinux relabel flag to sandbox bind mounts (needed on
+    /// Fedora/RHEL; relabels host paths). Off by default; only emitted for
+    /// Docker/Podman.
     #[serde(default)]
+    #[setting(
+        label = "SELinux Relabel",
+        widget = "toggle",
+        web = "elevation:sandbox config affects host isolation",
+        advanced
+    )]
     pub selinux_relabel: bool,
 
-    /// Custom instruction text appended to the agent's system prompt in sandboxed sessions.
+    /// Custom instruction text appended to the agent's system prompt in
+    /// sandboxed sessions (Claude, Codex only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[setting(
+        label = "Custom Instruction",
+        widget = "optional_text",
+        web = "elevation:sandbox config affects host isolation",
+        advanced
+    )]
     pub custom_instruction: Option<String>,
 
-    /// Container runtime to use for sandboxing (docker, podman, or apple_container)
+    /// Container runtime for sandboxing.
     #[serde(default)]
+    #[setting(
+        label = "Container Runtime",
+        widget = "select",
+        options = "docker:Docker,podman:Podman,apple_container:Apple Container",
+        web = "elevation:sandbox config affects host isolation"
+    )]
     pub container_runtime: ContainerRuntimeName,
 }
 
@@ -1370,19 +1865,36 @@ pub enum TmuxClipboardMode {
     Disabled,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SettingsSection)]
+#[setting_section(name = "tmux", category = "Tmux")]
 pub struct TmuxConfig {
+    /// Control tmux status bar styling (Auto respects your tmux config).
     #[serde(default)]
+    #[setting(
+        label = "Status Bar",
+        widget = "select",
+        options = "auto:Auto,enabled:Enabled,disabled:Disabled"
+    )]
     pub status_bar: TmuxStatusBarMode,
 
-    /// Mouse support mode (auto, enabled, disabled)
+    /// Control mouse scrolling (Auto respects your tmux config).
     #[serde(default)]
+    #[setting(
+        label = "Mouse Support",
+        widget = "select",
+        options = "auto:Auto,enabled:Enabled,disabled:Disabled"
+    )]
     pub mouse: TmuxMouseMode,
 
-    /// Clipboard pass-through mode (auto, enabled, disabled). Controls
-    /// `set-clipboard on` and `allow-passthrough on` so OSC 52 from the
-    /// wrapped agent reaches the terminal.
+    /// Forward OSC 52 clipboard from agents to your terminal (Auto respects
+    /// your tmux config). Controls `set-clipboard on` and `allow-passthrough
+    /// on` so OSC 52 from the wrapped agent reaches the terminal.
     #[serde(default)]
+    #[setting(
+        label = "Clipboard Pass-through",
+        widget = "select",
+        options = "auto:Auto,enabled:Enabled,disabled:Disabled"
+    )]
     pub clipboard: TmuxClipboardMode,
 }
 
@@ -1552,6 +2064,10 @@ pub fn get_update_settings() -> UpdatesConfig {
     Config::load_or_warn().updates
 }
 
+pub fn get_telemetry_settings() -> TelemetryConfig {
+    Config::load_or_warn().telemetry
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1570,15 +2086,15 @@ mod tests {
     fn test_effective_profile_falls_back_to_global_default_when_empty() {
         let temp_home = tempfile::TempDir::new().unwrap();
         std::env::set_var("HOME", temp_home.path());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         std::env::set_var("XDG_CONFIG_HOME", temp_home.path().join(".config"));
 
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let app_dir = temp_home
             .path()
             .join(".config")
-            .join(crate::session::APP_DIR_NAME_LINUX);
-        #[cfg(not(target_os = "linux"))]
+            .join(crate::session::APP_DIR_NAME_XDG);
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let app_dir = temp_home.path().join(crate::session::APP_DIR_NAME_OTHER);
 
         std::fs::create_dir_all(&app_dir).unwrap();
@@ -1596,15 +2112,15 @@ mod tests {
     fn test_load_or_warn_returns_defaults_on_malformed_toml() {
         let temp_home = tempfile::TempDir::new().unwrap();
         std::env::set_var("HOME", temp_home.path());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         std::env::set_var("XDG_CONFIG_HOME", temp_home.path().join(".config"));
 
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let app_dir = temp_home
             .path()
             .join(".config")
-            .join(crate::session::APP_DIR_NAME_LINUX);
-        #[cfg(not(target_os = "linux"))]
+            .join(crate::session::APP_DIR_NAME_XDG);
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let app_dir = temp_home.path().join(crate::session::APP_DIR_NAME_OTHER);
 
         std::fs::create_dir_all(&app_dir).unwrap();
@@ -1897,6 +2413,7 @@ mod tests {
     fn test_app_state_config_default() {
         let app = AppStateConfig::default();
         assert!(!app.has_seen_welcome);
+        assert!(!app.has_seen_web_tour);
         assert!(app.last_seen_version.is_none());
         assert!(app.dismissed_update_version.is_none());
     }
@@ -1910,8 +2427,20 @@ mod tests {
         "#;
         let app: AppStateConfig = toml::from_str(toml).unwrap();
         assert!(app.has_seen_welcome);
+        // Absent from the toml: defaults to false (backward compatible).
+        assert!(!app.has_seen_web_tour);
         assert_eq!(app.last_seen_version, Some("1.0.0".to_string()));
         assert_eq!(app.dismissed_update_version, Some("1.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_app_state_config_web_tour_roundtrip() {
+        let toml = r#"
+            has_seen_web_tour = true
+        "#;
+        let app: AppStateConfig = toml::from_str(toml).unwrap();
+        assert!(app.has_seen_web_tour);
+        assert!(!app.has_seen_welcome);
     }
 
     // Full config serialization roundtrip
@@ -2163,6 +2692,16 @@ mod tests {
     }
 
     #[test]
+    fn diff_config_split_view_roundtrips() {
+        let mut cfg = DiffConfig::default();
+        assert!(!cfg.split_view);
+        cfg.split_view = true;
+        let toml = toml::to_string(&cfg).unwrap();
+        let back: DiffConfig = toml::from_str(&toml).unwrap();
+        assert!(back.split_view);
+    }
+
+    #[test]
     fn test_session_config_agent_override_roundtrip() {
         let mut config = Config::default();
         config
@@ -2173,6 +2712,13 @@ mod tests {
             .session
             .agent_extra_args
             .insert("opencode".to_string(), "--port 8080".to_string());
+        config.session.acp_defaults.insert(
+            "opencode".to_string(),
+            AcpAgentDefaults {
+                model: Some("openai/gpt-5.5".to_string()),
+                effort: Some("high".to_string()),
+            },
+        );
 
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
@@ -2185,6 +2731,14 @@ mod tests {
             deserialized.session.agent_extra_args.get("opencode"),
             Some(&"--port 8080".to_string()),
             "agent_extra_args should survive roundtrip"
+        );
+        assert_eq!(
+            deserialized.session.acp_defaults.get("opencode"),
+            Some(&AcpAgentDefaults {
+                model: Some("openai/gpt-5.5".to_string()),
+                effort: Some("high".to_string()),
+            }),
+            "acp_defaults should survive roundtrip"
         );
     }
 
@@ -2310,6 +2864,18 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_auto_stop_idle_secs_accepts_u32_range() {
+        assert!(validate_auto_stop_idle_secs(0).is_ok());
+        assert!(validate_auto_stop_idle_secs(3600).is_ok());
+        assert!(validate_auto_stop_idle_secs(u32::MAX as u64).is_ok());
+    }
+
+    #[test]
+    fn test_validate_auto_stop_idle_secs_rejects_above_u32() {
+        assert!(validate_auto_stop_idle_secs(u32::MAX as u64 + 1).is_err());
+    }
+
+    #[test]
     fn test_validate_snooze_duration_accepts_dialog_presets() {
         // The TUI dialog presets must all pass the validator; otherwise
         // the API silently rejects what the UI offered. Presets:
@@ -2347,7 +2913,7 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_cockpit_cmd_roundtrip() {
+    fn test_agent_acp_cmd_roundtrip() {
         let mut config = Config::default();
         config
             .session
@@ -2355,23 +2921,23 @@ mod tests {
             .insert("oc-sp".to_string(), "ocp run sp".to_string());
         config
             .session
-            .agent_cockpit_cmd
+            .agent_acp_cmd
             .insert("oc-sp".to_string(), "ocp run sp acp".to_string());
 
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
         assert_eq!(
-            deserialized.session.agent_cockpit_cmd.get("oc-sp"),
+            deserialized.session.agent_acp_cmd.get("oc-sp"),
             Some(&"ocp run sp acp".to_string()),
         );
     }
 
     #[test]
-    fn test_agent_cockpit_cmd_defaults_empty() {
-        // A config with no agent_cockpit_cmd must deserialize to an empty
+    fn test_agent_acp_cmd_defaults_empty() {
+        // A config with no agent_acp_cmd must deserialize to an empty
         // map (serde default), not error, so existing configs keep loading.
         let config: Config = toml::from_str("").unwrap();
-        assert!(config.session.agent_cockpit_cmd.is_empty());
+        assert!(config.session.agent_acp_cmd.is_empty());
     }
 
     #[test]
@@ -2396,14 +2962,11 @@ mod tests {
 default_level = "debug"
 
 [targets]
-"cockpit.acp" = "trace"
+"acp.acp" = "trace"
 "#;
         let parsed: LoggingConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(parsed.default_level, "debug");
-        assert_eq!(
-            parsed.targets.get("cockpit.acp"),
-            Some(&"trace".to_string())
-        );
+        assert_eq!(parsed.targets.get("acp.acp"), Some(&"trace".to_string()));
         assert_eq!(parsed.output, SinkKind::File);
         assert_eq!(parsed.file_path, "debug.log");
         assert_eq!(parsed.rotation, RotationKind::Size);

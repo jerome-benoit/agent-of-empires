@@ -8,6 +8,7 @@ pub(crate) mod container_config;
 pub mod deletion;
 pub(crate) mod environment;
 mod groups;
+pub mod idle_reap;
 mod instance;
 pub mod poller;
 pub mod profile_config;
@@ -16,17 +17,20 @@ pub(crate) mod recovery;
 pub mod repo_config;
 pub mod scratch;
 pub(crate) mod serde_helpers;
+pub mod settings_schema;
 pub mod stop;
 mod storage;
+pub mod worktree_edit;
 
-pub use crate::sound::{SoundConfig, SoundConfigOverride};
-pub use crate::status_hooks::{StatusHookConfig, StatusHookConfigOverride};
+pub use crate::sound::SoundConfig;
+pub use crate::status_hooks::StatusHookConfig;
 pub(crate) use capture::is_valid_session_id;
 pub use config::{
-    get_update_settings, load_config, save_config, validate_snooze_duration, ClickAction, Config,
-    ContainerRuntimeName, DefaultTerminalMode, GroupByMode, NewSessionAttachMode, RowTagMode,
-    SandboxConfig, SessionConfig, ThemeConfig, TmuxClipboardMode, TmuxMouseMode, TmuxStatusBarMode,
-    UpdatesConfig, VolumeIgnoresStrategy, WorktreeConfig,
+    get_telemetry_settings, get_update_settings, load_config, save_config,
+    validate_snooze_duration, ClickAction, Config, ContainerRuntimeName, DefaultTerminalMode,
+    GroupByMode, NewSessionAttachMode, RowTagMode, SandboxConfig, SessionConfig, TelemetryConfig,
+    ThemeConfig, TmuxClipboardMode, TmuxMouseMode, TmuxStatusBarMode, UpdatesConfig,
+    VolumeIgnoresStrategy, WorktreeConfig,
 };
 pub(crate) use environment::user_shell;
 pub use environment::{validate_env_entries, validate_env_entry};
@@ -39,16 +43,15 @@ pub use groups::{
 pub(crate) use instance::{persist_session_to_storage, ResumeIntent, SidWrite};
 pub use instance::{
     EnsureReadyError, EnsureReadyOutcome, Instance, LaunchSidOutcome, SandboxInfo, StartOutcome,
-    Status, TerminalInfo, WorkspaceInfo, WorkspaceRepo, WorktreeInfo,
+    Status, TerminalInfo, View, WorkspaceInfo, WorkspaceRepo, WorktreeInfo,
 };
 pub use profile_config::{
     load_profile_config, merge_configs, resolve_config, resolve_config_or_warn,
-    save_profile_config, validate_check_interval, validate_memory_limit, validate_volume_format,
-    CockpitConfigOverride, HooksConfigOverride, ProfileConfig, SandboxConfigOverride,
-    SessionConfigOverride, ThemeConfigOverride, TmuxConfigOverride, UpdatesConfigOverride,
-    WorktreeConfigOverride,
+    save_profile_config, validate_check_interval, validate_env_format, validate_memory_limit,
+    validate_port_mapping_format, validate_volume_format, ProfileConfig,
 };
 pub use projects::{Project, ProjectScope};
+pub use recovery::HookTimeoutScope;
 pub use repo_config::{
     check_hook_trust, execute_hooks, execute_hooks_in_container, load_repo_config,
     merge_repo_config, profile_to_repo_config, repo_config_to_profile, resolve_config_with_repo,
@@ -63,22 +66,94 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// Linux app dir name (under `$XDG_CONFIG_HOME`). Debug builds use a `-dev`
-/// suffix so a `cargo run` instance shares no state with an installed
+/// App dir name under the XDG config base (`$XDG_CONFIG_HOME`, default
+/// `~/.config`). Always used on Linux; used on macOS when the user opts into
+/// the XDG layout (see [`get_app_dir_path`] and issue #1948). Debug builds use
+/// a `-dev` suffix so a `cargo run` instance shares no state with an installed
 /// release binary.
-pub const APP_DIR_NAME_LINUX: &str = if cfg!(debug_assertions) {
+pub const APP_DIR_NAME_XDG: &str = if cfg!(debug_assertions) {
     "agent-of-empires-dev"
 } else {
     "agent-of-empires"
 };
 
-/// macOS/Windows app dir name (under `$HOME`). Debug builds use a `-dev`
-/// suffix; see `APP_DIR_NAME_LINUX`.
+/// Home-dotfile app dir name (under `$HOME`). The default on macOS and the
+/// only location on Windows. Debug builds use a `-dev` suffix; see
+/// `APP_DIR_NAME_XDG`.
 pub const APP_DIR_NAME_OTHER: &str = if cfg!(debug_assertions) {
     ".agent-of-empires-dev"
 } else {
     ".agent-of-empires"
 };
+
+/// Resolve the XDG-style config base directory: `$XDG_CONFIG_HOME` when set to
+/// an absolute path, otherwise `~/.config`.
+///
+/// On Linux this matches `dirs::config_dir()`. macOS uses it for the XDG layout
+/// (rather than `dirs::config_dir()`, which there resolves to `~/Library/
+/// Application Support`) so a dotfile manager like chezmoi can share one global
+/// config path with Linux. See issue #1948.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) fn xdg_config_base() -> Result<PathBuf> {
+    if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
+        if dir.is_absolute() {
+            return Ok(dir);
+        }
+    }
+    Ok(dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?
+        .join(".config"))
+}
+
+/// Whether `$XDG_CONFIG_HOME` is set to an absolute path, i.e. the user has
+/// meaningfully opted into the XDG layout. A relative or empty value is ignored
+/// per the XDG spec (and by [`xdg_config_base`]), so it does not count.
+#[cfg(target_os = "macos")]
+fn xdg_config_home_set() -> bool {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(|v| std::path::Path::new(&v).is_absolute())
+        .unwrap_or(false)
+}
+
+/// macOS app-dir resolution: prefer the XDG location, fall back to the
+/// home-dotfile location, without ever moving data. See issue #1948.
+///
+/// Precedence (the first matching rule wins):
+/// 1. the XDG dir already exists -> use it (picks up a `~/.config` tree synced
+///    from Linux even when `$XDG_CONFIG_HOME` is unset);
+/// 2. the legacy dir already exists -> use it (an existing install keeps its
+///    data in place even after the user later sets `$XDG_CONFIG_HOME`);
+/// 3. `$XDG_CONFIG_HOME` is set -> use the XDG dir (a fresh XDG opt-in);
+/// 4. otherwise -> the home-dotfile dir (the historical macOS default).
+///
+/// `xdg_name` / `legacy_name` are passed in (rather than read from the
+/// constants) so the dev/release namespace warning can resolve the release
+/// pair from a debug build.
+#[cfg(target_os = "macos")]
+fn macos_app_dir(xdg_name: &str, legacy_name: &str) -> Option<PathBuf> {
+    let xdg = xdg_config_base().ok()?.join(xdg_name);
+    let legacy = dirs::home_dir()?.join(legacy_name);
+    Some(resolve_app_dir_with_fallback(
+        xdg,
+        legacy,
+        xdg_config_home_set(),
+    ))
+}
+
+/// Pure precedence used by [`macos_app_dir`]; split out so the rule is testable
+/// off-macOS. See that function for the meaning of each branch.
+#[cfg(any(target_os = "macos", test))]
+fn resolve_app_dir_with_fallback(xdg: PathBuf, legacy: PathBuf, xdg_env_set: bool) -> PathBuf {
+    if xdg.exists() {
+        xdg
+    } else if legacy.exists() {
+        legacy
+    } else if xdg_env_set {
+        xdg
+    } else {
+        legacy
+    }
+}
 
 pub fn get_app_dir() -> Result<PathBuf> {
     let dir = get_app_dir_path()?;
@@ -88,13 +163,25 @@ pub fn get_app_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+/// Whether the app data dir already exists, **without** creating it (unlike
+/// [`get_app_dir`], which auto-creates). Lets side-effect-sensitive callers
+/// probe install state cheaply: the per-command telemetry recorder uses it to
+/// stay a true no-op for app-data-free commands (`aoe completion`, `aoe init`,
+/// ...) on an install that is not opted in, so those commands keep working in
+/// read-only / sandboxed (e.g. Nix) environments without materializing the dir.
+pub fn app_dir_exists() -> bool {
+    get_app_dir_path().map(|p| p.exists()).unwrap_or(false)
+}
+
 fn get_app_dir_path() -> Result<PathBuf> {
     #[cfg(target_os = "linux")]
-    let dir = dirs::config_dir()
-        .ok_or_else(|| anyhow::anyhow!("Cannot find config directory"))?
-        .join(APP_DIR_NAME_LINUX);
+    let dir = xdg_config_base()?.join(APP_DIR_NAME_XDG);
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    let dir = macos_app_dir(APP_DIR_NAME_XDG, APP_DIR_NAME_OTHER)
+        .ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?;
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let dir = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?
         .join(APP_DIR_NAME_OTHER);
@@ -121,13 +208,17 @@ pub fn debug_namespace_drift() -> Option<(PathBuf, PathBuf)> {
     }
 
     #[cfg(target_os = "linux")]
-    let release_dir = dirs::config_dir()?.join("agent-of-empires");
-    #[cfg(not(target_os = "linux"))]
+    let release_dir = xdg_config_base().ok()?.join("agent-of-empires");
+    #[cfg(target_os = "macos")]
+    let release_dir = macos_app_dir("agent-of-empires", ".agent-of-empires")?;
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let release_dir = dirs::home_dir()?.join(".agent-of-empires");
 
     #[cfg(target_os = "linux")]
-    let dev_dir = dirs::config_dir()?.join(APP_DIR_NAME_LINUX);
-    #[cfg(not(target_os = "linux"))]
+    let dev_dir = xdg_config_base().ok()?.join(APP_DIR_NAME_XDG);
+    #[cfg(target_os = "macos")]
+    let dev_dir = macos_app_dir(APP_DIR_NAME_XDG, APP_DIR_NAME_OTHER)?;
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let dev_dir = dirs::home_dir()?.join(APP_DIR_NAME_OTHER);
 
     let release_populated = fs::read_dir(&release_dir)
@@ -553,18 +644,103 @@ mod tests {
     fn isolate_app_dir() -> tempfile::TempDir {
         let temp_home = tempfile::TempDir::new().unwrap();
         std::env::set_var("HOME", temp_home.path());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         std::env::set_var("XDG_CONFIG_HOME", temp_home.path().join(".config"));
         temp_home
     }
 
     fn app_dir(temp_home: &tempfile::TempDir) -> PathBuf {
-        #[cfg(target_os = "linux")]
-        let dir = temp_home.path().join(".config").join(APP_DIR_NAME_LINUX);
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let dir = temp_home.path().join(".config").join(APP_DIR_NAME_XDG);
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let dir = temp_home.path().join(APP_DIR_NAME_OTHER);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    #[serial_test::serial]
+    fn test_xdg_config_base_prefers_absolute_xdg_config_home() {
+        let temp = tempfile::TempDir::new().unwrap();
+        std::env::set_var("HOME", temp.path());
+        let custom = temp.path().join("custom-xdg");
+        std::env::set_var("XDG_CONFIG_HOME", &custom);
+
+        assert_eq!(xdg_config_base().unwrap(), custom);
+        // The global config path is derived from that base on both Linux and
+        // macOS, so a dotfile manager sees a single location. See issue #1948.
+        assert_eq!(get_app_dir_path().unwrap(), custom.join(APP_DIR_NAME_XDG));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    #[serial_test::serial]
+    fn test_xdg_config_base_falls_back_to_home_dot_config() {
+        let temp = tempfile::TempDir::new().unwrap();
+        std::env::set_var("HOME", temp.path());
+        // A relative (non-absolute) value is ignored per the XDG spec.
+        std::env::set_var("XDG_CONFIG_HOME", "relative/path");
+
+        assert_eq!(xdg_config_base().unwrap(), temp.path().join(".config"));
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+        assert_eq!(xdg_config_base().unwrap(), temp.path().join(".config"));
+    }
+
+    // Precedence behind the macOS read-fallback resolution (issue #1948). These
+    // exercise the pure rule, so they run on every platform's CI, not just
+    // macOS where `macos_app_dir` is compiled.
+    #[test]
+    fn test_fallback_prefers_existing_xdg_dir_even_over_legacy() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let xdg = tmp.path().join(".config").join("agent-of-empires");
+        let legacy = tmp.path().join(".agent-of-empires");
+        fs::create_dir_all(&xdg).unwrap();
+        fs::create_dir_all(&legacy).unwrap();
+
+        // Both present: XDG wins, so there is never a split brain.
+        assert_eq!(
+            resolve_app_dir_with_fallback(xdg.clone(), legacy.clone(), true),
+            xdg
+        );
+        assert_eq!(
+            resolve_app_dir_with_fallback(xdg.clone(), legacy, false),
+            xdg
+        );
+    }
+
+    #[test]
+    fn test_fallback_keeps_legacy_when_xdg_absent_even_if_env_set() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let xdg = tmp.path().join(".config").join("agent-of-empires");
+        let legacy = tmp.path().join(".agent-of-empires");
+        fs::create_dir_all(&legacy).unwrap();
+
+        // An existing install that later sets XDG_CONFIG_HOME keeps reading its
+        // data in place; nothing appears as a fresh install.
+        assert_eq!(
+            resolve_app_dir_with_fallback(xdg, legacy.clone(), true),
+            legacy
+        );
+    }
+
+    #[test]
+    fn test_fallback_fresh_install_follows_env() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let xdg = tmp.path().join(".config").join("agent-of-empires");
+        let legacy = tmp.path().join(".agent-of-empires");
+
+        // Neither dir exists yet: XDG_CONFIG_HOME set -> XDG opt-in; unset ->
+        // the historical macOS home-dotfile default.
+        assert_eq!(
+            resolve_app_dir_with_fallback(xdg.clone(), legacy.clone(), true),
+            xdg
+        );
+        assert_eq!(
+            resolve_app_dir_with_fallback(xdg, legacy.clone(), false),
+            legacy
+        );
     }
 
     #[test]
@@ -637,9 +813,9 @@ mod tests {
     }
 
     fn release_dir_in(temp: &tempfile::TempDir) -> PathBuf {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let d = temp.path().join(".config").join("agent-of-empires");
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let d = temp.path().join(".agent-of-empires");
         d
     }

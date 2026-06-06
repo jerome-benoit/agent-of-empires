@@ -21,9 +21,10 @@ describe("buildSidebar", () => {
     expect(buildSidebar()).toEqual([
       { kind: "divider", label: "Appearance" },
       { kind: "tab", id: "theme", label: "Theme" },
+      { kind: "tab", id: "diff", label: "Diff" },
       { kind: "divider", label: "Sessions" },
       { kind: "tab", id: "session", label: "Session" },
-      { kind: "tab", id: "cockpit", label: "Cockpit" },
+      { kind: "tab", id: "structured-view", label: "Structured view" },
       { kind: "divider", label: "Environment" },
       { kind: "tab", id: "sandbox", label: "Sandbox" },
       { kind: "tab", id: "worktree", label: "Worktree" },
@@ -37,6 +38,7 @@ describe("buildSidebar", () => {
       { kind: "tab", id: "devices", label: "Devices" },
       { kind: "divider", label: "System" },
       { kind: "tab", id: "updates", label: "Updates" },
+      { kind: "tab", id: "telemetry", label: "Telemetry" },
       { kind: "tab", id: "logging", label: "Logging" },
     ]);
   });

@@ -36,7 +36,7 @@ use super::dialogs::{
     GroupDeleteOptionsDialog, GroupPickerDialog, HookTrustDialog, HooksInstallDialog, InfoDialog,
     IntroDialog, NewSessionData, NewSessionDialog, NoAgentsDialog, ProfilePickerDialog,
     ProjectSessionPickerDialog, ProjectsDialog, RenameDialog, RestartDialog, SnoozeDurationDialog,
-    SortPickerDialog, UnifiedDeleteDialog, UpdateConfirmDialog,
+    SortPickerDialog, UnifiedDeleteDialog, UpdateConfirmDialog, WorktreeNameDialog,
 };
 use super::diff::DiffView;
 use super::settings::SettingsView;
@@ -199,7 +199,7 @@ pub(super) struct GroupRenameContext {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ViewMode {
     #[default]
-    Agent,
+    Structured,
     Terminal,
     /// Previewing a tool session (lazygit, yazi, etc.)
     Tool(String),
@@ -399,6 +399,7 @@ pub struct HomeView {
     pub(super) unified_delete_dialog: Option<UnifiedDeleteDialog>,
     pub(super) group_delete_options_dialog: Option<GroupDeleteOptionsDialog>,
     pub(super) rename_dialog: Option<RenameDialog>,
+    pub(super) worktree_name_dialog: Option<WorktreeNameDialog>,
     pub(super) restart_dialog: Option<RestartDialog>,
     /// Right-click popup on the sidebar list. Anchored to a screen
     /// position when opened; the renderer clamps it into view.
@@ -432,6 +433,10 @@ pub struct HomeView {
     #[cfg(feature = "serve")]
     pub(super) serve_view: Option<ServeView>,
     pub(super) update_confirm_dialog: Option<UpdateConfirmDialog>,
+    /// One-time opt-in popup for users who finished the walkthrough before
+    /// telemetry existed. Startup gating keeps it from rendering over the
+    /// changelog or the version update modal.
+    pub(super) telemetry_consent_dialog: Option<super::dialogs::TelemetryConsentDialog>,
     pub(super) send_message_dialog: Option<super::dialogs::SendMessageDialog>,
     /// Session to receive the message from the send dialog
     pub(super) pending_send_session: Option<String>,
@@ -446,7 +451,7 @@ pub struct HomeView {
     /// (and reset to Agent) by `prepare_live_send` so each action
     /// carries its own target without a stale value leaking into a
     /// later live-send call. Defaults to Agent for the historical
-    /// path (Tab in Agent view).
+    /// path (Tab in Structured view).
     pub(super) pending_live_send_target: live_send::LiveSendTarget,
     /// Live-send mode: when `Some`, every key event in the home view is
     /// translated to a tmux send-keys call against this session's pane
@@ -461,12 +466,23 @@ pub struct HomeView {
     /// latency. Dropping (set to None when live mode exits) closes the
     /// channel and the worker thread exits cleanly on its own.
     pub(super) live_send_worker: Option<live_send::LiveSendWorker>,
-    /// Background capture worker for agent live-send. Forks `tmux
-    /// capture-pane` on its own thread so the render loop applies fresh
-    /// preview content without forking (the per-frame capture was ~90% of
-    /// a live-send frame). `Some` only while live-send targets the agent
-    /// pane; `None` otherwise, where the synchronous capture path runs.
-    pub(super) live_capture_worker: Option<live_send::LiveCaptureWorker>,
+    /// Background capture worker for whichever pane the preview is showing
+    /// (agent, terminal, container shell, or tool). Forks `tmux
+    /// capture-pane` on its own thread so no preview path ever forks on the
+    /// render thread (the per-frame capture was ~90% of a frame on macOS).
+    /// One long-lived worker: spawned lazily on first use by
+    /// `sync_preview_capture_worker` and retargeted in place via
+    /// `set_target` as the displayed pane changes; stays `None` until the
+    /// first session is previewed.
+    pub(super) preview_capture_worker: Option<live_send::LiveCaptureWorker>,
+    /// The tmux session name `preview_capture_worker` is currently pointed
+    /// at, so the reconcile can tell when the displayed pane changed and
+    /// retarget. `None` before the first preview or when nothing is selected.
+    pub(super) preview_capture_target: Option<String>,
+    /// Notified by the capture worker thread when it has fresh, changed
+    /// content. The event loop selects on this to repaint without
+    /// busy-polling; an idle pane (no new content) never wakes it.
+    pub(super) preview_wake: std::sync::Arc<tokio::sync::Notify>,
     /// Last (cols, rows) we asked the worker to resize the pane to in
     /// the current live-send session. Used to dedup the resize messages
     /// fired from the preview refresh path; cleared on live-send exit.
@@ -479,7 +495,7 @@ pub struct HomeView {
     pub(super) live_send_pending_leader: bool,
     /// When true, the session list (sidebar) is hidden so the preview pane
     /// gets the full terminal width. Toggled from live mode via the leader
-    /// (`leader b`) for a distraction-free agent view; reset on live-send
+    /// (`leader b`) for a distraction-free structured view; reset on live-send
     /// exit so the list always reappears in the normal home view.
     pub(super) sidebar_collapsed: bool,
     /// `(session_id, cols, rows)` of the last NON-live preview resize we sent
@@ -559,7 +575,7 @@ pub struct HomeView {
     pub(super) preview_area: Rect,
     /// Sub-rect of `preview_area` where the agent's captured pane content
     /// is actually painted: `preview_area` minus the info header when
-    /// the user has it expanded (Agent view, non-compact). When the
+    /// the user has it expanded (Structured view, non-compact). When the
     /// info header is hidden or the layout is compact, this matches
     /// `preview_area` exactly.
     ///
@@ -840,6 +856,7 @@ impl HomeView {
             unified_delete_dialog: None,
             group_delete_options_dialog: None,
             rename_dialog: None,
+            worktree_name_dialog: None,
             restart_dialog: None,
             context_menu: None,
             group_rename_context: None,
@@ -863,13 +880,16 @@ impl HomeView {
             #[cfg(feature = "serve")]
             serve_view: None,
             update_confirm_dialog: None,
+            telemetry_consent_dialog: None,
             send_message_dialog: None,
             pending_send_session: None,
             pending_send_target: live_send::LiveSendTarget::Agent,
             pending_live_send_target: live_send::LiveSendTarget::Agent,
             live_send: None,
             live_send_worker: None,
-            live_capture_worker: None,
+            preview_capture_worker: None,
+            preview_capture_target: None,
+            preview_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
             live_send_last_resize: None,
             live_send_pending_leader: false,
             sidebar_collapsed: false,
@@ -1393,9 +1413,12 @@ impl HomeView {
     }
 
     /// Apply any pending session ID updates from background pollers.
-    /// Returns true if any instance was updated.
+    /// Returns true if any instance's in-memory `agent_session_id` changed.
+    /// Tmux env may also be republished when this returns `false`
+    /// (filtered or Failed paths republish the memory mirror).
     pub fn apply_session_id_updates(&mut self) -> bool {
         let mut updates: Vec<(String, String, Option<String>)> = Vec::new();
+        let mut filtered_ids: HashSet<String> = HashSet::new();
 
         for inst in &self.instances {
             if let Some((_id, session_id)) = inst
@@ -1406,6 +1429,9 @@ impl HomeView {
             {
                 let Some(session_id) = crate::session::capture::validated_session_id(session_id)
                 else {
+                    // `on_change` already published this raw sid to env;
+                    // republish the memory mirror to overwrite it.
+                    filtered_ids.insert(inst.id.clone());
                     continue;
                 };
                 // Defense-in-depth against the resume-fallback cascade: a sid
@@ -1422,6 +1448,7 @@ impl HomeView {
                         session_id,
                         inst.id,
                     );
+                    filtered_ids.insert(inst.id.clone());
                     continue;
                 }
                 if inst.agent_session_id.as_deref() != Some(session_id.as_str()) {
@@ -1432,7 +1459,7 @@ impl HomeView {
             }
         }
 
-        if updates.is_empty() {
+        if updates.is_empty() && filtered_ids.is_empty() {
             return false;
         }
 
@@ -1453,8 +1480,7 @@ impl HomeView {
                     to_apply.push((id.clone(), session_id.clone()));
                 }
                 crate::session::SidWrite::Skipped => {
-                    // Peer wrote during our poller observation; reload memory
-                    // from disk so the in-memory mirror matches the peer's value.
+                    let mut reloaded = false;
                     if let Ok(storage) = crate::session::Storage::new(
                         &profile,
                         crate::file_watch::FileWatchService::noop(),
@@ -1462,11 +1488,24 @@ impl HomeView {
                         if let Ok(disk_insts) = storage.load() {
                             if let Some(disk_inst) = disk_insts.iter().find(|i| i.id == *id) {
                                 to_rollback.push((id.clone(), disk_inst.agent_session_id.clone()));
+                                reloaded = true;
                             }
                         }
                     }
+                    if !reloaded {
+                        // Memory is known stale (Skipped CAS proved
+                        // memory != disk) and we cannot read disk.
+                        // Leave env at the poller's last write; the next
+                        // poller event reconciles.
+                        tracing::warn!(target: "tui.home",
+                            instance = %id,
+                            "Skipped reload failed; deferring env reconcile");
+                    }
                 }
-                crate::session::SidWrite::Failed => {}
+                crate::session::SidWrite::Failed => {
+                    // `on_change` published an unvalidated sid; republish memory.
+                    filtered_ids.insert(id.clone());
+                }
             }
         }
 
@@ -1480,6 +1519,61 @@ impl HomeView {
             self.mutate_instance(id, |inst| {
                 inst.agent_session_id = disk_sid.clone();
             });
+        }
+
+        let touched_ids: Vec<&str> = to_apply
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .chain(to_rollback.iter().map(|(id, _)| id.as_str()))
+            .chain(filtered_ids.iter().map(|s| s.as_str()))
+            .collect();
+        let mut set_batch: Vec<(String, String, String)> = Vec::new();
+        let mut unset_batch: Vec<(String, String)> = Vec::new();
+        for id in &touched_ids {
+            let Some(inst) = self.instance_map.get(*id) else {
+                continue;
+            };
+            // `s.exists()` reads a 2s-TTL cache; tests bypassing
+            // `Session::create` must call `refresh_session_cache()`.
+            let tmux_name = match inst.tmux_session() {
+                Ok(s) if s.exists() && !s.is_pane_dead() => s.name().to_string(),
+                Ok(_) => continue,
+                Err(e) => {
+                    tracing::warn!(target: "tui.home",
+                        instance = %id,
+                        "Skipping tmux env publish; tmux_session() error: {}", e);
+                    continue;
+                }
+            };
+            match &inst.agent_session_id {
+                Some(sid) => set_batch.push((
+                    tmux_name,
+                    crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY.to_string(),
+                    sid.clone(),
+                )),
+                None => unset_batch.push((
+                    tmux_name,
+                    crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY.to_string(),
+                )),
+            }
+        }
+        if !set_batch.is_empty() {
+            let refs: Vec<(&str, &str, &str)> = set_batch
+                .iter()
+                .map(|(s, k, v)| (s.as_str(), k.as_str(), v.as_str()))
+                .collect();
+            if let Err(e) = crate::tmux::env::set_hidden_env_batch(&refs) {
+                tracing::warn!(target: "tui.home", "Post-CAS env publish failed: {}", e);
+            }
+        }
+        if !unset_batch.is_empty() {
+            let refs: Vec<(&str, &str)> = unset_batch
+                .iter()
+                .map(|(s, k)| (s.as_str(), k.as_str()))
+                .collect();
+            if let Err(e) = crate::tmux::env::remove_hidden_env_batch(&refs) {
+                tracing::warn!(target: "tui.home", "Post-CAS env unset failed: {}", e);
+            }
         }
 
         !to_apply.is_empty() || !to_rollback.is_empty()
@@ -2276,6 +2370,7 @@ impl HomeView {
             || self.unified_delete_dialog.is_some()
             || self.group_delete_options_dialog.is_some()
             || self.rename_dialog.is_some()
+            || self.worktree_name_dialog.is_some()
             || self.restart_dialog.is_some()
             || self.context_menu.is_some()
             || self.hook_trust_dialog.is_some()
@@ -2292,6 +2387,7 @@ impl HomeView {
             || self.tool_picker_dialog.is_some()
             || self.send_message_dialog.is_some()
             || self.update_confirm_dialog.is_some()
+            || self.telemetry_consent_dialog.is_some()
             || serve_open
             || self.settings_view.is_some()
             || self.diff_view.is_some()
@@ -2311,6 +2407,7 @@ impl HomeView {
             || self.unified_delete_dialog.is_some()
             || self.group_delete_options_dialog.is_some()
             || self.rename_dialog.is_some()
+            || self.worktree_name_dialog.is_some()
             || self.restart_dialog.is_some()
             || self.context_menu.is_some()
             || self.hook_trust_dialog.is_some()
@@ -2327,6 +2424,7 @@ impl HomeView {
             || self.tool_picker_dialog.is_some()
             || self.send_message_dialog.is_some()
             || self.update_confirm_dialog.is_some()
+            || self.telemetry_consent_dialog.is_some()
             || serve_open
             || self.settings_view.is_some()
             || self.diff_view.is_some()
@@ -2457,6 +2555,11 @@ impl HomeView {
             "opening",
         );
         self.changelog_dialog = Some(ChangelogDialog::new(from_version));
+    }
+
+    pub fn show_telemetry_consent(&mut self) {
+        tracing::info!(target: "tui.dialog", dialog = "telemetry_consent", "opening");
+        self.telemetry_consent_dialog = Some(super::dialogs::TelemetryConsentDialog::new());
     }
 
     pub fn instances(&self) -> &[Instance] {
@@ -2955,18 +3058,19 @@ impl HomeView {
             // Drop worker first so its queued resizes (if any) drain
             // against the old session before we reset its sizing.
             self.live_send_worker = None;
-            // Stop the old session's capture worker too; a fresh one
-            // for the new live target is spawned below.
-            self.live_capture_worker = None;
-            // Drop the previous session's cached previews so the first
-            // frames after the switch don't paint session A's content
-            // under session B's header while the capture worker spins up.
+            // The capture worker is retargeted by the render reconcile, not
+            // here; but drop the previous session's cached previews so the
+            // first frames after the switch don't paint session A's content
+            // under session B's header while B's capture worker spins up.
             // (The synchronous path got this for free via its cross-session
             // kill-switch branch; the worker path applies content lazily,
-            // so clear it explicitly here.)
+            // so clear it explicitly here.) All targets are cleared because
+            // a live-send switch can retarget to Terminal / ContainerTerminal
+            // too, and the view can be flipped to any of them right after.
             self.preview_cache = PreviewCache::default();
             self.terminal_preview_cache = PreviewCache::default();
             self.container_terminal_preview_cache = PreviewCache::default();
+            self.tool_preview_cache = PreviewCache::default();
             if let Some(name) = &prev_tmux_name {
                 crate::tmux::Session::from_name(name).reset_size_to_latest_client();
             }
@@ -3006,21 +3110,24 @@ impl HomeView {
             exit_chords,
             leader,
         });
-        // Spawn the off-thread preview capture first so the send worker can
-        // wake it after each dispatched batch. That keeps echo latency tied
-        // to actual input rather than the background capture phase.
-        let empty_policy = match target {
-            live_send::LiveSendTarget::Agent => live_send::EmptyCapturePolicy::PreserveLastGood,
-            live_send::LiveSendTarget::Terminal | live_send::LiveSendTarget::ContainerTerminal => {
-                live_send::EmptyCapturePolicy::ForwardEmpty
-            }
-        };
-        self.live_capture_worker = Some(live_send::LiveCaptureWorker::spawn(
-            tmux_name.clone(),
-            empty_policy,
-        ));
+        // Ensure the long-lived preview capture worker exists so we can hand
+        // its waker to the send worker below. The worker isn't otherwise
+        // spawned here (it follows the displayed pane for every view, not
+        // just agent live-send, and is (re)targeted and retuned by
+        // `sync_preview_capture_worker` on the next render); but it's already
+        // running whenever a session was previewed before live-send entry,
+        // which is the common path. Spawning it now closes the rare cold gap.
+        if self.preview_capture_worker.is_none() {
+            self.preview_capture_worker = Some(live_send::LiveCaptureWorker::spawn(
+                self.preview_wake.clone(),
+            ));
+        }
+        // Nudge the capture worker right after each dispatched keystroke
+        // batch so typed echo is captured immediately instead of waiting up
+        // to a full fast-cadence cycle. This keeps echo latency tied to
+        // actual input rather than the background capture phase.
         let capture_wake = self
-            .live_capture_worker
+            .preview_capture_worker
             .as_ref()
             .map(live_send::LiveCaptureWorker::waker);
         // Spawn the background worker that dispatches translated
@@ -3028,10 +3135,7 @@ impl HomeView {
         // pre-#1485 path; control-mode was tried as an optimization
         // but turned out to be unreliable on real-world tmux setups
         // and was removed in favor of this simpler model).
-        self.live_send_worker = Some(live_send::LiveSendWorker::spawn(
-            tmux_name.clone(),
-            capture_wake,
-        ));
+        self.live_send_worker = Some(live_send::LiveSendWorker::spawn(tmux_name, capture_wake));
         // Start every live-mode entry (including a switch from another
         // session) with a disarmed leader menu, so a half-entered chord
         // can't carry over from a prior target.
@@ -3741,16 +3845,16 @@ impl HomeView {
     /// the session was filed under (the home view's active profile may
     /// already have moved on); falls back to `config_profile()` when
     /// the instance has no recorded profile. Returns `None` for
-    /// cockpit-mode sessions because the attach-mode / click-action
-    /// settings all have cockpit-specific bypass paths upstream;
-    /// callers treat `None` as "skip this setting, the cockpit path
+    /// structured view-mode sessions because the attach-mode / click-action
+    /// settings all have structured view-specific bypass paths upstream;
+    /// callers treat `None` as "skip this setting, the structured view path
     /// handles activation."
     fn resolve_session_config_for(
         &self,
         session_id: &str,
     ) -> Option<crate::session::SessionConfig> {
         let inst = self.get_instance(session_id)?;
-        if inst.is_cockpit_mode() {
+        if inst.is_structured() {
             return None;
         }
         let profile = if inst.source_profile.is_empty() {
@@ -3763,7 +3867,7 @@ impl HomeView {
 
     /// Resolve `new_session_attach_mode` for a freshly-created session.
     /// See `resolve_session_config_for` for the profile-resolution and
-    /// cockpit-bypass rules.
+    /// structured view-bypass rules.
     pub fn new_session_attach_mode(
         &self,
         session_id: &str,
@@ -3773,20 +3877,20 @@ impl HomeView {
     }
 
     /// Resolve `click_action` for an existing session row when the
-    /// user single-clicks it in the Agent view. See
+    /// user single-clicks it in the Structured view. See
     /// `resolve_session_config_for` for resolution rules; `None`
-    /// (cockpit) is treated by the caller as "fall through to the
+    /// (structured view) is treated by the caller as "fall through to the
     /// historical live-send path," which `start_live_send` itself
-    /// short-circuits for cockpit anyway.
+    /// short-circuits for structured view anyway.
     pub(super) fn click_action(&self, session_id: &str) -> Option<crate::session::ClickAction> {
         self.resolve_session_config_for(session_id)
             .map(|s| s.click_action)
     }
 
     /// Resolve `default_attach_mode` for an existing session row when
-    /// the user activates it (Enter / double-click) in the Agent view.
+    /// the user activates it (Enter / double-click) in the Structured view.
     /// See `resolve_session_config_for` for resolution rules; callers
-    /// short-circuit to the cockpit-specific activation path before
+    /// short-circuit to the structured view-specific activation path before
     /// consulting this setting.
     pub(super) fn default_attach_mode(
         &self,

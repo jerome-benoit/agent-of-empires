@@ -19,13 +19,14 @@ mod v008_lock_in_default_profile;
 mod v009_update_check_mode;
 mod v010_drop_legacy_live_send_exit_chord;
 mod v011_relocate_sandbox_image;
+mod v012_acp_rename;
 
 use anyhow::Result;
 use std::fs;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
-const CURRENT_VERSION: u32 = 11;
+const CURRENT_VERSION: u32 = 12;
 const VERSION_FILE: &str = ".schema_version";
 
 struct Migration {
@@ -57,7 +58,7 @@ const MIGRATIONS: &[Migration] = &[
     },
     Migration {
         version: 5,
-        name: "cockpit_defaults",
+        name: "acp_defaults",
         run: v005_cockpit_defaults::run,
     },
     Migration {
@@ -90,7 +91,20 @@ const MIGRATIONS: &[Migration] = &[
         name: "relocate_sandbox_image",
         run: v011_relocate_sandbox_image::run,
     },
+    Migration {
+        version: 12,
+        name: "acp_rename",
+        run: v012_acp_rename::run,
+    },
 ];
+
+/// The data-schema version this build targets, i.e. the version every install
+/// converges to after a successful startup (migration failures abort boot, so a
+/// running install is always at this version). Surfaced in telemetry as a coarse
+/// version-health signal; see `crate::telemetry`.
+pub fn current_schema_version() -> u32 {
+    CURRENT_VERSION
+}
 
 /// Check whether there are any pending migrations to run.
 pub fn has_pending_migrations() -> bool {
@@ -156,13 +170,16 @@ fn set_version(version: u32) -> Result<()> {
 fn get_all_possible_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
+    // Home-dotfile location: the macOS default, the pre-XDG Linux location, and
+    // the only location on Windows.
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(crate::session::APP_DIR_NAME_OTHER));
     }
 
-    #[cfg(target_os = "linux")]
-    if let Some(config_dir) = dirs::config_dir() {
-        dirs.push(config_dir.join(crate::session::APP_DIR_NAME_LINUX));
+    // XDG location: always current on Linux, and the opt-in layout on macOS.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if let Ok(base) = crate::session::xdg_config_base() {
+        dirs.push(base.join(crate::session::APP_DIR_NAME_XDG));
     }
 
     dirs

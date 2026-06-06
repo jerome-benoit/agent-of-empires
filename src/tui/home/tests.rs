@@ -17,7 +17,7 @@ fn key(code: KeyCode) -> KeyEvent {
 
 fn setup_test_home(temp: &TempDir) {
     std::env::set_var("HOME", temp.path());
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 }
 
@@ -163,7 +163,7 @@ fn preview_info_follows_flag_and_never_auto_shows_in_live() {
     let mut env = create_test_env_with_sessions(1);
     let id = env.view.instances()[0].id.clone();
     env.view.select_session_by_id(&id);
-    env.view.view_mode = ViewMode::Agent;
+    env.view.view_mode = ViewMode::Structured;
     let theme = load_theme("empire");
 
     let render_to_string = |view: &mut HomeView| {
@@ -241,7 +241,7 @@ fn preview_visible_rows_equal_output_area_with_info_shown() {
     let mut env = create_test_env_with_sessions(1);
     let id = env.view.instances()[0].id.clone();
     env.view.select_session_by_id(&id);
-    env.view.view_mode = ViewMode::Agent;
+    env.view.view_mode = ViewMode::Structured;
     env.view.show_preview_info = true;
 
     let backend = TestBackend::new(120, 40);
@@ -632,17 +632,17 @@ fn test_enter_on_session_returns_attach_action() {
 #[cfg(feature = "serve")]
 #[test]
 #[serial]
-fn test_enter_on_cockpit_session_opens_cockpit_view() {
+fn test_enter_on_acp_session_opens_structured_view() {
     use crate::session::config::GroupByMode;
     let temp = TempDir::new().unwrap();
     setup_test_home(&temp);
     let storage = Storage::new_for_test("test").unwrap();
     let mut instances = vec![
         Instance::new("plain", "/tmp/0"),
-        Instance::new("cockpit", "/tmp/1"),
+        Instance::new("acp", "/tmp/1"),
         Instance::new("plain2", "/tmp/2"),
     ];
-    instances[1].cockpit_mode = true;
+    instances[1].view = crate::session::View::Structured;
     storage
         .update(|i, g| {
             *i = instances.to_vec();
@@ -660,14 +660,16 @@ fn test_enter_on_cockpit_session_opens_cockpit_view() {
 
     let action = view.handle_key(key(KeyCode::Enter), None);
     match action {
-        Some(Action::OpenCockpit(id)) => {
-            // Should target the cockpit instance, not the plain ones.
+        Some(Action::OpenStructuredView(id)) => {
+            // Should target the structured view instance, not the plain ones.
             assert!(
-                id.contains("cockpit") || !id.is_empty(),
-                "OpenCockpit carried an empty session id"
+                id.contains("acp") || !id.is_empty(),
+                "OpenStructuredView carried an empty session id"
             );
         }
-        other => panic!("expected Action::OpenCockpit for cockpit session, got {other:?}"),
+        other => {
+            panic!("expected Action::OpenStructuredView for structured view session, got {other:?}")
+        }
     }
 }
 
@@ -1196,13 +1198,50 @@ fn test_t_toggles_view_mode() {
     let env = create_test_env_empty();
     let mut view = env.view;
 
-    assert_eq!(view.view_mode, ViewMode::Agent);
+    assert_eq!(view.view_mode, ViewMode::Structured);
 
     view.handle_key(key(KeyCode::Char('t')), None);
     assert_eq!(view.view_mode, ViewMode::Terminal);
 
     view.handle_key(key(KeyCode::Char('t')), None);
-    assert_eq!(view.view_mode, ViewMode::Agent);
+    assert_eq!(view.view_mode, ViewMode::Structured);
+}
+
+#[test]
+#[serial]
+fn switching_view_retargets_capture_worker_pane() {
+    // The preview's off-thread capture worker follows the displayed pane:
+    // switching agent <-> terminal must resolve to different tmux sessions
+    // so `sync_preview_capture_worker` respawns the worker against the new
+    // pane (instead of the old agent-only behavior). Regression guard for
+    // the responsiveness fix that moved every preview's `tmux capture-pane`
+    // off the render thread.
+    let env = create_test_env_with_sessions(1);
+    let mut view = env.view;
+
+    let agent_pane = view.displayed_pane_tmux_name();
+    assert!(
+        agent_pane.is_some(),
+        "a selected session must resolve a pane"
+    );
+
+    view.handle_key(key(KeyCode::Char('t')), None);
+    assert_eq!(view.view_mode, ViewMode::Terminal);
+    let terminal_pane = view.displayed_pane_tmux_name();
+    assert!(terminal_pane.is_some());
+    assert_ne!(
+        agent_pane, terminal_pane,
+        "agent and terminal panes must differ so the worker retargets on switch",
+    );
+
+    // The reconcile tracks the active target and is idempotent: a changed
+    // pane updates it, the same pane leaves it in place.
+    view.sync_preview_capture_worker(terminal_pane.clone());
+    assert_eq!(view.preview_capture_target, terminal_pane);
+    view.sync_preview_capture_worker(terminal_pane.clone());
+    assert_eq!(view.preview_capture_target, terminal_pane);
+    view.sync_preview_capture_worker(agent_pane.clone());
+    assert_eq!(view.preview_capture_target, agent_pane);
 }
 
 #[test]
@@ -1211,7 +1250,7 @@ fn test_enter_returns_attach_terminal_in_terminal_view() {
     let env = create_test_env_with_sessions(1);
     let mut view = env.view;
 
-    // In Agent view, Enter returns AttachSession
+    // In Structured view, Enter returns AttachSession
     let action = view.handle_key(key(KeyCode::Enter), None);
     assert!(matches!(action, Some(Action::AttachSession(_))));
 
@@ -1226,17 +1265,17 @@ fn test_enter_returns_attach_terminal_in_terminal_view() {
 
 #[test]
 #[serial]
-fn test_shift_t_attaches_terminal_from_agent_view() {
+fn test_shift_t_attaches_terminal_from_structured_view() {
     let env = create_test_env_with_sessions(1);
     let mut view = env.view;
 
-    // Should be in Agent view by default
-    assert_eq!(view.view_mode, ViewMode::Agent);
+    // Should be in Structured view by default
+    assert_eq!(view.view_mode, ViewMode::Structured);
 
     // Shift+T should return AttachTerminal without switching view mode
     let action = view.handle_key(key(KeyCode::Char('T')), None);
     assert!(matches!(action, Some(Action::AttachTerminal(_, _))));
-    assert_eq!(view.view_mode, ViewMode::Agent);
+    assert_eq!(view.view_mode, ViewMode::Structured);
 }
 
 #[test]
@@ -2275,7 +2314,7 @@ fn test_strict_mode_ctrl_t_and_ctrl_n_reach_secondary_actions() {
     env.view.update_selected();
 
     // Shift+T toggles the view (primary action), no terminal attach.
-    assert_eq!(env.view.view_mode, ViewMode::Agent);
+    assert_eq!(env.view.view_mode, ViewMode::Structured);
     let shift_t = env
         .view
         .handle_key(KeyEvent::new(KeyCode::Char('T'), KeyModifiers::SHIFT), None);
@@ -2284,10 +2323,10 @@ fn test_strict_mode_ctrl_t_and_ctrl_n_reach_secondary_actions() {
         !matches!(shift_t, Some(Action::AttachTerminal(_, _))),
         "Shift+T must toggle view, not attach terminal"
     );
-    // Reset to Agent view.
+    // Reset to Structured view.
     env.view
         .handle_key(KeyEvent::new(KeyCode::Char('T'), KeyModifiers::SHIFT), None);
-    assert_eq!(env.view.view_mode, ViewMode::Agent);
+    assert_eq!(env.view.view_mode, ViewMode::Structured);
 
     // Ctrl+T quick-attaches the paired terminal (secondary action) and must
     // NOT toggle the view.
@@ -2301,7 +2340,7 @@ fn test_strict_mode_ctrl_t_and_ctrl_n_reach_secondary_actions() {
     );
     assert_eq!(
         env.view.view_mode,
-        ViewMode::Agent,
+        ViewMode::Structured,
         "Ctrl+T must not toggle the view"
     );
 
@@ -4089,7 +4128,7 @@ fn home_defaults_to_agent_when_config_unset() {
 
     let tools = AvailableTools::with_tools(&["claude"]);
     let view = HomeView::new(Some("test".to_string()), tools).unwrap();
-    assert_eq!(view.view_mode, ViewMode::Agent);
+    assert_eq!(view.view_mode, ViewMode::Structured);
 }
 
 #[test]
@@ -6393,22 +6432,15 @@ mod click_to_select {
         // SelectOnly via SessionConfigOverride. The resolver must
         // pick the profile override, not the global default, so a
         // single click returns None and the cursor still moves.
-        use crate::session::config::ClickAction;
-        use crate::session::profile_config::{
-            save_profile_config, ProfileConfig, SessionConfigOverride,
-        };
+        use crate::session::profile_config::{save_profile_config, ProfileConfig};
         let mut env = create_test_env_with_sessions(3);
         setup_inner(&mut env);
         env.view.cursor = 0;
         env.view.update_selected();
 
-        let profile_config = ProfileConfig {
-            session: Some(SessionConfigOverride {
-                click_action: Some(ClickAction::SelectOnly),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+        let profile_config: ProfileConfig =
+            serde_json::from_value(serde_json::json!({"session": {"click_action": "select_only"}}))
+                .unwrap();
         save_profile_config("test", &profile_config).unwrap();
 
         let action = env.view.handle_click(5, 3);
@@ -6815,12 +6847,12 @@ mod click_to_select {
         assert_eq!(env.view.cursor, 2);
     }
 
-    /// Cockpit-mode sessions are not tmux-backed, so click cannot
+    /// Acp-mode sessions are not tmux-backed, so click cannot
     /// enter live mode for them; selection still updates.
     #[cfg(feature = "serve")]
     #[test]
     #[serial]
-    fn single_click_on_cockpit_session_returns_no_action() {
+    fn single_click_on_acp_session_returns_no_action() {
         let mut env = create_test_env_with_sessions(3);
         setup_inner(&mut env);
         env.view.cursor = 0;
@@ -6831,13 +6863,13 @@ mod click_to_select {
             _ => panic!("flat_items[2] should be a session"),
         };
         env.view.mutate_instance(&target_id, |inst| {
-            inst.cockpit_mode = true;
+            inst.view = crate::session::View::Structured;
         });
 
         let action = env.view.handle_click(5, 3);
         assert!(
             action.is_none(),
-            "Cockpit sessions can't enter live mode; click is a selection only"
+            "Acp sessions can't enter live mode; click is a selection only"
         );
         assert_eq!(env.view.cursor, 2);
     }
@@ -7885,16 +7917,16 @@ mod live_send_mode {
         );
     }
 
-    /// Cockpit-mode is a `serve` feature; the `cockpit_mode` field on
+    /// Acp-mode is a `serve` feature; the `structured_view` field on
     /// Instance only exists when that feature is compiled in. Without
-    /// it, `is_cockpit_mode()` is hard-coded to false and the gate is
+    /// it, `is_structured()` is hard-coded to false and the gate is
     /// a no-op, so there's nothing meaningful to verify in the default
     /// build.
     #[cfg(feature = "serve")]
     #[test]
     #[serial]
-    fn tab_does_not_start_live_send_for_cockpit_session() {
-        // Cockpit sessions are not tmux-backed, so live-send has no
+    fn tab_does_not_start_live_send_for_acp_session() {
+        // Acp sessions are not tmux-backed, so live-send has no
         // valid target. Tab must silently no-op rather than enqueue
         // an Action::EnterLiveSend that would fail downstream.
         let mut env = create_test_env_with_sessions(1);
@@ -7911,7 +7943,7 @@ mod live_send_mode {
             .expect("test env has one session");
         env.view.mutate_instance(&id, |inst| {
             inst.status = crate::session::Status::Stopped;
-            inst.cockpit_mode = true;
+            inst.view = crate::session::View::Structured;
         });
         let action = env
             .view
@@ -8011,54 +8043,6 @@ mod live_send_mode {
         assert_eq!(
             env.view.terminal_preview_cache.content, "",
             "terminal cache must overwrite stale content (no kill switch outside the agent path)"
-        );
-        assert_eq!(env.view.terminal_preview_cache.dimensions, (80, 24));
-        assert_eq!(env.view.terminal_preview_cache.session_id, Some(id));
-    }
-
-    #[test]
-    #[serial]
-    fn refresh_terminal_live_cache_overwrites_on_empty_worker_capture() {
-        // Same invariant as `refresh_terminal_cache_overwrites_on_empty_capture`,
-        // but through the live worker path added for terminal live mode.
-        let mut env = create_test_env_with_sessions(1);
-        let id = env
-            .view
-            .flat_items
-            .iter()
-            .find_map(|item| match item {
-                crate::session::Item::Session { id, .. } => Some(id.clone()),
-                _ => None,
-            })
-            .expect("test env has one session");
-        env.view.selected_session = Some(id.clone());
-        env.view.terminal_preview_cache.content = "stale terminal output".to_string();
-        env.view.terminal_preview_cache.captured_lines = 1;
-        env.view.terminal_preview_cache.dimensions = (10, 10);
-        env.view.terminal_preview_cache.session_id = Some(id.clone());
-
-        let tmux_name = "aoe_test_terminal_live_forward_empty";
-        let worker = crate::tui::home::live_send::LiveCaptureWorker::spawn(
-            tmux_name.to_string(),
-            crate::tui::home::live_send::EmptyCapturePolicy::ForwardEmpty,
-        );
-        worker.set_capture_lines(44);
-        std::thread::sleep(std::time::Duration::from_millis(80));
-        env.view.live_capture_worker = Some(worker);
-        env.view.live_send = Some(LiveSendState {
-            session_id: id.clone(),
-            title: "session0".to_string(),
-            tmux_name: tmux_name.to_string(),
-            target: crate::tui::home::live_send::LiveSendTarget::Terminal,
-            exit_chords: Vec::new(),
-            leader: None,
-        });
-
-        env.view.refresh_terminal_preview_cache_if_needed(80, 24);
-
-        assert_eq!(
-            env.view.terminal_preview_cache.content, "",
-            "terminal live worker must clear stale output on empty capture"
         );
         assert_eq!(env.view.terminal_preview_cache.dimensions, (80, 24));
         assert_eq!(env.view.terminal_preview_cache.session_id, Some(id));
@@ -8301,7 +8285,7 @@ mod new_session_attach_mode {
     fn returns_none_for_missing_instance() {
         // Race: the apply_creation_results return reaches the dispatch
         // and the instance has been deleted in the meantime. `None`
-        // signals the caller to fall back to the cockpit-aware
+        // signals the caller to fall back to the structured view-aware
         // attach_session path rather than try to attach to a ghost.
         let env = create_test_env_empty();
         let mode = env.view.new_session_attach_mode("nonexistent-id");
@@ -8311,19 +8295,19 @@ mod new_session_attach_mode {
     #[cfg(feature = "serve")]
     #[test]
     #[serial]
-    fn returns_none_for_cockpit_session() {
-        // Cockpit sessions aren't tmux-backed; live mode has no target
+    fn returns_none_for_acp_session() {
+        // Acp sessions aren't tmux-backed; live mode has no target
         // and tmux attach is a no-op. The resolver returns None so the
         // dispatch picks the (no-op) fallback explicitly, regardless of
         // what the user configured globally.
         let mut env = create_test_env_empty();
         write_global_attach_mode(NewSessionAttachMode::LiveSend);
-        let id = add_session(&mut env.view, "cockpit-one");
+        let id = add_session(&mut env.view, "acp-one");
         env.view.mutate_instance(&id, |inst| {
-            inst.cockpit_mode = true;
+            inst.view = crate::session::View::Structured;
         });
         let mode = env.view.new_session_attach_mode(&id);
-        assert!(mode.is_none(), "cockpit sessions must return None");
+        assert!(mode.is_none(), "structured view sessions must return None");
     }
 
     /// Build a minimal `NewSessionData` for the sync create path: no
@@ -8380,7 +8364,7 @@ mod new_session_attach_mode {
 
 /// Tests for the `default_attach_mode` setting that drives whether
 /// pressing Enter (or double-clicking) on an existing session row in
-/// Agent view attaches to tmux or enters live-send mode.
+/// Structured view attaches to tmux or enters live-send mode.
 mod default_attach_mode {
     use super::*;
     use crate::session::config::{save_config, Config, NewSessionAttachMode};
@@ -8648,28 +8632,28 @@ mod default_attach_mode {
         );
     }
 
-    /// Cockpit sessions short-circuit before the setting is consulted
-    /// (the cockpit branch in `activate_selected_session` returns
-    /// `OpenCockpit`/transient-status before we get to the view-mode
+    /// Acp sessions short-circuit before the setting is consulted
+    /// (the structured view branch in `activate_selected_session` returns
+    /// `OpenStructuredView`/transient-status before we get to the view-mode
     /// match), so the resolver also returns None for them; the setting
-    /// must not be able to misroute a cockpit row into live mode.
+    /// must not be able to misroute a structured view row into live mode.
     #[cfg(feature = "serve")]
     #[test]
     #[serial]
-    fn cockpit_session_ignores_default_attach_mode() {
+    fn acp_session_ignores_default_attach_mode() {
         let mut env = create_test_env_empty();
         write_global_default_attach_mode(NewSessionAttachMode::LiveSend);
-        let id = add_session(&mut env.view, "cockpit-one");
+        let id = add_session(&mut env.view, "acp-one");
         env.view.mutate_instance(&id, |inst| {
-            inst.cockpit_mode = true;
+            inst.view = crate::session::View::Structured;
         });
         env.view.flat_items = env.view.build_flat_items();
         env.view.cursor = 0;
         env.view.update_selected();
         let action = env.view.activate_selected_session();
         assert!(
-            matches!(&action, Some(Action::OpenCockpit(returned_id)) if returned_id == &id),
-            "cockpit rows must route to OpenCockpit regardless of default_attach_mode, got {:?}",
+            matches!(&action, Some(Action::OpenStructuredView(returned_id)) if returned_id == &id),
+            "structured view rows must route to OpenStructuredView regardless of default_attach_mode, got {:?}",
             action
         );
     }
@@ -9574,6 +9558,302 @@ mod right_click_context_menu {
         assert!(
             env.view.new_dialog.is_none(),
             "n on session menu must not open new-session"
+        );
+    }
+}
+
+mod apply_session_id_updates {
+    //! Post-CAS env publish: env mirrors the disk-confirmed sid
+    //! (Applied) or reloaded peer value (Skipped); filter paths
+    //! republish the memory mirror to clear `on_change`'s pre-CAS write.
+
+    use super::*;
+    use crate::session::poller::SessionPoller;
+    use crate::session::ResumeIntent;
+    use std::process::Command;
+    use std::sync::{Arc, Mutex};
+
+    const NEW_SID: &str = "019342ab-1111-7aaa-8bbb-cccdddeeefff";
+
+    struct TmuxSession(String);
+
+    impl TmuxSession {
+        fn create(id: &str, title: &str) -> Self {
+            let name = crate::tmux::Session::generate_name(id, title);
+            let _ = Command::new("tmux")
+                .args(["kill-session", "-t", &name])
+                .output();
+            let status = Command::new("tmux")
+                .args(["new-session", "-d", "-s", &name])
+                .status()
+                .expect("failed to spawn tmux");
+            assert!(status.success(), "tmux new-session failed for {}", name);
+            crate::tmux::refresh_session_cache();
+            Self(name)
+        }
+        fn name(&self) -> &str {
+            &self.0
+        }
+    }
+
+    impl Drop for TmuxSession {
+        fn drop(&mut self) {
+            let _ = Command::new("tmux")
+                .args(["kill-session", "-t", &self.0])
+                .output();
+            crate::tmux::refresh_session_cache();
+        }
+    }
+
+    fn skip_if_no_tmux() -> bool {
+        if Command::new("tmux").arg("-V").output().is_err() {
+            eprintln!("Skipping: tmux not available");
+            return true;
+        }
+        false
+    }
+
+    fn captured_env(name: &str) -> Option<String> {
+        crate::tmux::env::get_hidden_env(name, crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY)
+    }
+
+    fn build_view_with_inst(profile: &str, inst: &Instance) -> HomeView {
+        use crate::session::config::GroupByMode;
+        let storage = Storage::new_for_test(profile).unwrap();
+        storage
+            .update(|i, g| {
+                *i = vec![inst.clone()];
+                *g = GroupTree::new_with_groups(std::slice::from_ref(inst), &[]).get_all_groups();
+                Ok(())
+            })
+            .unwrap();
+        let tools = AvailableTools::with_tools(&["claude"]);
+        let mut view = HomeView::new(Some(profile.to_string()), tools).unwrap();
+        view.group_by = GroupByMode::Manual;
+        view.flat_items = view.build_flat_items();
+        view.update_selected();
+        view
+    }
+
+    fn attach_poller_with_update(view: &mut HomeView, instance_id: &str, sid: &str) {
+        let poller = SessionPoller::new("test-session".to_string());
+        poller.inject_test_update(instance_id, sid);
+        let arc = Arc::new(Mutex::new(poller));
+        for i in &mut view.instances {
+            if i.id == instance_id {
+                i.session_id_poller = Some(arc.clone());
+            }
+        }
+        if let Some(i) = view.instance_map.get_mut(instance_id) {
+            i.session_id_poller = Some(arc);
+        }
+    }
+
+    fn fresh_instance(profile: &str, title: &str) -> Instance {
+        let mut inst = Instance::new(title, "/tmp/x");
+        inst.tool = "claude".to_string();
+        inst.source_profile = profile.to_string();
+        inst.agent_session_id = None;
+        inst.resume_intent = ResumeIntent::Default;
+        inst
+    }
+
+    #[test]
+    #[serial]
+    fn apply_session_id_updates_publishes_after_cas() {
+        if skip_if_no_tmux() {
+            return;
+        }
+        let temp = TempDir::new().unwrap();
+        setup_test_home(&temp);
+
+        let profile = "apply-publish";
+        let inst = fresh_instance(profile, "apa");
+        let mut view = build_view_with_inst(profile, &inst);
+
+        let tmux = TmuxSession::create(&inst.id, &inst.title);
+
+        attach_poller_with_update(&mut view, &inst.id, NEW_SID);
+
+        let updated = view.apply_session_id_updates();
+        assert!(updated, "Applied CAS must report a touch");
+        assert_eq!(captured_env(tmux.name()).as_deref(), Some(NEW_SID));
+    }
+
+    #[test]
+    #[serial]
+    fn apply_session_id_updates_skips_retroactive_excludes() {
+        if skip_if_no_tmux() {
+            return;
+        }
+        let temp = TempDir::new().unwrap();
+        setup_test_home(&temp);
+
+        let profile = "apply-excludes";
+        let inst = fresh_instance(profile, "aer");
+        let mut view = build_view_with_inst(profile, &inst);
+        for i in &mut view.instances {
+            if i.id == inst.id {
+                i.retroactive_capture_excludes.insert(NEW_SID.to_string());
+            }
+        }
+        if let Some(i) = view.instance_map.get_mut(&inst.id) {
+            i.retroactive_capture_excludes.insert(NEW_SID.to_string());
+        }
+
+        let tmux = TmuxSession::create(&inst.id, &inst.title);
+        crate::tmux::env::set_hidden_env(
+            tmux.name(),
+            crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
+            "stale-untouched",
+        )
+        .unwrap();
+
+        attach_poller_with_update(&mut view, &inst.id, NEW_SID);
+
+        let updated = view.apply_session_id_updates();
+        assert!(
+            !updated,
+            "filtered sid must not propagate to memory (returned bool tracks memory)"
+        );
+        let mem_sid = view
+            .instances
+            .iter()
+            .find(|i| i.id == inst.id)
+            .and_then(|i| i.agent_session_id.clone());
+        assert!(
+            mem_sid.is_none(),
+            "filtered sid must not enter in-memory mirror"
+        );
+        assert!(
+            captured_env(tmux.name()).is_none(),
+            "filtered sid must not survive in tmux env: env converges on disk (None)"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn apply_session_id_updates_skipped_publishes_disk_value() {
+        if skip_if_no_tmux() {
+            return;
+        }
+        let temp = TempDir::new().unwrap();
+        setup_test_home(&temp);
+
+        let profile = "apply-skipped";
+        let peer_sid = "019342aa-3333-7eee-8fff-aaaabbbbcccc";
+        let other_peer = "019342bb-4444-7fff-8000-111122223333";
+
+        let mut inst = fresh_instance(profile, "ase");
+        inst.agent_session_id = Some(peer_sid.to_string());
+        let mut view = build_view_with_inst(profile, &inst);
+
+        let storage = Storage::new_for_test(profile).unwrap();
+        storage
+            .update(|i, _g| {
+                i[0].agent_session_id = Some(other_peer.to_string());
+                Ok(())
+            })
+            .unwrap();
+
+        let tmux = TmuxSession::create(&inst.id, &inst.title);
+        crate::tmux::env::set_hidden_env(
+            tmux.name(),
+            crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
+            NEW_SID,
+        )
+        .unwrap();
+
+        attach_poller_with_update(&mut view, &inst.id, NEW_SID);
+
+        let updated = view.apply_session_id_updates();
+        assert!(updated, "Skipped path still touches state");
+
+        let mem_sid = view
+            .instances
+            .iter()
+            .find(|i| i.id == inst.id)
+            .and_then(|i| i.agent_session_id.clone());
+        assert_eq!(
+            mem_sid.as_deref(),
+            Some(other_peer),
+            "memory rolls back to disk after CAS skip"
+        );
+        assert_eq!(
+            captured_env(tmux.name()).as_deref(),
+            Some(other_peer),
+            "env converges from poller's pre-published NEW_SID to disk's other_peer"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn apply_session_id_updates_invalid_sid_corrects_env() {
+        if skip_if_no_tmux() {
+            return;
+        }
+        let temp = TempDir::new().unwrap();
+        setup_test_home(&temp);
+
+        let profile = "apply-invalid";
+        let inst = fresh_instance(profile, "aiv");
+        let mut view = build_view_with_inst(profile, &inst);
+
+        let tmux = TmuxSession::create(&inst.id, &inst.title);
+        crate::tmux::env::set_hidden_env(
+            tmux.name(),
+            crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
+            "bad sid!",
+        )
+        .unwrap();
+
+        attach_poller_with_update(&mut view, &inst.id, "bad sid!");
+
+        let updated = view.apply_session_id_updates();
+        assert!(
+            !updated,
+            "validation-filtered sid must not propagate to memory"
+        );
+        assert!(
+            captured_env(tmux.name()).is_none(),
+            "env converges to disk-backed memory mirror (None) after validation failure"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn apply_session_id_updates_no_tmux_session_skips_publish() {
+        if skip_if_no_tmux() {
+            return;
+        }
+        let temp = TempDir::new().unwrap();
+        setup_test_home(&temp);
+
+        let profile = "apply-pane-dead";
+        let inst = fresh_instance(profile, "apds");
+        let mut view = build_view_with_inst(profile, &inst);
+
+        attach_poller_with_update(&mut view, &inst.id, NEW_SID);
+
+        let updated = view.apply_session_id_updates();
+        assert!(
+            updated,
+            "CAS still applies even when no tmux session exists"
+        );
+        let mem_sid = view
+            .instances
+            .iter()
+            .find(|i| i.id == inst.id)
+            .and_then(|i| i.agent_session_id.clone());
+        assert_eq!(
+            mem_sid.as_deref(),
+            Some(NEW_SID),
+            "memory still mirrors the CAS-applied sid",
+        );
+        let expected_name = crate::tmux::Session::generate_name(&inst.id, &inst.title);
+        assert!(
+            captured_env(&expected_name).is_none(),
+            "no tmux session means no publish target"
         );
     }
 }

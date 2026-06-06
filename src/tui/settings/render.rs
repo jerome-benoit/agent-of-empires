@@ -542,7 +542,7 @@ impl SettingsView {
     }
 
     pub(super) fn field_height(&self, field: &super::SettingField, index: usize) -> u16 {
-        let desc_height = self.description_height(field.description);
+        let desc_height = self.description_height(&field.description);
         match &field.value {
             FieldValue::SectionHeader => {
                 // heading line + dimmed subtitle (wrapped). No value row.
@@ -575,7 +575,7 @@ impl SettingsView {
         theme: &Theme,
     ) {
         // Section headers are non-interactive group dividers (e.g.
-        // "Advanced" inside Cockpit). Render as a styled heading with
+        // "Advanced" inside Acp). Render as a styled heading with
         // a dimmed subtitle. They never appear "selected" because the
         // input handler skips navigation past them. Label uses
         // `theme.text` (not dimmed) so it matches the categories-panel
@@ -585,14 +585,14 @@ impl SettingsView {
             let heading = Line::from(vec![
                 Span::styled("── ", Style::default().fg(theme.border)),
                 Span::styled(
-                    field.label,
+                    field.label.clone(),
                     Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" ──", Style::default().fg(theme.border)),
             ]);
             frame.render_widget(Paragraph::new(heading), area);
             if !field.description.is_empty() {
-                let wrapped = wrap_description_lines(field.description, area.width);
+                let wrapped = wrap_description_lines(&field.description, area.width);
                 let subtitle_area = Rect {
                     x: area.x,
                     y: area.y + 1,
@@ -630,13 +630,13 @@ impl SettingsView {
         };
 
         let label = Line::from(vec![
-            Span::styled(field.label, label_style),
+            Span::styled(field.label.clone(), label_style),
             override_indicator,
         ]);
 
         frame.render_widget(Paragraph::new(label), area);
 
-        let wrapped_desc = wrap_description_lines(field.description, area.width);
+        let wrapped_desc = wrap_description_lines(&field.description, area.width);
         let desc_height = wrapped_desc.len() as u16;
         let description_area = Rect {
             x: area.x,
@@ -667,7 +667,7 @@ impl SettingsView {
             }
             FieldValue::OptionalText(value) => {
                 let display = match value.as_deref() {
-                    Some(text) if field.key == super::FieldKey::CustomInstruction => {
+                    Some(text) if field.is_custom_instruction() => {
                         let collapsed: String = text
                             .chars()
                             .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
@@ -1314,7 +1314,7 @@ impl SettingsView {
                         format!("[{}] ", hit.category_label),
                         Style::default().fg(theme.dimmed),
                     ),
-                    Span::styled(hit.field_label, label_style),
+                    Span::styled(hit.field_label.clone(), label_style),
                 ]));
             }
             frame.render_widget(Paragraph::new(lines), layout[2]);
@@ -1376,10 +1376,10 @@ mod tests {
         // Approximation of the Interaction tab description that
         // triggered the cutoff bug at narrow widths (issue #1551).
         let text = "What Enter (and double-click) does on a session row in \
-                    the Agent view: attach to tmux (default, historical \
+                    the Structured view: attach to tmux (default, historical \
                     behavior) or enter live-send mode so the home list stays \
                     visible and keystrokes pipe through to the agent. \
-                    Terminal/Tool views and cockpit sessions ignore this \
+                    Terminal/Tool views and structured-view sessions ignore this \
                     setting.";
         // At a 120-col-wide settings panel none of the wrapped lines
         // should exceed the available width.
@@ -1413,7 +1413,7 @@ mod tests {
             ("anything", 0),
             (
                 "What Enter (and double-click) does on a session row in \
-                 the Agent view: attach to tmux (default, historical \
+                 the Structured view: attach to tmux (default, historical \
                  behavior) or enter live-send mode so the home list stays \
                  visible and keystrokes pipe through to the agent.",
                 40,
@@ -1432,14 +1432,15 @@ mod tests {
 
 #[cfg(test)]
 mod field_height_tests {
-    use super::super::{FieldKey, FieldValue, SettingField, SettingsCategory, SettingsView};
+    use super::super::fields::FieldKind;
+    use super::super::{FieldValue, SettingField, SettingsCategory, SettingsView};
     use crate::session::Storage;
     use serial_test::serial;
     use tempfile::TempDir;
 
     fn setup_test_home(temp: &TempDir) {
         std::env::set_var("HOME", temp.path());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
     }
 
@@ -1462,9 +1463,9 @@ mod field_height_tests {
         let (_temp, mut view) = fresh_view();
 
         let field = SettingField {
-            key: FieldKey::DefaultAttachMode,
-            label: "Test Label",
-            description: "alpha beta gamma delta",
+            kind: FieldKind::HostEnvironment,
+            label: "Test Label".to_string(),
+            description: "alpha beta gamma delta".to_string(),
             value: FieldValue::Bool(false),
             category: SettingsCategory::Interaction,
             has_override: false,
@@ -1497,11 +1498,11 @@ mod field_height_tests {
         let (_temp, mut view) = fresh_view();
 
         let header = SettingField {
-            key: FieldKey::SectionMarker,
-            label: "Section",
-            description: "alpha beta gamma delta",
+            kind: FieldKind::SectionMarker,
+            label: "Section".to_string(),
+            description: "alpha beta gamma delta".to_string(),
             value: FieldValue::SectionHeader,
-            category: SettingsCategory::Cockpit,
+            category: SettingsCategory::Acp,
             has_override: false,
             inherited_display: None,
         };

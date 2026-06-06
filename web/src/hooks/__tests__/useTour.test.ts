@@ -8,6 +8,7 @@ import { shouldAutoLaunch } from "../useTour";
 
 const base = {
   autoLaunchReady: true,
+  seenKnown: true,
   scope: "dashboard" as const,
   isDesktop: true,
   seen: false,
@@ -19,13 +20,17 @@ describe("shouldAutoLaunch", () => {
     expect(shouldAutoLaunch(base)).toBe(true);
   });
 
+  it("does not launch before the seen state is known", () => {
+    expect(shouldAutoLaunch({ ...base, seenKnown: false })).toBe(false);
+  });
+
   it("does not launch before the dashboard is ready", () => {
     expect(shouldAutoLaunch({ ...base, autoLaunchReady: false })).toBe(false);
   });
 
   it("does not launch outside the dashboard scope", () => {
     expect(shouldAutoLaunch({ ...base, scope: "session" })).toBe(false);
-    expect(shouldAutoLaunch({ ...base, scope: "cockpit" })).toBe(false);
+    expect(shouldAutoLaunch({ ...base, scope: "structured-view" })).toBe(false);
   });
 
   it("does not auto-launch on coarse pointers", () => {

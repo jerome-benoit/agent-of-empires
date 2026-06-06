@@ -43,8 +43,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // If the user passed --daemon-url, mirror the value into the env
-    // var so the cockpit::client::discovery layer (used by both the
-    // remote TUI home and the `aoe cockpit *` verbs) picks it up
+    // var so the acp::client::discovery layer (used by both the
+    // remote TUI home and the `aoe acp *` verbs) picks it up
     // through the same code path the env-only path uses. This avoids a
     // second "is the flag set?" check in every callsite.
     if let Some(url) = &cli.daemon_url {
@@ -128,10 +128,26 @@ async fn main() -> Result<()> {
                     SubscriberTarget::File(p, _) => Some(p.clone()),
                     SubscriberTarget::Stdout => None,
                 };
+                // Only the serve daemon multiplexes many sessions, so it is
+                // the one process that tees session-scoped tracing into each
+                // session's acp-workers/<id>.log (#1864). The acp module is
+                // serve-gated, so the tee only exists in serve builds.
+                #[cfg(feature = "serve")]
+                let session_tee = if matches!(
+                    ctx,
+                    ProcessContext::ServeForeground | ProcessContext::ServeDaemonChild
+                ) {
+                    Some(agent_of_empires::acp::session_tee::SessionTeeLayer::new())
+                } else {
+                    None
+                };
+                #[cfg(not(feature = "serve"))]
+                let session_tee: Option<logging::TeeLayer> = None;
                 let res = logging::init_subscriber_with_options(
                     resolution.target,
                     filter,
                     log_cfg.show_spans,
+                    session_tee,
                 );
                 if let Some(w) = resolution.warning {
                     // Emit through the subscriber that just came up.
@@ -191,6 +207,21 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Record which CLI subcommand ran for opt-in telemetry, before dispatch so
+    // early-returning commands (e.g. `aoe update`, `aoe telemetry`) are counted
+    // too. A true no-op unless the install is opted in: `track_cli_command`
+    // gates on a non-creating app-dir check first, so app-data-free commands
+    // (`aoe completion`, `aoe init`, ...) never materialize the app dir and keep
+    // working in read-only / sandboxed (Nix) environments. Skipped for the
+    // detached `--daemon-child` re-exec so `aoe serve --daemon` counts the
+    // user's invocation once, not the machinery fork. The once-per-day flush is
+    // bounded so a dead endpoint can never hang the command.
+    if !is_daemon_child {
+        if let Some(name) = cli.command.as_ref().and_then(cli::command_name) {
+            agent_of_empires::telemetry::track_cli_command(name).await;
+        }
+    }
+
     // Handle commands that don't need app data or migrations.
     // These work in read-only/sandboxed environments (e.g. Nix builds).
     match cli.command {
@@ -224,6 +255,7 @@ async fn main() -> Result<()> {
                 ThemeCommands::Dir => cli::theme::run_dir(),
             };
         }
+        Some(Commands::Telemetry { command }) => return cli::telemetry::run(command),
         Some(Commands::Uninstall(args)) => return cli::uninstall::run(args).await,
         Some(Commands::Update(args)) => return cli::update::run(args).await,
         _ => {}
@@ -265,7 +297,7 @@ async fn main() -> Result<()> {
         migrations::run_migrations()?;
     }
 
-    match cli.command {
+    let result = match cli.command {
         Some(Commands::Add(args)) => cli::add::run(&profile, *args).await,
         Some(Commands::List(args)) => cli::list::run(&profile, args).await,
         Some(Commands::Remove(args)) => cli::remove::run(&profile, args).await,
@@ -283,9 +315,9 @@ async fn main() -> Result<()> {
         #[cfg(feature = "serve")]
         Some(Commands::Url(args)) => cli::url::run(args),
         #[cfg(feature = "serve")]
-        Some(Commands::Cockpit { command }) => cli::cockpit::run(command).await,
+        Some(Commands::Acp { command }) => cli::acp::run(command).await,
         #[cfg(feature = "serve")]
-        Some(Commands::CockpitRunner(args)) => agent_of_empires::cockpit::runner::run(*args).await,
+        Some(Commands::AcpRunner(args)) => agent_of_empires::acp::runner::run(*args).await,
         None => {
             // Fold the drift notice into the existing startup-warning channel
             // so the TUI surfaces both (debug-log + drift, if both fire) in a
@@ -302,5 +334,7 @@ async fn main() -> Result<()> {
             tui::run(&profile, combined).await
         }
         _ => unreachable!(),
-    }
+    };
+
+    result
 }

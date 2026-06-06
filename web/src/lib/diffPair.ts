@@ -1,5 +1,5 @@
 // Convert an `(old_string, new_string)` pair into a `RichDiffHunk`
-// plus add/del counts, so the cockpit Edit/Write card can drive its
+// plus add/del counts, so the structured view Edit/Write card can drive its
 // body and its `+N −N` chip off a single line-diff pass. Uses
 // `@pierre/diffs` `parseDiffFromFile`, the same diff engine the diff
 // surfaces render with. See #1073 / #1074.
@@ -23,9 +23,10 @@ function withTrailingNewline(s: string): string {
 }
 
 /** `parseDiffFromFile` keeps the trailing newline on every line but
- *  the file's last; drop it so `content` is the bare line text. */
+ *  the file's last; drop it (and a preceding `\r` from CRLF input) so
+ *  `content` is the bare line text. */
 function stripNewline(s: string): string {
-  return s.endsWith("\n") ? s.slice(0, -1) : s;
+  return s.replace(/\r?\n$/, "");
 }
 
 /** Run a line-level diff over the pair and emit a `RichDiffHunk`
@@ -58,7 +59,7 @@ export function diffPair(oldText: string, newText: string): DiffPairResult {
   if (oldNormalized === newNormalized) {
     // Identical content yields no hunks; surface every line as `equal`
     // so the renderer still shows the snippet.
-    for (const content of stripNewline(oldNormalized).split("\n")) {
+    for (const content of stripNewline(oldNormalized).split(/\r?\n/)) {
       lines.push({
         type: "equal",
         old_line_num: oldNum++,

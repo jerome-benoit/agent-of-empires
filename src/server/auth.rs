@@ -226,7 +226,7 @@ fn extract_ws_protocols(request: &Request) -> Vec<String> {
 }
 
 /// Strip a possible trailing slash from a path so suffix matches are
-/// not bypassed by `/api/sessions/123/cockpit/prompt/` (axum routes
+/// not bypassed by `/api/sessions/123/acp/prompt/` (axum routes
 /// both forms to the same handler). Cheap and explicit.
 fn normalize_path(path: &str) -> &str {
     path.strip_suffix('/').unwrap_or(path)
@@ -381,7 +381,7 @@ fn log_loopback_bypass_token(client_ip: IpAddr, path: &str) {
 ///
 /// Scope is intentionally narrow: only persistent-config writes that
 /// can plant code for the owner's next session spawn. Daily-use
-/// surfaces (cockpit prompt, terminal attach, session lifecycle,
+/// surfaces (structured view prompt, terminal attach, session lifecycle,
 /// approval resolution) rely on the session cookie + device binding
 /// alone, matching the SSH model the user wanted. See discussion on
 /// #1137. The protected attack class is the persisted-tamper pattern:
@@ -395,10 +395,11 @@ fn log_loopback_bypass_token(client_ip: IpAddr, path: &str) {
 /// this layer: the same endpoint accepts both tamper-surface keys
 /// (sandbox, worktree, dangerous session fields) and benign user-
 /// preference keys (theme, sound, updates, web notifications,
-/// logging, description, safe session fields). The handler does a
-/// body-shape elevation check via `body_requires_elevation` and
-/// returns the same `403 elevation_required` payload when a tamper-
-/// surface key is present without elevation. Elevating the whole
+/// logging, description, safe session fields). The handler validates
+/// each patch leaf against the settings schema
+/// (`settings_schema::validate_patch`) and returns the same `403
+/// elevation_required` payload when a `requires_elevation` field is
+/// present without elevation (#1692). Elevating the whole
 /// endpoint here trained every preference save to re-prompt for the
 /// passphrase, which both broke the theme picker UX and conditioned
 /// users to dismiss the real prompts. See #1510.
@@ -623,11 +624,11 @@ pub async fn auth_middleware(
 ) -> Response {
     let client_ip = resolve_client_ip(addr, request.headers());
 
-    // Trace cockpit ws specifically so we can see whether the
-    // browser ever reached the server when the cockpit live updates
+    // Trace structured view ws specifically so we can see whether the
+    // browser ever reached the server when the structured view live updates
     // get stuck. Other ws paths (terminal) are not as load-bearing
     // for diagnostics today.
-    if request.uri().path().contains("/cockpit/ws") {
+    if request.uri().path().contains("/acp/ws") {
         let token_sources: Vec<&'static str> = extract_tokens(&request)
             .iter()
             .map(|(_, src)| match src {
@@ -643,7 +644,7 @@ pub async fn auth_middleware(
             ip = %client_ip,
             token_sources = ?token_sources,
             ws_protocol_count = ws_protocols.len(),
-            "auth_middleware entered for cockpit ws"
+            "auth_middleware entered for structured view ws"
         );
     }
 
@@ -1175,7 +1176,7 @@ mod tests {
             PassphraseWallEntryAction::BypassLoopback
         );
         assert_eq!(
-            passphrase_wall_entry_action("/sessions/abc/cockpit/ws", loopback),
+            passphrase_wall_entry_action("/sessions/abc/acp/ws", loopback),
             PassphraseWallEntryAction::BypassLoopback
         );
         assert_eq!(
@@ -1191,7 +1192,7 @@ mod tests {
             PassphraseWallEntryAction::Continue
         );
         assert_eq!(
-            passphrase_wall_entry_action("/sessions/abc/cockpit/ws", remote),
+            passphrase_wall_entry_action("/sessions/abc/acp/ws", remote),
             PassphraseWallEntryAction::Continue
         );
 
@@ -1410,9 +1411,7 @@ mod tests {
 
         // Non-exempt: must refresh (sliding window).
         assert!(should_refresh_session_cookie("/api/sessions"));
-        assert!(should_refresh_session_cookie(
-            "/api/sessions/abc/cockpit/ws"
-        ));
+        assert!(should_refresh_session_cookie("/api/sessions/abc/acp/ws"));
         assert!(should_refresh_session_cookie("/api/settings"));
         // /api/login/elevate is gated by the session check (not
         // exempt), so its response should slide the window.
@@ -1512,11 +1511,12 @@ mod tests {
         assert!(requires_elevation(&Method::PATCH, "/api/settings/"));
 
         // `PATCH /api/profiles/{name}/settings` is body-gated inside the
-        // handler (`update_profile_settings` calls `body_requires_elevation`
-        // and re-issues the 403 elevation_required payload for tamper-
-        // surface keys). The path-level gate exempts it so safe
-        // preference fields (theme, sound, etc.) do not re-prompt the
-        // passphrase on every save. See #1510.
+        // handler (`update_profile_settings` validates each leaf via
+        // `settings_schema::validate_patch` and re-issues the 403
+        // elevation_required payload for `requires_elevation` fields). The
+        // path-level gate exempts it so safe preference fields (theme,
+        // sound, etc.) do not re-prompt the passphrase on every save.
+        // See #1510, #1692.
         assert!(!requires_elevation(
             &Method::PATCH,
             "/api/profiles/work/settings"
@@ -1533,21 +1533,18 @@ mod tests {
             &Method::GET,
             "/api/sessions/abc/ws-readonly"
         ));
+        assert!(!requires_elevation(&Method::GET, "/sessions/abc/acp/ws"));
         assert!(!requires_elevation(
-            &Method::GET,
-            "/sessions/abc/cockpit/ws"
+            &Method::POST,
+            "/api/sessions/abc/acp/prompt"
         ));
         assert!(!requires_elevation(
             &Method::POST,
-            "/api/sessions/abc/cockpit/prompt"
+            "/api/sessions/abc/acp/cancel"
         ));
         assert!(!requires_elevation(
             &Method::POST,
-            "/api/sessions/abc/cockpit/cancel"
-        ));
-        assert!(!requires_elevation(
-            &Method::POST,
-            "/api/sessions/abc/cockpit/approvals/nonce1"
+            "/api/sessions/abc/acp/approvals/nonce1"
         ));
         assert!(!requires_elevation(&Method::POST, "/api/sessions"));
         assert!(!requires_elevation(&Method::DELETE, "/api/sessions/abc"));
@@ -1564,8 +1561,16 @@ mod tests {
         assert!(!requires_elevation(&Method::POST, "/api/git/clone"));
         assert!(!requires_elevation(&Method::POST, "/api/projects"));
         assert!(!requires_elevation(&Method::DELETE, "/api/projects/myproj"));
+        assert!(!requires_elevation(&Method::PATCH, "/api/projects/myproj"));
         assert!(!requires_elevation(&Method::POST, "/api/push/subscribe"));
         assert!(!requires_elevation(&Method::POST, "/api/push/unsubscribe"));
+        // Cosmetic UI state: marking the web tour seen flips one bool and
+        // grants no capability, so it stays off the passphrase wall (the
+        // handler still enforces read_only). See #1832.
+        assert!(!requires_elevation(
+            &Method::POST,
+            "/api/app-state/web-tour-seen"
+        ));
 
         // Read-only GETs are NOT gated even on settings/profile paths.
         assert!(!requires_elevation(&Method::GET, "/api/settings"));

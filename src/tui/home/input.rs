@@ -17,7 +17,7 @@ use crate::tui::dialogs::{
     DeleteDialogConfig, DialogResult, GroupDeleteOptionsDialog, HookTrustAction,
     HooksInstallDialog, InfoDialog, IntroOutcome, NewSessionData, NewSessionDialog, NoAgentsAction,
     PaletteAction, PaletteCommand, PaletteGroup, ProfilePickerAction, ProjectsDialog, RenameDialog,
-    RenameMode, RestartDialog, SendMessageDialog, UnifiedDeleteDialog,
+    RenameMode, RestartDialog, SendMessageDialog, UnifiedDeleteDialog, WorktreeNameDialog,
 };
 use crate::tui::diff::{DiffAction, DiffView};
 use crate::tui::responsive;
@@ -36,7 +36,10 @@ const DOUBLE_CLICK_THRESHOLD: std::time::Duration = std::time::Duration::from_mi
 /// logged and swallowed: the intro should never block startup on a config
 /// write hiccup.
 fn apply_intro_outcome(outcome: &IntroOutcome) {
-    if outcome.final_theme.is_none() && outcome.final_attach_mode.is_none() {
+    if outcome.final_theme.is_none()
+        && outcome.final_attach_mode.is_none()
+        && outcome.telemetry_opt_in.is_none()
+    {
         return;
     }
     let Ok(mut config) = load_config().map(|c| c.unwrap_or_default()) else {
@@ -50,9 +53,34 @@ fn apply_intro_outcome(outcome: &IntroOutcome) {
         config.session.new_session_attach_mode = mode;
         config.session.default_attach_mode = mode;
     }
+    if let Some(opt_in) = outcome.telemetry_opt_in {
+        config.telemetry.enabled = opt_in;
+        config.app_state.has_responded_to_telemetry = true;
+    }
     if let Err(e) = save_config(&config) {
         tracing::warn!(target: "tui.input", "Failed to persist intro outcome: {e}");
     }
+    // Sync the install id with the saved opt-in choice (no-op under
+    // DO_NOT_TRACK). Done after save so telemetry.json matches config.
+    if let Some(opt_in) = outcome.telemetry_opt_in {
+        crate::telemetry::apply_opt_in_change(opt_in);
+    }
+}
+
+/// Persist the user's answer to the standalone telemetry consent popup.
+/// Sets the opt-in flag, marks the prompt answered so it never re-appears,
+/// and reconciles the install id (no-op under `DO_NOT_TRACK`).
+fn persist_telemetry_consent(opt_in: bool) {
+    let Ok(mut config) = load_config().map(|c| c.unwrap_or_default()) else {
+        tracing::warn!(target: "tui.input", "telemetry consent: load_config failed; not persisting");
+        return;
+    };
+    config.telemetry.enabled = opt_in;
+    config.app_state.has_responded_to_telemetry = true;
+    if let Err(e) = save_config(&config) {
+        tracing::warn!(target: "tui.input", "Failed to persist telemetry consent: {e}");
+    }
+    crate::telemetry::apply_opt_in_change(opt_in);
 }
 
 /// xterm bracketed-paste start sequence: `ESC [ 2 0 0 ~`. An agent that
@@ -790,6 +818,20 @@ impl HomeView {
             }
             return true;
         }
+        if let Some(dialog) = &self.telemetry_consent_dialog {
+            if let Some(result) = dialog.handle_click(col, row) {
+                let opt_in = match result {
+                    DialogResult::Submit(opt_in) => Some(opt_in),
+                    DialogResult::Cancel => Some(false),
+                    DialogResult::Continue => None,
+                };
+                if let Some(opt_in) = opt_in {
+                    self.telemetry_consent_dialog = None;
+                    persist_telemetry_consent(opt_in);
+                }
+            }
+            return true;
+        }
         if let Some(dialog) = &self.snooze_duration_dialog {
             if let Some(DialogResult::Submit(minutes)) = dialog.handle_click(col, row) {
                 self.snooze_duration_dialog = None;
@@ -861,6 +903,11 @@ impl HomeView {
             // submitting requires the user to press Enter on a valid input.
             // Always swallow the click so the underlying list doesn't react.
             let _ = dialog.handle_click(col, row);
+            return true;
+        }
+        if self.worktree_name_dialog.is_some() {
+            // Keyboard-driven dialog; swallow clicks so the list underneath
+            // doesn't react while it's open.
             return true;
         }
         if let Some(dialog) = &mut self.restart_dialog {
@@ -1220,6 +1267,23 @@ impl HomeView {
             return None;
         }
 
+        if let Some(dialog) = &mut self.telemetry_consent_dialog {
+            match dialog.handle_key(key) {
+                DialogResult::Continue => {}
+                DialogResult::Submit(opt_in) => {
+                    self.telemetry_consent_dialog = None;
+                    persist_telemetry_consent(opt_in);
+                }
+                // Cancel can't be produced by this dialog (Esc maps to a
+                // decline), but treat it as a decline for completeness.
+                DialogResult::Cancel => {
+                    self.telemetry_consent_dialog = None;
+                    persist_telemetry_consent(false);
+                }
+            }
+            return None;
+        }
+
         if let Some(dialog) = &mut self.info_dialog {
             match dialog.handle_key(key) {
                 DialogResult::Continue => {}
@@ -1528,6 +1592,27 @@ impl HomeView {
             return None;
         }
 
+        if let Some(dialog) = &mut self.worktree_name_dialog {
+            match dialog.handle_key(key) {
+                DialogResult::Continue => {}
+                DialogResult::Cancel => {
+                    self.worktree_name_dialog = None;
+                }
+                DialogResult::Submit(data) => {
+                    self.worktree_name_dialog = None;
+                    if let Err(e) =
+                        self.set_worktree_name_for_selected(&data.name, data.rename_branch)
+                    {
+                        self.info_dialog = Some(InfoDialog::new(
+                            "Edit Workdir Name Failed",
+                            &format!("Could not edit the workdir name: {e}"),
+                        ));
+                    }
+                }
+            }
+            return None;
+        }
+
         if let Some(dialog) = &mut self.restart_dialog {
             match dialog.handle_key(key) {
                 DialogResult::Continue => {}
@@ -1772,7 +1857,7 @@ impl HomeView {
         // Dynamic tool session hotkeys (checked before everything else).
         if let Some(tool_name) = self.match_tool_hotkey(&key) {
             if matches!(&self.view_mode, ViewMode::Tool(current) if current == &tool_name) {
-                self.view_mode = ViewMode::Agent;
+                self.view_mode = ViewMode::Structured;
             } else {
                 self.view_mode = ViewMode::Tool(tool_name);
                 self.preview_scroll_offset = 0;
@@ -1790,7 +1875,7 @@ impl HomeView {
                 return None;
             }
             KeyCode::Esc if matches!(self.view_mode, ViewMode::Tool(_)) => {
-                self.view_mode = ViewMode::Agent;
+                self.view_mode = ViewMode::Structured;
                 return None;
             }
             _ => {}
@@ -1911,7 +1996,7 @@ impl HomeView {
             }
             ActionId::ToolPicker => {
                 if matches!(self.view_mode, ViewMode::Tool(_)) {
-                    self.view_mode = ViewMode::Agent;
+                    self.view_mode = ViewMode::Structured;
                 } else if !self.tool_configs.is_empty() {
                     self.open_tool_picker();
                 }
@@ -1946,14 +2031,15 @@ impl HomeView {
             ActionId::AttachTerminal => return self.attach_terminal_for_selected(),
             ActionId::ToggleView => {
                 self.view_mode = match self.view_mode {
-                    ViewMode::Agent => ViewMode::Terminal,
-                    ViewMode::Terminal | ViewMode::Tool(_) => ViewMode::Agent,
+                    ViewMode::Structured => ViewMode::Terminal,
+                    ViewMode::Terminal | ViewMode::Tool(_) => ViewMode::Structured,
                 };
             }
             ActionId::SendMessage => self.open_send_message_dialog(),
             ActionId::Stop => self.stop_selected(),
             ActionId::Delete => self.open_delete_for_selected(),
             ActionId::Rename => self.open_rename_for_selected(),
+            ActionId::SetWorktreeName => self.open_worktree_name_for_selected(),
             ActionId::Diff => self.open_diff_for_selected(),
             ActionId::Serve => self.open_serve(),
             ActionId::Settings => self.open_settings(),
@@ -2032,11 +2118,18 @@ impl HomeView {
                 &current_profile,
                 profiles,
             );
+            let has_prefilled_path = prefill_path.is_some();
             if let Some(path) = prefill_path {
                 dialog.set_path(path);
             }
             if let Some(group) = prefill_group {
                 dialog.set_group(group);
+            }
+            // Only skip to the title when the path was inherited from a
+            // session. In the group-only fallback the path is still the
+            // default cwd, so leaving focus there lets the user confirm it.
+            if has_prefilled_path {
+                dialog.focus_title();
             }
             self.new_dialog = Some(dialog);
         }
@@ -2100,7 +2193,17 @@ impl HomeView {
         let session_id_owned = inst.id.clone();
         let profile = inst.source_profile.clone();
         let base_override = inst.base_branch_override.clone();
-        match DiffView::new_for_session(repo_path, Some(session_id_owned), profile, base_override) {
+        let worktree_base = inst
+            .worktree_info
+            .as_ref()
+            .and_then(|w| w.base_branch.clone());
+        match DiffView::new_for_session(
+            repo_path,
+            Some(session_id_owned),
+            profile,
+            base_override,
+            worktree_base,
+        ) {
             Ok(view) => self.diff_view = Some(view),
             Err(e) => {
                 tracing::error!(target: "tui.input", "Failed to open diff view: {}", e);
@@ -2459,7 +2562,7 @@ impl HomeView {
     }
 
     /// Resolve the action that "activating" the currently-selected session
-    /// should produce (cockpit open, attach to tmux session, attach to a
+    /// should produce (structured view open, attach to tmux session, attach to a
     /// tool session, etc.). Returns `None` for in-flight sessions
     /// (`Creating`/`Deleting`) and when no session is selected. Shared
     /// between the `Enter` keybind and double-click activation so the two
@@ -2470,25 +2573,25 @@ impl HomeView {
             if matches!(inst.status, Status::Deleting | Status::Creating) {
                 return None;
             }
-            if inst.is_cockpit_mode() {
+            if inst.is_structured() {
                 #[cfg(feature = "serve")]
                 {
-                    return Some(Action::OpenCockpit(id));
+                    return Some(Action::OpenStructuredView(id));
                 }
                 #[cfg(not(feature = "serve"))]
                 {
                     return Some(Action::SetTransientStatus(
-                        "Cockpit session: rebuild with --features serve to attach".to_string(),
+                        "Acp session: rebuild with --features serve to attach".to_string(),
                     ));
                 }
             }
         }
         match self.view_mode {
-            ViewMode::Agent => {
+            ViewMode::Structured => {
                 // `default_attach_mode = LiveSend` swaps the historical
                 // tmux attach for live-send mode on Enter / double-click.
-                // Cockpit was already handled above (the resolver also
-                // returns None for cockpit, so the match is double-safe);
+                // Acp was already handled above (the resolver also
+                // returns None for structured view, so the match is double-safe);
                 // Terminal view honors the same setting (live-send onto
                 // the paired terminal pane); Tool view keeps its
                 // existing AttachToolSession path.
@@ -2498,9 +2601,9 @@ impl HomeView {
                 // double-click on the live row would otherwise re-run
                 // ensure_pane_ready and respawn the worker for no
                 // reason. `start_live_send` returns `None` for that
-                // and for cockpit/creating rows; in either of those
-                // cases we leave activation alone (cockpit was already
-                // dispatched to OpenCockpit above; same-target re-click
+                // and for structured view/creating rows; in either of those
+                // cases we leave activation alone (structured view was already
+                // dispatched to OpenStructuredView above; same-target re-click
                 // is intentionally a no-op).
                 if matches!(
                     self.default_attach_mode(&id),
@@ -2512,7 +2615,7 @@ impl HomeView {
                 }
             }
             ViewMode::Terminal => {
-                // Mirror Agent view: when `default_attach_mode = LiveSend`,
+                // Mirror Structured view: when `default_attach_mode = LiveSend`,
                 // Enter on the terminal row enters live-send mode against
                 // the paired terminal pane (host or container, whichever
                 // is currently shown). Otherwise fall back to the
@@ -2540,7 +2643,7 @@ impl HomeView {
 
     /// Resolve the "Tab swap" action that fires when
     /// `default_attach_mode = LiveSend`: Enter takes the live-send
-    /// slot, so Tab takes the tmux-attach slot. Mirrors the cockpit
+    /// slot, so Tab takes the tmux-attach slot. Mirrors the structured view
     /// and in-flight guards from `activate_selected_session`; returns
     /// the same per-view-mode attach actions Enter produces under the
     /// historical default.
@@ -2550,21 +2653,21 @@ impl HomeView {
             if matches!(inst.status, Status::Deleting | Status::Creating) {
                 return None;
             }
-            if inst.is_cockpit_mode() {
+            if inst.is_structured() {
                 #[cfg(feature = "serve")]
                 {
-                    return Some(Action::OpenCockpit(id));
+                    return Some(Action::OpenStructuredView(id));
                 }
                 #[cfg(not(feature = "serve"))]
                 {
                     return Some(Action::SetTransientStatus(
-                        "Cockpit session: rebuild with --features serve to attach".to_string(),
+                        "Acp session: rebuild with --features serve to attach".to_string(),
                     ));
                 }
             }
         }
         match self.view_mode {
-            ViewMode::Agent => Some(Action::AttachSession(id)),
+            ViewMode::Structured => Some(Action::AttachSession(id)),
             ViewMode::Terminal => {
                 let terminal_mode = if let Some(inst) = self.get_instance(&id) {
                     if inst.is_sandboxed() {
@@ -2749,7 +2852,7 @@ impl HomeView {
         }
 
         let active_cache = match self.view_mode {
-            ViewMode::Agent => &self.preview_cache,
+            ViewMode::Structured => &self.preview_cache,
             ViewMode::Terminal => {
                 let terminal_mode = self
                     .selected_session
@@ -3068,6 +3171,52 @@ impl HomeView {
         }
     }
 
+    /// Open the edit-workdir-name dialog for the selected session. Only
+    /// valid for an aoe-managed worktree session that is not running; other
+    /// cases surface an info dialog explaining why.
+    pub(super) fn open_worktree_name_for_selected(&mut self) {
+        let Some(id) = self.selected_session.clone() else {
+            return;
+        };
+        let snapshot = self.get_instance(&id).map(|inst| {
+            (
+                inst.worktree_info.clone(),
+                inst.status,
+                inst.project_path.clone(),
+            )
+        });
+        let Some((worktree_info, status, project_path)) = snapshot else {
+            return;
+        };
+        let Some(wt) = worktree_info else {
+            self.info_dialog = Some(InfoDialog::new(
+                "Not a Worktree Session",
+                "This session does not use a worktree, so it has no workdir name to edit.",
+            ));
+            return;
+        };
+        if !wt.managed_by_aoe {
+            self.info_dialog = Some(InfoDialog::new(
+                "Worktree Not Managed by AoE",
+                "This worktree was attached rather than created by AoE, so its workdir name cannot be edited.",
+            ));
+            return;
+        }
+        if status.blocks_worktree_edit() {
+            self.info_dialog = Some(InfoDialog::new(
+                "Session Active",
+                "Stop the session before editing its workdir name.",
+            ));
+            return;
+        }
+        let current_dir = std::path::Path::new(&project_path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&project_path)
+            .to_string();
+        self.worktree_name_dialog = Some(WorktreeNameDialog::new(&current_dir, &wt.branch));
+    }
+
     /// Open the delete dialog (or a force-remove confirm, or a group
     /// delete-options dialog) for the sidebar's current selection. Mirrors
     /// the gating of the historical `'d'` / `'D'` key handlers:
@@ -3079,12 +3228,12 @@ impl HomeView {
     /// Shared by the `'d'` / `'D'` key handlers and the right-click
     /// context menu.
     pub(super) fn open_delete_for_selected(&mut self) {
-        // Deletion only allowed in Agent View.
+        // Deletion only allowed in Structured View.
         if self.view_mode == ViewMode::Terminal {
             let hint = if self.strict_hotkeys {
-                "Terminals cannot be deleted directly. Switch to Agent View (press Shift+T) and delete the agent session instead."
+                "Terminals cannot be deleted directly. Switch to Structured View (press Shift+T) and delete the agent session instead."
             } else {
-                "Terminals cannot be deleted directly. Switch to Agent View (press 't') and delete the agent session instead."
+                "Terminals cannot be deleted directly. Switch to Structured View (press 't') and delete the agent session instead."
             };
             self.info_dialog = Some(InfoDialog::new("Cannot Delete Terminal", hint));
             return;
@@ -3178,7 +3327,7 @@ impl HomeView {
     /// the `Enter` keybind would have produced) so users can still
     /// drop into a full tmux attach without going through live mode.
     /// Returns the action for the caller to dispatch, or `None` for
-    /// no-op clicks (group toggle, cockpit/creating rows, same-session
+    /// no-op clicks (group toggle, structured view/creating rows, same-session
     /// re-clicks while already live). The caller redraws unconditionally
     /// so the moved cursor / toggled group always paints before the
     /// action executes. Gated by `has_dialog()` (via
@@ -3251,7 +3400,7 @@ impl HomeView {
                 // the user can browse preview content without ever
                 // entering live-send; double-click still activates via
                 // `default_attach_mode`. `click_action` returns `None`
-                // for cockpit-mode sessions, where `start_live_send`
+                // for structured view-mode sessions, where `start_live_send`
                 // already short-circuits, so the historical fall-through
                 // is fine.
                 if matches!(
@@ -3293,6 +3442,9 @@ impl HomeView {
             overlay_changed |= dialog.handle_hover(col, row);
         }
         if let Some(dialog) = &mut self.update_confirm_dialog {
+            overlay_changed |= dialog.handle_hover(col, row);
+        }
+        if let Some(dialog) = &mut self.telemetry_consent_dialog {
             overlay_changed |= dialog.handle_hover(col, row);
         }
         if let Some(dialog) = &mut self.snooze_duration_dialog {
@@ -3416,6 +3568,10 @@ impl HomeView {
             dialog.handle_paste(text);
             return;
         }
+        if let Some(ref mut dialog) = self.worktree_name_dialog {
+            dialog.handle_paste(text);
+            return;
+        }
         if let Some(ref mut dialog) = self.send_message_dialog {
             dialog.handle_paste(text);
             return;
@@ -3516,22 +3672,22 @@ impl HomeView {
         if matches!(inst.status, Status::Creating | Status::Deleting) {
             return None;
         }
-        // Cockpit-mode sessions are not tmux-backed (HomeView's attach
+        // Acp-mode sessions are not tmux-backed (HomeView's attach
         // path special-cases them away from tmux). Live-send has no
         // target in that mode, so silently no-op rather than enqueue
         // an Action::EnterLiveSend that would fail downstream.
-        if inst.is_cockpit_mode() {
+        if inst.is_structured() {
             return None;
         }
         // Pick the live-send target based on which pane the user is
-        // currently previewing. Agent view → agent pane (historical
+        // currently previewing. Structured view → agent pane (historical
         // default). Terminal view → the paired host or container
         // terminal pane, so 'm'/Tab compose against the same shell
         // the user sees. Tool view stays out of live-send (no clean
         // target for lazygit/yazi etc.; let the caller fall back to
         // AttachToolSession).
         self.pending_live_send_target = match &self.view_mode {
-            ViewMode::Agent => live_send::LiveSendTarget::Agent,
+            ViewMode::Structured => live_send::LiveSendTarget::Agent,
             ViewMode::Terminal => {
                 if inst.is_sandboxed() && self.get_terminal_mode(&id) == TerminalMode::Container {
                     live_send::LiveSendTarget::ContainerTerminal
@@ -3684,7 +3840,9 @@ impl HomeView {
         session.reset_size_to_latest_client();
         self.live_send = None;
         self.live_send_worker = None;
-        self.live_capture_worker = None;
+        // Leave the capture worker running: the same pane is still
+        // previewed after exit, just at the idle cadence. The render
+        // reconcile retunes it (and retargets if the view later changes).
         self.live_send_last_resize = None;
         // The leader menu and sidebar collapse are live-mode-only: drop
         // any half-entered leader chord and re-reveal the session list so
@@ -3705,7 +3863,7 @@ impl HomeView {
 
     /// Returns `Some(reason)` if the live-send target has drifted out
     /// from under us between entry and now. Three drift modes:
-    /// - Instance row deleted (peer / web cockpit / another aoe killed
+    /// - Instance row deleted (peer / web structured view / another aoe killed
     ///   it).
     /// - Title renamed (which regenerates the tmux session name; the
     ///   worker is now targeting a stale name).
@@ -3768,13 +3926,13 @@ impl HomeView {
         self.send_message_dialog = Some(dialog);
     }
 
-    /// Compose target for the current view: agent in Agent view, the
+    /// Compose target for the current view: agent in Structured view, the
     /// paired host/container terminal in Terminal view. Tool view has
     /// no clean compose target (the tool owns the pane), so it falls
     /// through to Agent for the historical paste/letter-capture path.
     pub(super) fn current_send_target(&self) -> live_send::LiveSendTarget {
         match &self.view_mode {
-            ViewMode::Agent => live_send::LiveSendTarget::Agent,
+            ViewMode::Structured => live_send::LiveSendTarget::Agent,
             ViewMode::Terminal => {
                 if let Some(id) = self.selected_session.as_deref() {
                     if let Some(inst) = self.get_instance(id) {
@@ -3833,6 +3991,10 @@ impl HomeView {
             return;
         }
         if let Some(ref mut dialog) = self.rename_dialog {
+            dialog.handle_paste(&s);
+            return;
+        }
+        if let Some(ref mut dialog) = self.worktree_name_dialog {
             dialog.handle_paste(&s);
             return;
         }
