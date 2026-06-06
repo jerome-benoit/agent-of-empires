@@ -1,9 +1,10 @@
 //! Integration test for the server-consumer Local + Kernel propagation path.
 //!
-//! Local-Kernel collapse semantics: drive `Storage::update` from inside the
-//! test process so both the in-process Local notify and the kernel echo
-//! race the dispatcher; assert exactly ONE delivery per logical write
-//! within the 75ms debounce window.
+//! Local-Kernel best-effort coalescing: drive `Storage::update` from inside
+//! the test process so both the in-process Local notify and the kernel echo
+//! race the dispatcher; assert at least one delivery and no immediate
+//! duplicate within a tight post-write budget. Slow backends may still emit
+//! a later, idempotent kernel echo outside that short window.
 //!
 //! Full end-to-end coverage from `aoe serve` REST through the dispatcher
 //! requires tunnel / port / auth setup beyond what's practical here. This
@@ -36,13 +37,12 @@ fn isolate_home(temp: &std::path::Path) {
 
 /// Storage::update fires `notify_local_change` after each successful
 /// `atomic_write`. Subscribers wired to the same `FileWatchService`
-/// receive exactly ONE delivery per logical update within the debounce
-/// window: the Local event arms the slot, the kernel echo refreshes
-/// `fire_at` but does not replace the pending entry (both are Upserted),
-/// and the per-key debounce collapses the burst.
+/// must observe the write promptly. On fast backends the Local event and
+/// kernel echo often share the active debounce slot; on slower backends a
+/// late kernel echo can arrive later, but consumers remain idempotent.
 #[tokio::test]
 #[serial]
-async fn storage_update_collapses_local_and_kernel_to_one_delivery() {
+async fn storage_update_avoids_immediate_duplicate_delivery_after_local_notify() {
     let temp = TempDir::new().unwrap();
     isolate_home(temp.path());
     let svc: Arc<FileWatchService> = FileWatchService::new().expect("init");
@@ -94,8 +94,10 @@ async fn storage_update_collapses_local_and_kernel_to_one_delivery() {
         first.path
     );
 
-    // No second delivery for the same logical write within a tight budget:
-    // Local + kernel echo collapsed to one.
+    // No immediate second delivery within a tight budget: fast backends
+    // collapse the Local event and kernel echo into one slot. A slower
+    // backend may still surface a later, idempotent kernel echo outside
+    // this short window.
     let second = timeout(NEG_WAIT, rx.recv()).await;
     assert!(
         second.is_err() || matches!(second, Ok(None)),

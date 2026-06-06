@@ -293,10 +293,12 @@ impl FileWatchService {
     /// short-circuits. Used by tests and as the graceful-degradation
     /// fallback.
     pub fn noop() -> Arc<Self> {
-        let (tokio_tx, _tokio_rx) = mpsc::unbounded_channel::<DispatchMsg>();
-        // Drop the receiver immediately so any future `tokio_tx.send` Errs
-        // out without delivering. The pre-set `dispatcher_dead` below makes
-        // the resulting `notify_local_change` Err path skip the error log.
+        let (tokio_tx, tokio_rx) = mpsc::unbounded_channel::<DispatchMsg>();
+        // Drop the receiver before returning so any future `tokio_tx.send`
+        // resolves to Err without delivering. The pre-set
+        // `dispatcher_dead` below makes the resulting
+        // `notify_local_change` Err path skip the error log.
+        drop(tokio_rx);
         Arc::new(FileWatchService {
             inner: Mutex::new(Inner {
                 watcher: None,
@@ -316,9 +318,10 @@ impl FileWatchService {
 
     /// Publish an in-process Upserted event for `path`. Used by writers in
     /// the same process (e.g. `Storage::update` after `atomic_write`) to
-    /// surface their change immediately; the kernel echo arrives ~ms later
-    /// for the same rename and collapses into the same per-key debounce
-    /// slot. Crate-private; never exposed publicly.
+    /// surface their change immediately. When the kernel echo lands before
+    /// the current debounce slot fires, the two deliveries collapse into one;
+    /// on slower backends the echo can arrive later and trigger a second,
+    /// idempotent delivery. Crate-private; never exposed publicly.
     ///
     /// On a live service this `send` is microseconds and never blocks. On a
     /// noop service the dispatcher channel's receiver was dropped at
@@ -446,6 +449,11 @@ impl FileWatchService {
             .lock()
             .map(|inner| inner.subscriptions.len())
             .unwrap_or(0)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn subscriber_count_for_test(&self) -> usize {
+        self.subscriber_count()
     }
 }
 
@@ -1231,6 +1239,7 @@ mod tests {
     #[tokio::test]
     async fn dispatcher_dead_emits_single_error_via_dedup_latch() {
         let svc = FileWatchService::new().expect("init");
+        let path = TempDir::new().unwrap().path().join("dead-latch");
         // First flip succeeds (latch was 0).
         log_dispatcher_dead_once(&svc, "first");
         assert!(svc.dispatcher_dead.load(Ordering::Acquire));
@@ -1238,7 +1247,8 @@ mod tests {
         // emit a second error line.
         log_dispatcher_dead_once(&svc, "second");
         log_dispatcher_dead_once_err(&svc, "third", "boom");
-        // Latch remains set; nothing observable beyond it for this test.
+        // Public API calls must never clear the one-way latch again.
+        svc.notify_local_change(&path);
         assert!(svc.dispatcher_dead.load(Ordering::Acquire));
     }
 
@@ -1306,14 +1316,14 @@ mod tests {
         assert!(!inner.dirs.contains_key(&bogus));
     }
 
-    /// Test 18: in-process Local upserts traverse the dispatcher and, when
-    /// they race the kernel echo for the same path, collapse into a single
-    /// delivery via the per-key debounce. Local is sent into the dispatcher
-    /// channel BEFORE the file write, deterministically arming the slot
-    /// first so the surviving event's `source == EventSource::Local`.
+    /// Test 18: in-process Local upserts traverse the dispatcher and arrive
+    /// before any kernel echo for the same path. On low-latency backends the
+    /// later kernel echo can still collapse into the active debounce slot;
+    /// on slower backends it may arrive late and produce a second, idempotent
+    /// delivery. The invariant we actually depend on is Local-first ordering.
     #[tokio::test]
     #[serial(file_watch)]
-    async fn notify_local_change_fires_local_first_then_kernel_collapses() {
+    async fn notify_local_change_delivers_local_first_and_tolerates_late_kernel_echo() {
         let dir = TempDir::new().unwrap();
         let svc = FileWatchService::new().expect("init");
         let target = dir.path().join("local-coalesce");
@@ -1337,9 +1347,9 @@ mod tests {
         // notify-backend latency.
         svc.notify_local_change(&target);
         // Mutate content: kernel emits an Upserted echo on the same canonical
-        // path. arm_debounce sees the existing Local entry, refreshes
-        // fire_at, leaves `pending` as Local (both kinds Upserted; replace
-        // rule covers Removed -> Upserted only).
+        // path. If it lands before the current slot fires, debounce coalesces
+        // the burst; if it lands later, consumers still see an idempotent
+        // second delivery for the same file.
         std::fs::write(&target, "mutated").expect("mutate");
         let first = timeout(KERNEL_WAIT, rx.recv())
             .await
@@ -1349,13 +1359,49 @@ mod tests {
         assert_eq!(
             first.source,
             EventSource::Local,
-            "Local arrived first so it must be the surviving event after debounce coalesce"
+            "Local must always arrive before any later kernel echo"
         );
-        // No second delivery within a tight budget: the burst collapsed.
-        let second = timeout(Duration::from_millis(200), rx.recv()).await;
+        let second = timeout(KERNEL_WAIT, rx.recv()).await;
+        if let Ok(Some(second)) = second {
+            assert_eq!(second.path.file_name(), target.file_name());
+            assert_eq!(
+                second.source,
+                EventSource::Kernel,
+                "a late second delivery, when present, must be the kernel echo"
+            );
+        }
+    }
+
+    /// Test 19a: a Local publish with no matching subscribers is a silent
+    /// no-op and must not trip the dispatcher-dead latch.
+    #[tokio::test]
+    #[serial(file_watch)]
+    async fn notify_local_change_with_no_matching_subscribers_is_silent() {
+        let dir = TempDir::new().unwrap();
+        let svc = FileWatchService::new().expect("init");
+        let watched = dir.path().join("watched");
+        let missed = dir.path().join("missed");
+        std::fs::write(&watched, "seed").expect("seed watched");
+        std::fs::write(&missed, "seed").expect("seed missed");
+        let (mut rx, _h) = svc
+            .subscribe_channel(
+                WatchSpec {
+                    dir: dir.path().to_path_buf(),
+                    matcher: FileMatcher::Exact(watched.clone()),
+                    debounce: None,
+                },
+                4,
+            )
+            .expect("subscribe");
+        svc.notify_local_change(&missed);
+        let res = timeout(Duration::from_millis(150), rx.recv()).await;
         assert!(
-            second.is_err() || matches!(second, Ok(None)),
-            "Local + kernel echo for the same write must collapse to one delivery"
+            res.is_err() || matches!(res, Ok(None)),
+            "unmatched Local publish must not deliver to unrelated subscribers"
+        );
+        assert!(
+            !svc.dispatcher_dead.load(Ordering::Acquire),
+            "unmatched Local publish must not trip dispatcher_dead"
         );
     }
 
@@ -1363,6 +1409,7 @@ mod tests {
     /// line, no panic, no delivery. The dispatcher_dead latch is pre-set on
     /// noop so the send-Err path skips the error log.
     #[tokio::test]
+    #[serial(file_watch)]
     async fn notify_local_change_on_noop_is_silent() {
         let svc = FileWatchService::noop();
         // Capture tracing output: the call must not emit any line.

@@ -22,7 +22,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use agent_of_empires::file_watch::FileWatchService;
-use agent_of_empires::server::test_support::build_test_app_state;
+use agent_of_empires::server::test_support::{
+    build_test_app_state, disk_watch_handle_count, has_disk_watch_handle,
+};
 use agent_of_empires::server::{
     rewire_disk_watch_for_profile_add, rewire_disk_watch_for_profile_remove,
     unsubscribe_profile_disk_watch,
@@ -45,21 +47,71 @@ async fn dynamic_profile_rewire_inserts_and_removes_entries() {
 
     rewire_disk_watch_for_profile_add(&state, "rewire-profile").await;
     {
-        let handles = state.disk_watch_handles.lock().await;
         assert!(
-            handles.contains_key("rewire-profile"),
+            has_disk_watch_handle(&state, "rewire-profile").await,
             "add must insert the per-profile entry"
         );
     }
 
     rewire_disk_watch_for_profile_remove(&state, "rewire-profile").await;
     {
-        let handles = state.disk_watch_handles.lock().await;
         assert!(
-            !handles.contains_key("rewire-profile"),
+            !has_disk_watch_handle(&state, "rewire-profile").await,
             "remove must drop the per-profile entry"
         );
     }
+
+    rewire_disk_watch_for_profile_add(&state, "rewire-profile").await;
+    {
+        assert!(
+            has_disk_watch_handle(&state, "rewire-profile").await,
+            "re-add after remove must converge back to one live entry"
+        );
+        assert_eq!(
+            disk_watch_handle_count(&state).await,
+            1,
+            "re-add must not duplicate entries"
+        );
+    }
+    assert_eq!(
+        state.file_watch.subscriber_count_for_test(),
+        1,
+        "re-add after remove must leave exactly one live subscription"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn dynamic_profile_rewire_overwrite_replaces_existing_subscription() {
+    let temp = tempfile::tempdir().unwrap();
+    isolate_home(temp.path());
+    let _ = agent_of_empires::session::get_profile_dir("rewire-profile").expect("profile dir");
+
+    let state = build_test_app_state(Vec::new());
+    let live = FileWatchService::new().expect("live svc");
+    let mut state_mut = Arc::try_unwrap(state).map_err(|_| ()).expect("unique");
+    state_mut.file_watch = live;
+    let state = Arc::new(state_mut);
+
+    rewire_disk_watch_for_profile_add(&state, "rewire-profile").await;
+    assert_eq!(
+        state.file_watch.subscriber_count_for_test(),
+        1,
+        "first add must install one live subscription"
+    );
+
+    rewire_disk_watch_for_profile_add(&state, "rewire-profile").await;
+    assert_eq!(
+        state.file_watch.subscriber_count_for_test(),
+        1,
+        "re-adding the same profile must replace, not leak, the prior subscription"
+    );
+    assert_eq!(
+        disk_watch_handle_count(&state).await,
+        1,
+        "replace path must keep one map entry"
+    );
+    assert!(has_disk_watch_handle(&state, "rewire-profile").await);
 }
 
 #[tokio::test]
@@ -81,24 +133,19 @@ async fn rewire_after_rename_drops_old_subscribes_new() {
 
     rewire_disk_watch_for_profile_add(&state, "rename-old").await;
     assert!(
-        state
-            .disk_watch_handles
-            .lock()
-            .await
-            .contains_key("rename-old"),
+        has_disk_watch_handle(&state, "rename-old").await,
         "precondition: old profile subscription must be present"
     );
 
     unsubscribe_profile_disk_watch(&state, "rename-old").await;
     rewire_disk_watch_for_profile_add(&state, "rename-new").await;
 
-    let handles = state.disk_watch_handles.lock().await;
     assert!(
-        !handles.contains_key("rename-old"),
+        !has_disk_watch_handle(&state, "rename-old").await,
         "old subscription must be removed; otherwise rename leaks the stale handle"
     );
     assert!(
-        handles.contains_key("rename-new"),
+        has_disk_watch_handle(&state, "rename-new").await,
         "new subscription must be installed; otherwise renamed profile loses live propagation"
     );
 }

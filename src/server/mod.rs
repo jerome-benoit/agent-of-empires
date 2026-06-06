@@ -248,7 +248,7 @@ impl CleanupDefaultsCache {
 /// Drop-then-abort order on rewire / shutdown is canonical: drop the
 /// `SubscriptionHandle` first so the dispatcher stops queuing events for
 /// this id, then abort the forwarder.
-pub struct DiskWatchEntry {
+pub(crate) struct DiskWatchEntry {
     /// RAII guard from `subscribe_channel`. Drop unsubscribes and unwatches
     /// the directory if its refcount drops to zero.
     handle: SubscriptionHandle,
@@ -423,7 +423,7 @@ pub struct AppState {
     /// Per-profile disk-watch subscriptions plus their forwarder tasks.
     /// Keyed by profile name. Mutated by `init_disk_watch_subscriptions`
     /// at startup and by the profile create / delete REST handlers.
-    pub disk_watch_handles:
+    pub(crate) disk_watch_handles:
         Arc<tokio::sync::Mutex<std::collections::HashMap<String, DiskWatchEntry>>>,
 }
 
@@ -918,7 +918,7 @@ pub async fn start_server(config: ServerConfig<'_>) -> anyhow::Result<()> {
         telemetry_structured: StructuredTelemetryCounters::default(),
         telemetry_last_reported: std::sync::Mutex::new(None),
         shutdown: CancellationToken::new(),
-        file_watch: file_watch.clone(),
+        file_watch: Arc::clone(&file_watch),
         disk_changed: Arc::new(tokio::sync::Notify::new()),
         disk_watch_handles: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     });
@@ -1001,16 +1001,12 @@ pub async fn start_server(config: ServerConfig<'_>) -> anyhow::Result<()> {
         },
     );
 
-    // File-watch wire-up: register per-profile subscriptions and start the
-    // consumer task. Spawned AFTER the listener bind above so subscribe
-    // latency never gates listener readiness; polling stays canonical
-    // if subscribe fails.
-    {
-        let init_state = state.clone();
-        tokio::spawn(async move {
-            init_disk_watch_subscriptions(init_state).await;
-        });
-    }
+    // File-watch wire-up: register the initial per-profile subscriptions
+    // BEFORE the server starts serving requests so cold-start writes do not
+    // rely solely on the 2s polling fallback. Per-profile subscribe errors
+    // are still logged and skipped; polling stays canonical when a watch
+    // cannot be installed.
+    init_disk_watch_subscriptions(state.clone()).await;
     {
         let consumer_state = state.clone();
         crate::task_util::spawn_supervised(
@@ -1794,22 +1790,21 @@ fn merge_runtime_fields(prior: Instance, mut fresh: Instance) -> Instance {
 //    DiskOnly takes prior.status and `prior.idle_entered_at.or(fresh.idle_entered_at)`;
 //    TmuxApplied takes fresh's. `last_accessed_at` is monotonic-max
 //    regardless.
-// 4. The acp overlay filter is `inst.is_structured()`, NOT the lazy
+// 4. The acp overlay filter is `inst.is_structured()`, never the lazy
 //    ACP session id. The latter is set lazily by the ACP handshake
 //    and is None for newly-spawned acp sessions; using it as the
 //    filter would silently drop overlay coverage for pre-handshake
 //    rows.
 // 5. `prior_by_id` is built with `.drain(..)` once, then read with
-//    `.get()` (NOT `.remove()`) in the merge loop, so the same map is
+//    `.get()` rather than `.remove()` in the merge loop, so the same map is
 //    still populated when `apply_acp_overlay_inplace` runs.
 // 6. Polling is canonical. The watcher path
 //    adds latency reduction; correctness still holds when it fails.
 
 /// Reload `state.instances` by merging caller-supplied `fresh` against the
 /// prior in-memory snapshot per id, then reapplying the acp overlay.
-/// The caller is responsible for the disk read (off the runtime via
-/// `tokio::task::spawn_blocking(load_all_instances)` for both call sites)
-/// and, on the `TmuxApplied` path only, for emitting `state.status_tx`
+/// The caller is responsible for the disk read and, on the
+/// `TmuxApplied` path only, for emitting `state.status_tx`
 /// diffs BEFORE invoking the helper.
 #[doc(hidden)]
 pub async fn reload_state_instances_from_disk(
@@ -1891,9 +1886,10 @@ fn apply_acp_overlay_inplace(
 
 /// Register a per-profile `subscribe_channel` against
 /// `<profile_dir>/{sessions,groups}.json` and spawn a forwarder task that
-/// drains the receiver into `state.disk_changed`. Inserts the entry into
-/// `state.disk_watch_handles` keyed by profile name. Idempotent: callers
-/// (startup wire-up, profile create) MUST drop any existing entry first.
+/// drains the receiver into `state.disk_changed`. Replaces any existing
+/// entry under the canonical drop-then-abort order before inserting the new
+/// one, so the contract is enforced inside this helper rather than pushed
+/// onto every caller.
 async fn subscribe_profile_disk_watch(state: &Arc<AppState>, profile: &str) {
     let profile_dir = match crate::session::get_profile_dir_path(profile) {
         Ok(p) => p,
@@ -1946,6 +1942,11 @@ async fn subscribe_profile_disk_watch(state: &Arc<AppState>, profile: &str) {
         );
     });
     let mut handles = state.disk_watch_handles.lock().await;
+    if let Some(entry) = handles.remove(profile) {
+        let DiskWatchEntry { handle, forwarder } = entry;
+        drop(handle);
+        forwarder.abort();
+    }
     handles.insert(
         profile.to_string(),
         DiskWatchEntry {
@@ -1981,20 +1982,24 @@ pub async fn unsubscribe_profile_disk_watch(state: &Arc<AppState>, profile: &str
 }
 
 /// Wire up disk-watch subscriptions for every currently-active profile.
-/// Spawned via `tokio::spawn` AFTER the listener bind so subscribe latency
-/// never gates listener readiness. Per-profile `subscribe_channel` Errs are
-/// logged and skipped; polling stays canonical so propagation degrades to
-/// the 2s tick rather than failing closed.
-pub async fn init_disk_watch_subscriptions(state: Arc<AppState>) {
+/// Called during startup before request serving begins so the initial
+/// watcher set is in place before any handler mutates storage. Per-profile
+/// `subscribe_channel` errors are logged and skipped; polling stays
+/// canonical so propagation degrades to the 2s tick rather than failing
+/// closed. Emits one bootstrap wake at the end so any write that landed
+/// while we were walking the profile list is reconciled immediately once
+/// the consumer begins awaiting `disk_changed`.
+pub(crate) async fn init_disk_watch_subscriptions(state: Arc<AppState>) {
     let profiles = crate::session::list_profiles().unwrap_or_default();
     let count = profiles.len();
     for profile in &profiles {
         subscribe_profile_disk_watch(&state, profile).await;
     }
+    state.disk_changed.notify_one();
     tracing::info!(
         target: "server.file_watch",
         profiles_count = count,
-        "disk-watch consumer started"
+        "disk-watch subscriptions initialized"
     );
 }
 
@@ -2451,7 +2456,7 @@ async fn status_poll_loop(state: Arc<AppState>) {
 
         if let Ok(instances) = updated {
             // Diff BEFORE the helper: status_tx must observe the raw
-            // post-suppression, post-tmux-scrape values, NOT the acp
+            // post-suppression, post-tmux-scrape values, never the acp
             // overlay applied by the helper.
             let now = chrono::Utc::now();
             for inst in &instances {
@@ -3376,11 +3381,68 @@ pub mod test_support {
             disk_watch_handles: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         })
     }
+
+    pub async fn has_disk_watch_handle(state: &Arc<AppState>, profile: &str) -> bool {
+        state.disk_watch_handles.lock().await.contains_key(profile)
+    }
+
+    pub async fn disk_watch_handle_count(state: &Arc<AppState>) -> usize {
+        state.disk_watch_handles.lock().await.len()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn init_disk_watch_subscriptions_bootstraps_one_reload_after_wiring() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        // SAFETY: serialized test; no other test mutates HOME concurrently.
+        unsafe { std::env::set_var("HOME", temp.path()) };
+        #[cfg(target_os = "linux")]
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+        }
+
+        let storage =
+            crate::session::Storage::new("startup-gap", FileWatchService::noop()).expect("storage");
+        storage
+            .update(|instances, _groups| {
+                *instances = vec![Instance::new("seed", "/tmp/seed")];
+                Ok(())
+            })
+            .expect("seed write");
+
+        let state = test_support::build_test_app_state(Vec::new());
+        let live = FileWatchService::new().expect("live svc");
+        let mut state_mut = Arc::try_unwrap(state)
+            .map_err(|_| ())
+            .expect("unique state");
+        state_mut.file_watch = live;
+        let state = Arc::new(state_mut);
+
+        let wake = {
+            let signal = state.disk_changed.clone();
+            tokio::spawn(async move {
+                tokio::time::timeout(std::time::Duration::from_secs(2), signal.notified()).await
+            })
+        };
+
+        init_disk_watch_subscriptions(state.clone()).await;
+
+        let woke = wake.await.expect("join");
+        assert!(
+            woke.is_ok(),
+            "startup wiring must bootstrap one disk_changed wake after subscriptions are installed"
+        );
+        assert_eq!(
+            state.file_watch.subscriber_count_for_test(),
+            1,
+            "startup wiring must leave exactly one live subscription for the single profile"
+        );
+    }
 
     // #1874 / #1875: a confirmed snapshot clears a reported telemetry counter
     // (the create counter and the web/acp open counts all share this path)

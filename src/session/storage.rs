@@ -442,6 +442,7 @@ fn save_workspace_ordering(ordering: &WorkspaceOrdering) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::file_watch::{FileMatcher, FileWatchService, WatchSpec};
     use crate::session::GroupTree;
     use serial_test::serial;
     use tempfile::tempdir;
@@ -1152,6 +1153,64 @@ mod tests {
 
         assert_eq!(fs::read(&storage.sessions_path)?, sessions_before);
         assert_eq!(fs::read(&groups_path)?, groups_before);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    #[serial]
+    async fn test_update_write_failure_emits_no_notify() -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempdir()?;
+        setup_test_home(temp.path());
+
+        let svc = FileWatchService::new().expect("live svc");
+        let storage = Storage::new("test-update-no-notify", svc.clone())?;
+        storage.update(|instances, _groups| {
+            *instances = vec![Instance::new("seed", "/tmp/seed")];
+            Ok(())
+        })?;
+
+        let profile_dir = get_profile_dir("test-update-no-notify")?;
+        let sessions_path = profile_dir.join("sessions.json");
+        let (mut rx, _h) = svc
+            .subscribe_channel(
+                WatchSpec {
+                    dir: profile_dir.clone(),
+                    matcher: FileMatcher::Exact(sessions_path),
+                    debounce: None,
+                },
+                4,
+            )
+            .expect("subscribe");
+
+        while tokio::time::timeout(std::time::Duration::from_millis(400), rx.recv())
+            .await
+            .is_ok()
+        {}
+
+        let original_mode = fs::metadata(&profile_dir)?.permissions().mode();
+        let mut readonly = fs::metadata(&profile_dir)?.permissions();
+        readonly.set_mode(0o500);
+        fs::set_permissions(&profile_dir, readonly)?;
+
+        let update_res = storage.update(|instances, _groups| {
+            instances.push(Instance::new("late", "/tmp/late"));
+            Ok(())
+        });
+
+        let mut restore = fs::metadata(&profile_dir)?.permissions();
+        restore.set_mode(original_mode);
+        fs::set_permissions(&profile_dir, restore)?;
+
+        assert!(update_res.is_err(), "write failure must surface as Err");
+
+        let recv = tokio::time::timeout(std::time::Duration::from_millis(150), rx.recv()).await;
+        assert!(
+            recv.is_err() || matches!(recv, Ok(None)),
+            "failed update must not emit a notify_local_change delivery"
+        );
         Ok(())
     }
 
