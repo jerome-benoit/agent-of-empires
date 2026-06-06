@@ -4678,7 +4678,7 @@ mod tests {
         let _ = isolated_app_dir(temp_home.path());
 
         let profile = "group-edit";
-        let storage = Storage::new(profile).unwrap();
+        let storage = Storage::new_for_test(profile).unwrap();
         let seed = make_test_instance(); // seeded in "work/projects"
         let id = seed.id.clone();
         storage
@@ -4690,15 +4690,20 @@ mod tests {
 
         // Move to a brand-new group.
         let set_id = id.clone();
-        persist_session_update(profile.to_string(), "group update", move |instances| {
-            if let Some(inst) = instances.iter_mut().find(|i| i.id == set_id) {
-                apply_session_group(inst, "team/alpha".to_string());
-            }
-        })
+        persist_session_update(
+            profile.to_string(),
+            "group update",
+            crate::file_watch::FileWatchService::noop(),
+            move |instances| {
+                if let Some(inst) = instances.iter_mut().find(|i| i.id == set_id) {
+                    apply_session_group(inst, "team/alpha".to_string());
+                }
+            },
+        )
         .await
         .expect("set should succeed");
 
-        let reloaded = Storage::new(profile).unwrap().load().unwrap();
+        let reloaded = Storage::new_for_test(profile).unwrap().load().unwrap();
         assert_eq!(
             reloaded.iter().find(|i| i.id == id).unwrap().group_path,
             "team/alpha",
@@ -4707,15 +4712,20 @@ mod tests {
 
         // Clear to ungrouped via the empty-string sentinel.
         let clear_id = id.clone();
-        persist_session_update(profile.to_string(), "group update", move |instances| {
-            if let Some(inst) = instances.iter_mut().find(|i| i.id == clear_id) {
-                apply_session_group(inst, String::new());
-            }
-        })
+        persist_session_update(
+            profile.to_string(),
+            "group update",
+            crate::file_watch::FileWatchService::noop(),
+            move |instances| {
+                if let Some(inst) = instances.iter_mut().find(|i| i.id == clear_id) {
+                    apply_session_group(inst, String::new());
+                }
+            },
+        )
         .await
         .expect("clear should succeed");
 
-        let reloaded = Storage::new(profile).unwrap().load().unwrap();
+        let reloaded = Storage::new_for_test(profile).unwrap().load().unwrap();
         assert_eq!(
             reloaded.iter().find(|i| i.id == id).unwrap().group_path,
             "",

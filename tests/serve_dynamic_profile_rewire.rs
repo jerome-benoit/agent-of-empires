@@ -220,7 +220,7 @@ impl ServeDaemon {
         let home = self.home.path();
         if cfg!(target_os = "linux") {
             home.join(".config")
-                .join(agent_of_empires::session::APP_DIR_NAME_LINUX)
+                .join(agent_of_empires::session::APP_DIR_NAME_XDG)
         } else {
             home.join(agent_of_empires::session::APP_DIR_NAME_OTHER)
         }

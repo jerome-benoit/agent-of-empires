@@ -3318,7 +3318,7 @@ pub(crate) fn derive_acp_status(event: &crate::acp::Event) -> Option<StatusInten
 pub mod test_support {
     use super::*;
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicBool, AtomicI64};
+    use std::sync::atomic::AtomicI64;
 
     /// Build a minimal `Arc<AppState>` for helper-equivalence tests. Most
     /// fields are seeded with empty / default values; only `instances`,
