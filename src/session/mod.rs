@@ -907,7 +907,7 @@ mod tests {
         assert_eq!(resolved, "default");
         assert!(dir.join("profiles").join("default").exists());
 
-        let storage = Storage::new_for_test("default").unwrap();
+        let storage = Storage::new_unwatched("default").unwrap();
         assert_eq!(storage.profile(), "default");
     }
 

@@ -406,7 +406,7 @@ mod tests {
 
         let inst = idle_instance("claimable");
         let id = inst.id.clone();
-        let storage = Storage::new_for_test("test-profile").unwrap();
+        let storage = Storage::new_unwatched("test-profile").unwrap();
         storage
             .update(|instances, _groups| {
                 instances.push(inst);

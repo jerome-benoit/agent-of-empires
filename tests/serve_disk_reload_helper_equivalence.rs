@@ -14,7 +14,7 @@
 #![cfg(feature = "serve")]
 
 use agent_of_empires::server::test_support::build_test_app_state;
-use agent_of_empires::server::{reload_state_instances_from_disk, StatusSource};
+use agent_of_empires::server::test_support::{reload_state_instances_from_disk, StatusSource};
 use agent_of_empires::session::{Instance, Status};
 use chrono::TimeZone;
 

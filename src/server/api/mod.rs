@@ -18,7 +18,7 @@ mod git;
 mod log_level;
 mod projects;
 mod sessions;
-mod system;
+pub(crate) mod system;
 mod telemetry;
 
 #[cfg(feature = "serve")]

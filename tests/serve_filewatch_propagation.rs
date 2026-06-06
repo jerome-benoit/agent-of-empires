@@ -17,7 +17,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use agent_of_empires::file_watch::{FileMatcher, FileWatchService, WatchSpec};
+use agent_of_empires::file_watch::{EventSource, FileMatcher, FileWatchService, WatchSpec};
 use agent_of_empires::session::{Instance, Storage};
 use serial_test::serial;
 use tempfile::TempDir;
@@ -93,6 +93,11 @@ async fn storage_update_avoids_immediate_duplicate_delivery_after_local_notify()
         "expected sessions.json event, got {:?}",
         first.path
     );
+    assert_eq!(
+        first.source,
+        EventSource::Local,
+        "Storage::update -> notify_local_change must reach the subscriber via the Local fast path before any kernel echo"
+    );
 
     // No immediate second delivery within a tight budget: fast backends
     // collapse the Local event and kernel echo into one slot. A slower
@@ -155,5 +160,10 @@ async fn cross_process_kernel_path_delivers_when_local_is_noop() {
         ev.path.file_name().is_some_and(|n| n == "sessions.json"),
         "expected sessions.json event, got {:?}",
         ev.path
+    );
+    assert_eq!(
+        ev.source,
+        EventSource::Kernel,
+        "writer with noop service cannot reach the Local fast path; cross-process delivery must arrive via the kernel watcher"
     );
 }

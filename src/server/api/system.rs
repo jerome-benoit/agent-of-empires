@@ -832,7 +832,7 @@ pub async fn create_profile(
         .await
     {
         Ok(Ok(())) => {
-            crate::server::rewire_disk_watch_for_profile_add(&state, &body.name).await;
+            crate::server::set_profile_disk_watch(&state, &body.name, true).await;
             (StatusCode::CREATED, Json(serde_json::json!({"ok": true}))).into_response()
         }
         Ok(Err(e)) => (
@@ -880,7 +880,7 @@ pub async fn delete_profile(
         .await
     {
         Ok(Ok(())) => {
-            crate::server::rewire_disk_watch_for_profile_remove(&state, &name).await;
+            crate::server::set_profile_disk_watch(&state, &name, false).await;
             (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
         }
         Ok(Err(e)) => (
@@ -943,8 +943,8 @@ pub async fn rename_profile(
             // matches kernel events) and subscribe the new name. The ~ms gap
             // between unsubscribe and subscribe is covered by the 2s polling
             // canonical path; the watcher only adds latency reduction.
-            crate::server::unsubscribe_profile_disk_watch(&state, &old_for_rewire).await;
-            crate::server::rewire_disk_watch_for_profile_add(&state, &new_for_rewire).await;
+            crate::server::set_profile_disk_watch(&state, &old_for_rewire, false).await;
+            crate::server::set_profile_disk_watch(&state, &new_for_rewire, true).await;
             (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
         }
         Ok(Err(e)) => (

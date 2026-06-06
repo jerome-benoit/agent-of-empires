@@ -1,36 +1,35 @@
 //! Dynamic per-profile disk-watch rewire. Two layers of coverage:
 //!
 //! * Lower layer (`dynamic_profile_rewire_inserts_and_removes_entries`):
-//!   drives `rewire_disk_watch_for_profile_{add,remove}` directly against an
-//!   in-process `AppState`, asserting `disk_watch_handles` insert/remove
-//!   under the canonical drop-then-abort order. Observable only at this
-//!   layer because the handles map is daemon-internal state that the HTTP
+//!   drives `set_profile_disk_watch` directly against an in-process
+//!   `AppState`, asserting `disk_watch_handles` insert/remove under the
+//!   canonical drop-then-abort order. Observable only at this layer
+//!   because the handles map is daemon-internal state that the HTTP
 //!   surface intentionally does not expose.
 //! * HTTP API layer (`dynamic_profile_create_via_http_api`,
 //!   `dynamic_profile_delete_via_http_api`): spawns a real `aoe serve`
 //!   subprocess against an isolated `HOME` and drives `POST /api/profiles`
 //!   and `DELETE /api/profiles/{name}`. These are the entry points that
-//!   trigger `rewire_disk_watch_for_profile_add` / `_remove` in
-//!   production, so this layer guards the daemon-boot path.
+//!   trigger `set_profile_disk_watch` in production, so this layer guards
+//!   the daemon-boot path.
 
 #![cfg(feature = "serve")]
 
-use std::net::{TcpListener, TcpStream};
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use agent_of_empires::file_watch::FileWatchService;
 use agent_of_empires::server::test_support::{
-    build_test_app_state, disk_watch_handle_count, has_disk_watch_handle,
-};
-use agent_of_empires::server::{
-    rewire_disk_watch_for_profile_add, rewire_disk_watch_for_profile_remove,
-    unsubscribe_profile_disk_watch,
+    build_test_app_state, disk_watch_handle_count, has_disk_watch_handle, set_profile_disk_watch,
 };
 use serial_test::serial;
 use tempfile::TempDir;
+
+use common::{pick_free_port, wait_for_port};
 
 #[tokio::test]
 #[serial]
@@ -45,7 +44,7 @@ async fn dynamic_profile_rewire_inserts_and_removes_entries() {
     state_mut.file_watch = live;
     let state = Arc::new(state_mut);
 
-    rewire_disk_watch_for_profile_add(&state, "rewire-profile").await;
+    set_profile_disk_watch(&state, "rewire-profile", true).await;
     {
         assert!(
             has_disk_watch_handle(&state, "rewire-profile").await,
@@ -53,7 +52,7 @@ async fn dynamic_profile_rewire_inserts_and_removes_entries() {
         );
     }
 
-    rewire_disk_watch_for_profile_remove(&state, "rewire-profile").await;
+    set_profile_disk_watch(&state, "rewire-profile", false).await;
     {
         assert!(
             !has_disk_watch_handle(&state, "rewire-profile").await,
@@ -61,7 +60,7 @@ async fn dynamic_profile_rewire_inserts_and_removes_entries() {
         );
     }
 
-    rewire_disk_watch_for_profile_add(&state, "rewire-profile").await;
+    set_profile_disk_watch(&state, "rewire-profile", true).await;
     {
         assert!(
             has_disk_watch_handle(&state, "rewire-profile").await,
@@ -93,14 +92,14 @@ async fn dynamic_profile_rewire_overwrite_replaces_existing_subscription() {
     state_mut.file_watch = live;
     let state = Arc::new(state_mut);
 
-    rewire_disk_watch_for_profile_add(&state, "rewire-profile").await;
+    set_profile_disk_watch(&state, "rewire-profile", true).await;
     assert_eq!(
         state.file_watch.subscriber_count_for_test(),
         1,
         "first add must install one live subscription"
     );
 
-    rewire_disk_watch_for_profile_add(&state, "rewire-profile").await;
+    set_profile_disk_watch(&state, "rewire-profile", true).await;
     assert_eq!(
         state.file_watch.subscriber_count_for_test(),
         1,
@@ -131,14 +130,14 @@ async fn rewire_after_rename_drops_old_subscribes_new() {
     state_mut.file_watch = live;
     let state = Arc::new(state_mut);
 
-    rewire_disk_watch_for_profile_add(&state, "rename-old").await;
+    set_profile_disk_watch(&state, "rename-old", true).await;
     assert!(
         has_disk_watch_handle(&state, "rename-old").await,
         "precondition: old profile subscription must be present"
     );
 
-    unsubscribe_profile_disk_watch(&state, "rename-old").await;
-    rewire_disk_watch_for_profile_add(&state, "rename-new").await;
+    set_profile_disk_watch(&state, "rename-old", false).await;
+    set_profile_disk_watch(&state, "rename-new", true).await;
 
     assert!(
         !has_disk_watch_handle(&state, "rename-old").await,
@@ -153,9 +152,7 @@ async fn rewire_after_rename_drops_old_subscribes_new() {
 #[tokio::test]
 #[serial]
 async fn dynamic_profile_create_via_http_api() {
-    let Some(daemon) = ServeDaemon::spawn() else {
-        return;
-    };
+    let daemon = ServeDaemon::spawn();
     let client = reqwest::Client::new();
 
     let resp = client
@@ -189,9 +186,7 @@ async fn dynamic_profile_create_via_http_api() {
 #[tokio::test]
 #[serial]
 async fn dynamic_profile_delete_via_http_api() {
-    let Some(daemon) = ServeDaemon::spawn() else {
-        return;
-    };
+    let daemon = ServeDaemon::spawn();
     let client = reqwest::Client::new();
 
     let create = client
@@ -262,11 +257,11 @@ struct ServeDaemon {
 }
 
 impl ServeDaemon {
-    /// Spawn `aoe serve --no-auth --host 127.0.0.1 --port <free>` against a
-    /// fresh `HOME`. Returns `None` when the binary's `serve` feature is
-    /// unavailable in this build. Panics on any other startup failure so
-    /// the test gives a useful diagnostic.
-    fn spawn() -> Option<Self> {
+    /// Spawn `aoe serve --no-auth --host 127.0.0.1 --port <free>` against
+    /// a fresh `HOME`. Panics on startup failure so the test gives a
+    /// useful diagnostic. The whole file is `#![cfg(feature = "serve")]`,
+    /// so the binary always has the feature enabled at this point.
+    fn spawn() -> Self {
         let aoe = env!("CARGO_BIN_EXE_aoe");
         let home = tempfile::tempdir().expect("home tempdir");
         let port = pick_free_port();
@@ -294,11 +289,11 @@ impl ServeDaemon {
                 port
             );
         }
-        Some(Self {
+        Self {
             child: Some(child),
             port,
             home,
-        })
+        }
     }
 
     fn url(&self, path: &str) -> String {
@@ -323,28 +318,4 @@ impl Drop for ServeDaemon {
             let _ = child.wait();
         }
     }
-}
-
-/// Bind ephemeral, drop, return the port. Tiny TOCTOU window before the
-/// daemon binds; acceptable under `#[serial]`. Mirrors
-/// `tests/e2e/serve.rs::pick_free_port`.
-fn pick_free_port() -> u16 {
-    let l = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
-    l.local_addr().expect("local_addr").port()
-}
-
-fn wait_for_port(port: u16, deadline: Duration) -> bool {
-    let start = Instant::now();
-    while start.elapsed() < deadline {
-        if TcpStream::connect_timeout(
-            &format!("127.0.0.1:{}", port).parse().unwrap(),
-            Duration::from_millis(200),
-        )
-        .is_ok()
-        {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    false
 }

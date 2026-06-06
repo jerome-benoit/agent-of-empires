@@ -1807,7 +1807,7 @@ fn merge_runtime_fields(prior: Instance, mut fresh: Instance) -> Instance {
 /// `TmuxApplied` path only, for emitting `state.status_tx`
 /// diffs BEFORE invoking the helper.
 #[doc(hidden)]
-pub async fn reload_state_instances_from_disk(
+pub(crate) async fn reload_state_instances_from_disk(
     state: &Arc<AppState>,
     fresh: Vec<Instance>,
     status_source: StatusSource,
@@ -1884,13 +1884,13 @@ fn apply_acp_overlay_inplace(
     }
 }
 
-/// Register a per-profile `subscribe_channel` against
-/// `<profile_dir>/{sessions,groups}.json` and spawn a forwarder task that
-/// drains the receiver into `state.disk_changed`. Replaces any existing
-/// entry under the canonical drop-then-abort order before inserting the new
-/// one, so the contract is enforced inside this helper rather than pushed
-/// onto every caller.
-async fn subscribe_profile_disk_watch(state: &Arc<AppState>, profile: &str) {
+/// Build a per-profile disk-watch entry: register a `subscribe_channel`
+/// against `<profile_dir>/{sessions,groups}.json` and spawn a forwarder
+/// task that drains the receiver into `state.disk_changed`. Returns
+/// `None` when the profile dir cannot be resolved or `subscribe_channel`
+/// fails; both cases are logged. Polling stays canonical, so a `None`
+/// here degrades propagation to the 2s tick rather than failing closed.
+async fn build_disk_watch_entry(state: &Arc<AppState>, profile: &str) -> Option<DiskWatchEntry> {
     let profile_dir = match crate::session::get_profile_dir_path(profile) {
         Ok(p) => p,
         Err(e) => {
@@ -1900,7 +1900,7 @@ async fn subscribe_profile_disk_watch(state: &Arc<AppState>, profile: &str) {
                 error = %e,
                 "could not resolve profile dir; live propagation disabled"
             );
-            return;
+            return None;
         }
     };
     let sessions_path = profile_dir.join("sessions.json");
@@ -1919,7 +1919,7 @@ async fn subscribe_profile_disk_watch(state: &Arc<AppState>, profile: &str) {
                 error = %e,
                 "subscribe_channel failed; live propagation disabled for this profile"
             );
-            return;
+            return None;
         }
     };
     let signal = state.disk_changed.clone();
@@ -1941,44 +1941,59 @@ async fn subscribe_profile_disk_watch(state: &Arc<AppState>, profile: &str) {
             "disk-watch forwarder exit"
         );
     });
+    Some(DiskWatchEntry {
+        handle,
+        forwarder: join.abort_handle(),
+    })
+}
+
+/// Set the per-profile disk-watch presence under one critical section.
+/// `present=true` re-subscribes (overwriting any prior entry under the
+/// canonical drop-then-abort order). `present=false` removes the entry.
+/// Holding `disk_watch_handles` through the full transition linearizes
+/// concurrent profile lifecycle ops on the same name; without that, an
+/// add and a remove can interleave between unsubscribe and subscribe and
+/// resurrect a watcher for a profile that was just removed.
+pub(crate) async fn set_profile_disk_watch(state: &Arc<AppState>, profile: &str, present: bool) {
+    if !present {
+        let mut handles = state.disk_watch_handles.lock().await;
+        if let Some(entry) = handles.remove(profile) {
+            let DiskWatchEntry { handle, forwarder } = entry;
+            // Drop handle FIRST so the dispatcher stops queuing events;
+            // aborting first would race with a buffered `try_send`.
+            drop(handle);
+            forwarder.abort();
+            tracing::info!(
+                target: "server.file_watch",
+                profile = %profile,
+                op = "remove",
+                "disk-watch subscription removed"
+            );
+        }
+        return;
+    }
+    // Subscribe path. Build the entry OUTSIDE the lock so kernel calls
+    // and task spawn don't extend the critical section.
+    let Some(entry) = build_disk_watch_entry(state, profile).await else {
+        return;
+    };
+    // Critical section: tear down any prior entry under canonical
+    // drop-then-abort, then install the new one. The whole swap happens
+    // under one lock so concurrent rewires for the same name cannot
+    // interleave between teardown and install.
     let mut handles = state.disk_watch_handles.lock().await;
-    if let Some(entry) = handles.remove(profile) {
-        let DiskWatchEntry { handle, forwarder } = entry;
+    if let Some(prior) = handles.remove(profile) {
+        let DiskWatchEntry { handle, forwarder } = prior;
         drop(handle);
         forwarder.abort();
     }
-    handles.insert(
-        profile.to_string(),
-        DiskWatchEntry {
-            handle,
-            forwarder: join.abort_handle(),
-        },
-    );
+    handles.insert(profile.to_string(), entry);
     tracing::info!(
         target: "server.file_watch",
         profile = %profile,
         op = "add",
         "disk-watch subscription registered"
     );
-}
-
-/// Drop the per-profile disk-watch entry: drop the `SubscriptionHandle`
-/// FIRST so the dispatcher stops queuing events, then abort the forwarder.
-pub async fn unsubscribe_profile_disk_watch(state: &Arc<AppState>, profile: &str) {
-    let mut handles = state.disk_watch_handles.lock().await;
-    if let Some(entry) = handles.remove(profile) {
-        let DiskWatchEntry { handle, forwarder } = entry;
-        // Drop the handle first: unsubscribes from the dispatcher, releases
-        // the directory watch refcount.
-        drop(handle);
-        forwarder.abort();
-        tracing::info!(
-            target: "server.file_watch",
-            profile = %profile,
-            op = "remove",
-            "disk-watch subscription removed"
-        );
-    }
 }
 
 /// Wire up disk-watch subscriptions for every currently-active profile.
@@ -1993,7 +2008,7 @@ pub(crate) async fn init_disk_watch_subscriptions(state: Arc<AppState>) {
     let profiles = crate::session::list_profiles().unwrap_or_default();
     let count = profiles.len();
     for profile in &profiles {
-        subscribe_profile_disk_watch(&state, profile).await;
+        set_profile_disk_watch(&state, profile, true).await;
     }
     state.disk_changed.notify_one();
     tracing::info!(
@@ -2001,20 +2016,6 @@ pub(crate) async fn init_disk_watch_subscriptions(state: Arc<AppState>) {
         profiles_count = count,
         "disk-watch subscriptions initialized"
     );
-}
-
-/// Per-profile rewire on `aoe profile create`. Drops any prior entry
-/// (idempotent) then re-subscribes. Called by the REST handler after the
-/// profile dir has been created.
-pub async fn rewire_disk_watch_for_profile_add(state: &Arc<AppState>, profile: &str) {
-    unsubscribe_profile_disk_watch(state, profile).await;
-    subscribe_profile_disk_watch(state, profile).await;
-}
-
-/// Per-profile rewire on `aoe profile delete`. Drop-then-abort under the
-/// `disk_watch_handles` lock; see `unsubscribe_profile_disk_watch`.
-pub async fn rewire_disk_watch_for_profile_remove(state: &Arc<AppState>, profile: &str) {
-    unsubscribe_profile_disk_watch(state, profile).await;
 }
 
 /// Background task: reload `state.instances` from disk on every wake of
@@ -3389,6 +3390,24 @@ pub mod test_support {
     pub async fn disk_watch_handle_count(state: &Arc<AppState>) -> usize {
         state.disk_watch_handles.lock().await.len()
     }
+
+    pub use super::StatusSource;
+
+    pub use super::api::system::{
+        create_profile, delete_profile, rename_profile, CreateProfileBody, RenameProfileBody,
+    };
+
+    pub async fn set_profile_disk_watch(state: &Arc<AppState>, profile: &str, present: bool) {
+        super::set_profile_disk_watch(state, profile, present).await
+    }
+
+    pub async fn reload_state_instances_from_disk(
+        state: &Arc<AppState>,
+        fresh: Vec<Instance>,
+        status_source: StatusSource,
+    ) {
+        super::reload_state_instances_from_disk(state, fresh, status_source).await
+    }
 }
 
 #[cfg(test)]
@@ -3441,6 +3460,125 @@ mod tests {
             state.file_watch.subscriber_count_for_test(),
             1,
             "startup wiring must leave exactly one live subscription for the single profile"
+        );
+    }
+
+    // Concurrent same-profile rewires must converge to a single
+    // consistent map entry and matching live subscription count. The
+    // unified helper holds `disk_watch_handles` through the full
+    // teardown-then-install transition, so the lock-acquisition order
+    // alone decides which call wins; an interleaved unsubscribe and
+    // subscribe across two callers cannot leave a half-state where the
+    // map and the dispatcher disagree.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn set_profile_disk_watch_serializes_concurrent_add_and_remove() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        // SAFETY: serialized test; no other test mutates HOME concurrently.
+        unsafe { std::env::set_var("HOME", temp.path()) };
+        #[cfg(target_os = "linux")]
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+        }
+        let _ = crate::session::get_profile_dir("rewire-race").expect("profile dir");
+
+        let state = test_support::build_test_app_state(Vec::new());
+        let live = FileWatchService::new().expect("live svc");
+        let mut state_mut = Arc::try_unwrap(state)
+            .map_err(|_| ())
+            .expect("unique state");
+        state_mut.file_watch = live;
+        let state = Arc::new(state_mut);
+
+        let mut joins = Vec::new();
+        for i in 0..50 {
+            let s = state.clone();
+            joins.push(tokio::spawn(async move {
+                set_profile_disk_watch(&s, "rewire-race", i % 2 == 0).await;
+            }));
+        }
+        for j in joins {
+            j.await.expect("join");
+        }
+
+        let count = test_support::disk_watch_handle_count(&state).await;
+        assert!(
+            count <= 1,
+            "concurrent rewires must not leak duplicate entries (got {count})"
+        );
+        let live_subs = state.file_watch.subscriber_count_for_test();
+        assert_eq!(
+            live_subs, count,
+            "live subscriptions must equal map entries; mismatch indicates a leaked or orphaned entry"
+        );
+
+        set_profile_disk_watch(&state, "rewire-race", true).await;
+        assert_eq!(
+            test_support::disk_watch_handle_count(&state).await,
+            1,
+            "deterministic add must produce exactly one entry"
+        );
+        assert_eq!(state.file_watch.subscriber_count_for_test(), 1);
+
+        set_profile_disk_watch(&state, "rewire-race", false).await;
+        assert_eq!(test_support::disk_watch_handle_count(&state).await, 0);
+        assert_eq!(state.file_watch.subscriber_count_for_test(), 0);
+    }
+
+    // The startup-gap fix has two distinct guarantees: (1) the bootstrap
+    // notify fires after subscriptions are installed (covered by the
+    // older test above) and (2) writes that landed BEFORE init returned
+    // are reconciled into `state.instances` once the consumer wakes and
+    // reloads. Reverting the bootstrap wake or the initial subscription
+    // install must produce a missing or empty reload here, which would
+    // surface as `state.instances` not containing the seed.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn bootstrap_wake_makes_pre_init_writes_reachable_via_reload() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        // SAFETY: serialized test; no other test mutates HOME concurrently.
+        unsafe { std::env::set_var("HOME", temp.path()) };
+        #[cfg(target_os = "linux")]
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+        }
+
+        let storage = crate::session::Storage::new_unwatched("startup-reload").expect("storage");
+        storage
+            .update(|instances, _groups| {
+                *instances = vec![Instance::new("pre-init", "/tmp/pre-init")];
+                Ok(())
+            })
+            .expect("seed write");
+
+        let state = test_support::build_test_app_state(Vec::new());
+        let live = FileWatchService::new().expect("live svc");
+        let mut state_mut = Arc::try_unwrap(state)
+            .map_err(|_| ())
+            .expect("unique state");
+        state_mut.file_watch = live;
+        let state = Arc::new(state_mut);
+
+        init_disk_watch_subscriptions(state.clone()).await;
+
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            state.disk_changed.notified(),
+        )
+        .await
+        .expect("bootstrap wake must fire after init returns");
+
+        let file_watch = state.file_watch.clone();
+        let fresh = tokio::task::spawn_blocking(move || load_all_instances(&file_watch))
+            .await
+            .expect("join")
+            .expect("load");
+        reload_state_instances_from_disk(&state, fresh, StatusSource::DiskOnly).await;
+
+        let instances = state.instances.read().await;
+        assert!(
+            instances.iter().any(|i| i.title == "pre-init"),
+            "bootstrap wake plus reload must surface writes that landed before init returned"
         );
     }
 

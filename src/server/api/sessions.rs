@@ -4610,7 +4610,7 @@ mod tests {
         let _ = isolated_app_dir(temp_home.path());
 
         let profile = "persist-success";
-        let storage = Storage::new_for_test(profile).unwrap();
+        let storage = Storage::new_unwatched(profile).unwrap();
         let seed = make_test_instance();
         let id = seed.id.clone();
         storage
@@ -4634,7 +4634,7 @@ mod tests {
         .await
         .expect("persist should succeed");
 
-        let reloaded = Storage::new_for_test(profile).unwrap().load().unwrap();
+        let reloaded = Storage::new_unwatched(profile).unwrap().load().unwrap();
         let inst = reloaded.iter().find(|i| i.id == id).unwrap();
         assert_eq!(
             inst.base_branch_override.as_deref(),
@@ -4678,7 +4678,7 @@ mod tests {
         let _ = isolated_app_dir(temp_home.path());
 
         let profile = "group-edit";
-        let storage = Storage::new_for_test(profile).unwrap();
+        let storage = Storage::new_unwatched(profile).unwrap();
         let seed = make_test_instance(); // seeded in "work/projects"
         let id = seed.id.clone();
         storage
@@ -4703,7 +4703,7 @@ mod tests {
         .await
         .expect("set should succeed");
 
-        let reloaded = Storage::new_for_test(profile).unwrap().load().unwrap();
+        let reloaded = Storage::new_unwatched(profile).unwrap().load().unwrap();
         assert_eq!(
             reloaded.iter().find(|i| i.id == id).unwrap().group_path,
             "team/alpha",
@@ -4725,7 +4725,7 @@ mod tests {
         .await
         .expect("clear should succeed");
 
-        let reloaded = Storage::new_for_test(profile).unwrap().load().unwrap();
+        let reloaded = Storage::new_unwatched(profile).unwrap().load().unwrap();
         assert_eq!(
             reloaded.iter().find(|i| i.id == id).unwrap().group_path,
             "",

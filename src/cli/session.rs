@@ -1480,7 +1480,7 @@ mod acp_reject_tests {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
-        let storage = Storage::new_for_test("acp-reject").unwrap();
+        let storage = Storage::new_unwatched("acp-reject").unwrap();
         let mut inst = Instance::new("acp_session", "/tmp/x");
         inst.view = crate::session::View::Structured;
         let id = inst.id.clone();

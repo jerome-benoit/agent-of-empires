@@ -5657,7 +5657,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
-                crate::session::storage::Storage::new_for_test("cas-persist-mismatch").unwrap();
+                crate::session::storage::Storage::new_unwatched("cas-persist-mismatch").unwrap();
             let mut inst = Instance::new("title", "/tmp/x");
             inst.agent_session_id = Some("peer-wrote".to_string());
             let id = inst.id.clone();
@@ -5687,7 +5687,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
-                crate::session::storage::Storage::new_for_test("cas-persist-match").unwrap();
+                crate::session::storage::Storage::new_unwatched("cas-persist-match").unwrap();
             let mut inst = Instance::new("title", "/tmp/x");
             inst.agent_session_id = Some("old".to_string());
             let id = inst.id.clone();
@@ -5716,7 +5716,8 @@ mod tests {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
-            let storage = crate::session::storage::Storage::new_for_test("reconcile-test").unwrap();
+            let storage =
+                crate::session::storage::Storage::new_unwatched("reconcile-test").unwrap();
             let mut inst = Instance::new("title", "/tmp/x");
             inst.source_profile = "reconcile-test".to_string();
             inst.agent_session_id = Some("old-sid".to_string());
@@ -5756,7 +5757,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
-                crate::session::storage::Storage::new_for_test("reconcile-clear").unwrap();
+                crate::session::storage::Storage::new_unwatched("reconcile-clear").unwrap();
             let mut inst = Instance::new("title", "/tmp/x");
             inst.source_profile = "reconcile-clear".to_string();
             inst.agent_session_id = Some("old-sid".to_string());
@@ -5907,7 +5908,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
-                crate::session::storage::Storage::new_for_test("intent-reconcile").unwrap();
+                crate::session::storage::Storage::new_unwatched("intent-reconcile").unwrap();
             let mut inst = Instance::new("title", "/tmp/x");
             inst.source_profile = "intent-reconcile".to_string();
             inst.resume_intent = ResumeIntent::Default;
@@ -5948,7 +5949,7 @@ mod tests {
         }
 
         fn seed_disk_for_sidecar_test(profile: &str, inst: &Instance) {
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let snapshot = inst.clone();
             storage
                 .update(|i, g| {
@@ -5990,7 +5991,7 @@ mod tests {
                 inst.agent_session_id.as_deref(),
                 Some(SIDECAR_TEST_FRESH_UUID)
             );
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let on_disk = storage
                 .load()
                 .unwrap()
@@ -6025,7 +6026,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let on_disk = storage
                 .load()
                 .unwrap()
@@ -6057,7 +6058,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let on_disk = storage
                 .load()
                 .unwrap()
@@ -6089,7 +6090,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let on_disk = storage
                 .load()
                 .unwrap()
@@ -6123,7 +6124,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).ok();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let on_disk = storage
                 .load()
                 .unwrap()
@@ -6152,7 +6153,7 @@ mod tests {
             inst.reconcile_sidecar_into_disk();
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("disk-sid"));
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let on_disk = storage
                 .load()
                 .unwrap()
@@ -6178,7 +6179,7 @@ mod tests {
             inst.agent_session_id = Some("memory-baseline".to_string());
             seed_disk_for_sidecar_test(profile, &inst);
 
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             storage
                 .update(|i, _g| {
                     i[0].agent_session_id = Some("peer-wrote-this".to_string());
@@ -6223,7 +6224,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
-                crate::session::storage::Storage::new_for_test("persist-skipped-reload").unwrap();
+                crate::session::storage::Storage::new_unwatched("persist-skipped-reload").unwrap();
             let mut inst = Instance::new("title", "/tmp/x");
             inst.source_profile = "persist-skipped-reload".to_string();
             inst.agent_session_id = Some("peer-wrote".to_string());
@@ -6261,7 +6262,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
-                crate::session::storage::Storage::new_for_test("persist-atomic-match").unwrap();
+                crate::session::storage::Storage::new_unwatched("persist-atomic-match").unwrap();
             let mut inst = Instance::new("title", "/tmp/x");
             inst.source_profile = "persist-atomic-match".to_string();
             inst.agent_session_id = None;
@@ -6305,7 +6306,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
-                crate::session::storage::Storage::new_for_test("persist-default-intent").unwrap();
+                crate::session::storage::Storage::new_unwatched("persist-default-intent").unwrap();
             let mut inst = Instance::new("title", "/tmp/x");
             inst.source_profile = "persist-default-intent".to_string();
             inst.agent_session_id = None;
@@ -6348,7 +6349,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
-                crate::session::storage::Storage::new_for_test("persist-intent-mismatch").unwrap();
+                crate::session::storage::Storage::new_unwatched("persist-intent-mismatch").unwrap();
             let mut inst = Instance::new("title", "/tmp/x");
             inst.source_profile = "persist-intent-mismatch".to_string();
             inst.agent_session_id = None;
@@ -6403,7 +6404,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
             let storage =
-                crate::session::storage::Storage::new_for_test("persist-skipped-reload-both")
+                crate::session::storage::Storage::new_unwatched("persist-skipped-reload-both")
                     .unwrap();
             let mut inst = Instance::new("title", "/tmp/x");
             inst.source_profile = "persist-skipped-reload-both".to_string();
@@ -6439,7 +6440,7 @@ mod tests {
         }
 
         fn seed_disk(profile: &str, inst: &Instance) {
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let on_disk = inst.clone();
             storage
                 .update(|i, g| {
@@ -6472,7 +6473,7 @@ mod tests {
             let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
             assert_eq!(outcome, super::SidWrite::Applied);
 
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let loaded = storage.load().unwrap();
             assert_eq!(loaded[0].agent_session_id, None);
             assert_eq!(loaded[0].resume_intent, ResumeIntent::Default);
@@ -6498,7 +6499,7 @@ mod tests {
             let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
             assert_eq!(outcome, super::SidWrite::Applied);
 
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let loaded = storage.load().unwrap();
             assert_eq!(loaded[0].agent_session_id, None);
             assert_eq!(loaded[0].resume_intent, ResumeIntent::Default);
@@ -6520,7 +6521,7 @@ mod tests {
             inst.resume_intent = ResumeIntent::Use("stale".to_string());
             seed_disk(profile, &inst);
 
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             storage
                 .update(|i, _g| {
                     i[0].resume_intent = ResumeIntent::Use("fresh".to_string());
@@ -6560,7 +6561,7 @@ mod tests {
             inst.resume_intent = ResumeIntent::Use("stale".to_string());
             seed_disk(profile, &inst);
 
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             storage
                 .update(|i, _g| {
                     i[0].agent_session_id = Some("peer-fresh".to_string());
@@ -6605,7 +6606,7 @@ mod tests {
             inst.resume_intent = ResumeIntent::Use("stale".to_string());
             seed_disk(profile, &inst);
 
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             storage
                 .update(|i, _g| {
                     i[0].agent_session_id = None;
@@ -6642,7 +6643,7 @@ mod tests {
             inst.resume_intent = ResumeIntent::Use("stale".to_string());
             seed_disk(profile, &inst);
 
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             storage
                 .update(|i, _g| {
                     i[0].agent_session_id = None;
@@ -6686,7 +6687,7 @@ mod tests {
             let outcome = inst.clear_session_for_resume_fallback(profile, "stale");
             assert_eq!(outcome, super::SidWrite::Applied);
 
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let loaded = storage.load().unwrap();
             assert_eq!(loaded[0].agent_session_id, None);
             assert_eq!(
@@ -6755,7 +6756,7 @@ mod tests {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
-            let storage = crate::session::storage::Storage::new_for_test("fb-test").unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched("fb-test").unwrap();
 
             let stale_sid = "11111111-1111-1111-1111-111111111111".to_string();
             let mut inst = Instance::new("fallback_dies_test", "/tmp/x");
@@ -6829,7 +6830,7 @@ mod tests {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
-            let _storage = crate::session::storage::Storage::new_for_test("fb-test-live").unwrap();
+            let _storage = crate::session::storage::Storage::new_unwatched("fb-test-live").unwrap();
 
             let stale_sid = "22222222-2222-2222-2222-222222222222".to_string();
             let mut inst = Instance::new("fallback_lives_test", "/tmp/x");
@@ -6911,7 +6912,8 @@ mod tests {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
-            let _storage = crate::session::storage::Storage::new_for_test("fb-test-grace").unwrap();
+            let _storage =
+                crate::session::storage::Storage::new_unwatched("fb-test-grace").unwrap();
 
             let stale_sid = "33333333-3333-3333-3333-333333333333".to_string();
             let mut inst = Instance::new("fallback_grace_test", "/tmp/x");
@@ -7054,7 +7056,7 @@ mod tests {
         }
 
         fn seed_disk_row(profile: &str, inst: &Instance) {
-            let storage = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let on_disk = inst.clone();
             storage
                 .update(|i, g| {
@@ -7180,7 +7182,7 @@ mod tests {
             isolate_home(&temp);
 
             let profile = "publish-failed";
-            let _ = crate::session::storage::Storage::new_for_test(profile).unwrap();
+            let _ = crate::session::storage::Storage::new_unwatched(profile).unwrap();
             let mut inst = make_inst(profile, "fpfle");
 
             let tmux = TmuxSession::create(&inst.id, &inst.title);
