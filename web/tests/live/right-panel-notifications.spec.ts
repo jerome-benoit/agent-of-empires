@@ -8,7 +8,7 @@
 //      asserts the toggle exists and that the paired-terminal pane
 //      mounts.
 //   2) Comments-banner notification flow on a structured view session. Once a
-//      user stages a comment via the diff "+" gutter, the
+//      user stages a comment by selecting a diff gutter line, the
 //      `CommentsBanner` (`src/components/diff/comments/CommentsBanner.tsx`)
 //      surfaces a notification chip in the right panel with the comment
 //      count, plus Send and Discard-all actions. This exercises the
@@ -23,11 +23,7 @@ import {
   seedSessionViaAoeAdd,
   spawnAoeServe,
 } from "../helpers/aoeServe";
-import {
-  commitAll,
-  initWorkingRepo,
-  writeFiles,
-} from "../helpers/gitFixture";
+import { commitAll, initWorkingRepo, writeFiles } from "../helpers/gitFixture";
 
 base(
   "right panel paired terminal: Host shown, Container hidden on non-sandboxed session",
@@ -53,7 +49,9 @@ base(
       // first to scope subsequent selectors to that pane. The dashboard
       // mounts both a desktop and a mobile right panel (one hidden via
       // CSS), so use first() on visible-anywhere assertions.
-      await expect(page.getByText("Shell", { exact: true }).first()).toBeVisible({
+      await expect(
+        page.getByText("Shell", { exact: true }).first(),
+      ).toBeVisible({
         timeout: 10_000,
       });
       // Host button is rendered unconditionally; Container only when
@@ -83,8 +81,8 @@ base(
         const projectDir = join(home, "project");
         initWorkingRepo(projectDir);
         // Commit a baseline so the modified version produces a real
-        // hunk with gutter "+" buttons (the comments UI requires
-        // line numbers on at least one side).
+        // hunk with selectable gutter line numbers (the comments UI
+        // requires line numbers on at least one side).
         writeFiles(projectDir, { "notes.md": "line a\nline b\nline c\n" });
         commitAll(projectDir, "baseline");
         writeFiles(projectDir, { "notes.md": "line A\nline B\nline C\n" });
@@ -105,7 +103,9 @@ base(
       const sessions = await listSessions(serve.baseUrl);
       const sessionId = sessions.find((s) => s.title === "rp-notif")?.id;
       if (!sessionId) {
-        throw new Error("seeded structured view session not visible in /api/sessions");
+        throw new Error(
+          "seeded structured view session not visible in /api/sessions",
+        );
       }
 
       // Flip per-session structured_view so the SPA renders the comments
@@ -135,20 +135,25 @@ base(
       // Wait for the file list to populate; one modified file expected.
       // first() picks the desktop right-panel copy (the dashboard also
       // mounts a mobile copy hidden via CSS).
-      await expect(page.getByText("1 file", { exact: true }).first()).toBeVisible({
+      await expect(
+        page.getByText("1 file", { exact: true }).first(),
+      ).toBeVisible({
         timeout: 15_000,
       });
-      await page.getByRole("button", { name: /notes\.md/ }).first().click();
+      await page
+        .getByRole("button", { name: /notes\.md/ })
+        .first()
+        .click();
 
-      // First gutter "+" click sets range start; the same line again
-      // closes the range and opens the inline form. The buttons are
-      // opacity-0 until hover; click via aria-label + force to bypass
-      // the visibility-driven actionability checks.
-      const plus = page.getByRole("button", {
-        name: /Add comment on new line 1/,
-      });
-      await plus.first().click({ force: true });
-      await plus.first().click({ force: true });
+      // Select a line to comment by clicking its @pierre/diffs gutter line
+      // number. The renderer exposes `[data-line-number-content]` cells that
+      // contain only the number; a single click selects the line and opens
+      // the inline comment form.
+      const gutterLine1 = page
+        .locator("[data-line-number-content]")
+        .filter({ hasText: /^1$/ });
+      await expect(gutterLine1.first()).toBeVisible({ timeout: 10_000 });
+      await gutterLine1.first().click();
 
       // Form textarea autofocuses; type a body and save.
       const textarea = page.getByPlaceholder(/Leave a comment/);
@@ -174,9 +179,10 @@ base(
         .getByRole("button", { name: "Discard all", exact: true })
         .first()
         .click();
-      await expect(
-        page.getByText("1 comment", { exact: true }),
-      ).toHaveCount(0, { timeout: 10_000 });
+      await expect(page.getByText("1 comment", { exact: true })).toHaveCount(
+        0,
+        { timeout: 10_000 },
+      );
     } finally {
       await serve.stop();
     }
