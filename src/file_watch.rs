@@ -1393,7 +1393,7 @@ mod tests {
         }
     }
 
-    /// Test 19a: a Local publish with no matching subscribers is a silent
+    /// Test 19: a Local publish with no matching subscribers is a silent
     /// no-op and must not trip the dispatcher-dead latch.
     #[tokio::test]
     #[serial(file_watch)]
@@ -1426,7 +1426,7 @@ mod tests {
         );
     }
 
-    /// Test 19: `notify_local_change` on a noop service is silent: no log
+    /// Test 20: `notify_local_change` on a noop service is silent: no log
     /// line, no panic, no delivery. The dispatcher_dead latch is pre-set on
     /// noop so the send-Err path skips the error log.
     #[tokio::test]
