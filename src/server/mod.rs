@@ -261,15 +261,11 @@ pub(crate) struct DiskWatchEntry {
 /// `fresh.status`. `status_poll_loop` passes `TmuxApplied`; the watcher
 /// consumer passes `DiskOnly`.
 ///
-/// Visibility note: this enum is `pub` so that `tests/serve_disk_reload_helper_equivalence.rs`
-/// can reach it via `server::test_support::StatusSource`. Demoting it
-/// to `pub(crate)` would force the test_support re-export to also be
-/// `pub(crate)`, which Rust's visibility rules cannot widen back to
-/// `pub` for external integration tests. The `#[doc(hidden)]` keeps
-/// it out of generated documentation; the namespace cost at the root
-/// of `agent_of_empires::server::*` is the smallest acceptable
-/// tradeoff for keeping the integration-test access path working
-/// without a parallel-enum + `From`/`Into` wrapper.
+/// Kept `pub` (with `#[doc(hidden)]`) because external integration
+/// tests reach this enum via `server::test_support::StatusSource`,
+/// and Rust's visibility rules cannot widen a `pub(crate)` re-export
+/// back to `pub`. `#[doc(hidden)]` keeps it out of generated
+/// documentation.
 #[doc(hidden)]
 #[derive(Copy, Clone, Debug)]
 pub enum StatusSource {
@@ -1951,15 +1947,12 @@ async fn build_disk_watch_entry(state: &Arc<AppState>, profile: &str) -> Option<
             "disk-watch forwarder exit"
         );
     });
-    // Test-only barrier: when armed, signals `entered` and parks on
-    // `release`. The race-resurrection regression test uses this to
-    // deterministically place task A "inside build" while task B
-    // attempts the same-profile remove. With the production fix
-    // (build called from inside the `disk_watch_handles` lock), task
-    // A holds the lock while parked, so B's remove must wait. With
-    // the V2-buggy ordering (build outside the lock), B would acquire
-    // the lock first and observe an empty map, allowing A to
-    // resurrect a removed entry on resume.
+    // Test-only barrier: when armed, signals `entered` after the
+    // subscription is built and parks on `release`. The enclosing
+    // `set_profile_disk_watch` holds `disk_watch_handles` through the
+    // build, so a task parked here also holds that lock; this lets a
+    // controlled-ordering test drive a concurrent same-profile remove
+    // against a known mid-build state.
     #[cfg(any(test, feature = "test-support"))]
     {
         let armed = disk_watch_build_barrier().lock().unwrap().clone();
@@ -1974,10 +1967,10 @@ async fn build_disk_watch_entry(state: &Arc<AppState>, profile: &str) -> Option<
     })
 }
 
-/// Test-only barrier installed inside `build_disk_watch_entry` so the
-/// race-resurrection regression test can deterministically order task
-/// A's build against task B's concurrent remove. Production builds
-/// don't compile this hook in.
+/// Test-only barrier installed inside `build_disk_watch_entry` to
+/// deterministically pin a building task at a known point so a
+/// concurrent same-profile remove can run against it. Not compiled
+/// into production builds.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) struct DiskWatchBuildBarrier {
     pub entered: tokio::sync::Notify,
@@ -1998,9 +1991,10 @@ pub(crate) fn disk_watch_build_barrier(
 ///
 /// Holding `disk_watch_handles` through the full transition (including
 /// the subscribe + spawn step inside `build_disk_watch_entry`) is what
-/// prevents resurrection: a concurrent remove cannot interleave between
-/// "subscription created" and "entry installed" and silently leave a
-/// stale watcher behind for a profile that was just removed.
+/// linearizes concurrent same-profile lifecycle ops: a remove cannot
+/// interleave between "subscription created" and "entry installed" and
+/// silently leave a stale watcher behind for a profile that was just
+/// removed.
 pub(crate) async fn set_profile_disk_watch(state: &Arc<AppState>, profile: &str, present: bool) {
     let mut handles = state.disk_watch_handles.lock().await;
     if !present {
@@ -2063,12 +2057,10 @@ pub(crate) async fn init_disk_watch_subscriptions(state: Arc<AppState>) {
     );
 }
 
-/// Test-only variant of `init_disk_watch_subscriptions` that runs `hook`
-/// after each profile's subscription is installed. Used by the
-/// init-gap regression test to seed writes against profiles that
-/// appear LATER in the iteration order, while the bootstrap wake has
-/// not yet fired. Reverting the bootstrap wake or any per-profile
-/// install must surface as a missing reconciliation in that test.
+/// Test-only variant of `init_disk_watch_subscriptions` that runs
+/// `hook` after each profile's subscription is installed, so a test
+/// can drive disk writes between iterations to exercise the bootstrap
+/// reconciliation path.
 #[cfg(test)]
 async fn init_disk_watch_subscriptions_with_hook<F>(state: Arc<AppState>, mut hook: F)
 where
@@ -3595,20 +3587,16 @@ mod tests {
         assert_eq!(state.file_watch.subscriber_count_for_test(), 0);
     }
 
-    // Winner-sensitive lock for the V3.1 production fix. The test arms a
-    // cfg-gated barrier inside `build_disk_watch_entry` so we can place
-    // task A's build at a known point and then drive task B's same-name
-    // remove against it. With the V3.1 production fix (build called
-    // INSIDE the `disk_watch_handles` lock), task A holds the lock while
-    // parked at the barrier, so B's remove blocks until A finishes
-    // installing. After release, B acquires the lock, removes the entry,
-    // and the final state is empty: B's remove wins because it ran
-    // strictly AFTER A's add. With the V2 buggy ordering (build OUTSIDE
-    // the lock), B acquires the lock immediately, finds an empty map,
-    // and returns no-op. A then resumes, acquires the lock, installs
-    // its entry, and the final state has a resurrected watcher for a
-    // profile that was just supposed to be removed. Reverting V3.1 in
-    // production code must fail this test.
+    // Concurrent same-profile add and remove must converge to the
+    // last-completed call's intent. The barrier inside
+    // `build_disk_watch_entry` lets the test pin task A mid-build
+    // while A still holds `disk_watch_handles`, so B's remove blocks
+    // until A finishes installing. Once A releases the lock, B's
+    // remove wins because it ran strictly after A's install: the
+    // final map is empty. If `disk_watch_handles` were not held
+    // across the build, B could acquire the lock during A's parked
+    // window, observe an empty map, and let A install a stale entry
+    // on resume.
     #[tokio::test]
     #[serial_test::serial]
     async fn set_profile_disk_watch_resists_resurrection_under_concurrent_remove() {
@@ -3640,11 +3628,11 @@ mod tests {
             set_profile_disk_watch(&s_a, "race-fix", true).await;
         });
 
-        // Wait deterministically until A is parked inside the barrier.
-        // No fixed sleep: the `entered` notification is sent strictly
-        // after `subscribe_channel` returns and the forwarder is
-        // spawned, which is the point where V2 would have released the
-        // imaginary "outside lock" window.
+        // Wait deterministically until A is parked inside the
+        // barrier. No fixed sleep: the `entered` notification is
+        // sent strictly after `subscribe_channel` returns and the
+        // forwarder is spawned, which is the build-vs-install
+        // boundary the test wants to exercise.
         barrier.entered.notified().await;
 
         let s_b = state.clone();
@@ -3652,13 +3640,12 @@ mod tests {
             set_profile_disk_watch(&s_b, "race-fix", false).await;
         });
 
-        // Give B a chance to attempt the lock. Under V3.1 it parks
-        // there because A holds `disk_watch_handles`. Under V2 it
-        // would acquire and complete (no-op for an empty map).
-        // 50ms is generous; the actual `lock().await` registration is
-        // microseconds. We need SOME wait here because there is no
-        // observable signal for "task B has registered as a lock
-        // waiter" in tokio::Mutex.
+        // Give B time to register as a `disk_watch_handles` lock
+        // waiter. Since A still holds the lock (via the parked
+        // barrier), B parks here. 50ms is generous; the actual
+        // `lock().await` registration is microseconds.
+        // tokio::Mutex exposes no observable signal for "waiter
+        // registered", so a small bounded sleep is unavoidable.
         tokio::task::yield_now().await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
@@ -3673,9 +3660,9 @@ mod tests {
         let live_subs = state.file_watch.subscriber_count_for_test();
         assert_eq!(
             count, 0,
-            "B's remove must observe A's installed entry and tear it down (V3.1 \
-             linearization). A non-zero count here means a removed profile was \
-             resurrected by an interleaved subscribe."
+            "B's remove must observe A's installed entry and tear it down. \
+             A non-zero count here means a removed profile was resurrected by \
+             an interleaved subscribe."
         );
         assert_eq!(
             live_subs, 0,
@@ -3686,16 +3673,13 @@ mod tests {
         *disk_watch_build_barrier().lock().unwrap() = None;
     }
 
-    // Real init-gap regression test (V3.2). The older
-    // `bootstrap_wake_makes_pre_init_writes_reachable_via_reload` test
-    // seeds disk BEFORE init starts. This one seeds disk DURING init's
-    // iteration via a hook that fires after each profile is subscribed,
-    // proving the bootstrap wake reconciles writes that landed in the
-    // window where their profile was not yet watched. Reverting the
-    // bootstrap wake makes the post-init `notified()` time out;
-    // reverting any per-profile subscribe is independent (the reload
-    // reads disk, not the watcher), but the gap-window claim itself is
-    // locked here.
+    // Writes that land during init's per-profile iteration, before
+    // their profile has been subscribed, must still be reconciled
+    // once init returns. The hook fires after each install; the
+    // test uses it to seed a write to a profile not yet reached by
+    // the loop. The bootstrap notify at init's end wakes the
+    // consumer, which then loads from disk and surfaces both the
+    // pre-init seed and the mid-iteration seed.
     #[tokio::test]
     #[serial_test::serial]
     async fn init_disk_watch_subscriptions_reconciles_writes_landing_during_iteration() {
