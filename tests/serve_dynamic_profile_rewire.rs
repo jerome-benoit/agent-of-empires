@@ -1,7 +1,7 @@
 //! Dynamic per-profile disk-watch rewire. Two layers of coverage:
 //!
 //! * Lower layer (`dynamic_profile_rewire_inserts_and_removes_entries`):
-//!   drives `set_profile_disk_watch` directly against an in-process
+//!   drives `add_profile_disk_watch` / `remove_profile_disk_watch` / `rename_profile_disk_watch` directly against an in-process
 //!   `AppState`, asserting `disk_watch_handles` insert/remove under the
 //!   canonical drop-then-abort order. Observable only at this layer
 //!   because the handles map is daemon-internal state that the HTTP
@@ -10,7 +10,7 @@
 //!   `dynamic_profile_delete_via_http_api`): spawns a real `aoe serve`
 //!   subprocess against an isolated `HOME` and drives `POST /api/profiles`
 //!   and `DELETE /api/profiles/{name}`. These are the entry points that
-//!   trigger `set_profile_disk_watch` in production, so this layer guards
+//!   trigger `add_profile_disk_watch` / `remove_profile_disk_watch` / `rename_profile_disk_watch` in production, so this layer guards
 //!   the daemon-boot path.
 
 #![cfg(feature = "serve")]
@@ -22,9 +22,9 @@ use std::process::{Child, Command};
 use std::sync::Arc;
 use std::time::Duration;
 
-use agent_of_empires::file_watch::FileWatchService;
 use agent_of_empires::server::test_support::{
-    build_test_app_state, disk_watch_handle_count, has_disk_watch_handle, set_profile_disk_watch,
+    add_profile_disk_watch, build_test_app_state, disk_watch_handle_count, has_disk_watch_handle,
+    remove_profile_disk_watch, rename_profile_disk_watch,
 };
 use serial_test::serial;
 use tempfile::TempDir;
@@ -39,12 +39,12 @@ async fn dynamic_profile_rewire_inserts_and_removes_entries() {
     let _ = agent_of_empires::session::get_profile_dir("rewire-profile").expect("profile dir");
 
     let state = build_test_app_state(Vec::new());
-    let live = FileWatchService::new().expect("live svc");
+    let live = agent_of_empires::file_watch::test_support::new_filewatch().expect("live svc");
     let mut state_mut = Arc::try_unwrap(state).map_err(|_| ()).expect("unique");
-    state_mut.file_watch = live;
+    agent_of_empires::server::test_support::replace_file_watch(&mut state_mut, live);
     let state = Arc::new(state_mut);
 
-    set_profile_disk_watch(&state, "rewire-profile", true).await;
+    add_profile_disk_watch(&state, "rewire-profile").await;
     {
         assert!(
             has_disk_watch_handle(&state, "rewire-profile").await,
@@ -52,7 +52,7 @@ async fn dynamic_profile_rewire_inserts_and_removes_entries() {
         );
     }
 
-    set_profile_disk_watch(&state, "rewire-profile", false).await;
+    remove_profile_disk_watch(&state, "rewire-profile").await;
     {
         assert!(
             !has_disk_watch_handle(&state, "rewire-profile").await,
@@ -60,7 +60,7 @@ async fn dynamic_profile_rewire_inserts_and_removes_entries() {
         );
     }
 
-    set_profile_disk_watch(&state, "rewire-profile", true).await;
+    add_profile_disk_watch(&state, "rewire-profile").await;
     {
         assert!(
             has_disk_watch_handle(&state, "rewire-profile").await,
@@ -73,7 +73,7 @@ async fn dynamic_profile_rewire_inserts_and_removes_entries() {
         );
     }
     assert_eq!(
-        state.file_watch.subscriber_count_for_test(),
+        agent_of_empires::server::test_support::file_watch(&state).subscriber_count(),
         1,
         "re-add after remove must leave exactly one live subscription"
     );
@@ -87,21 +87,21 @@ async fn dynamic_profile_rewire_overwrite_replaces_existing_subscription() {
     let _ = agent_of_empires::session::get_profile_dir("rewire-profile").expect("profile dir");
 
     let state = build_test_app_state(Vec::new());
-    let live = FileWatchService::new().expect("live svc");
+    let live = agent_of_empires::file_watch::test_support::new_filewatch().expect("live svc");
     let mut state_mut = Arc::try_unwrap(state).map_err(|_| ()).expect("unique");
-    state_mut.file_watch = live;
+    agent_of_empires::server::test_support::replace_file_watch(&mut state_mut, live);
     let state = Arc::new(state_mut);
 
-    set_profile_disk_watch(&state, "rewire-profile", true).await;
+    add_profile_disk_watch(&state, "rewire-profile").await;
     assert_eq!(
-        state.file_watch.subscriber_count_for_test(),
+        agent_of_empires::server::test_support::file_watch(&state).subscriber_count(),
         1,
         "first add must install one live subscription"
     );
 
-    set_profile_disk_watch(&state, "rewire-profile", true).await;
+    add_profile_disk_watch(&state, "rewire-profile").await;
     assert_eq!(
-        state.file_watch.subscriber_count_for_test(),
+        agent_of_empires::server::test_support::file_watch(&state).subscriber_count(),
         1,
         "re-adding the same profile must replace, not leak, the prior subscription"
     );
@@ -125,19 +125,18 @@ async fn rewire_after_rename_drops_old_subscribes_new() {
     let _ = agent_of_empires::session::get_profile_dir("rename-new").expect("profile dir");
 
     let state = build_test_app_state(Vec::new());
-    let live = FileWatchService::new().expect("live svc");
+    let live = agent_of_empires::file_watch::test_support::new_filewatch().expect("live svc");
     let mut state_mut = Arc::try_unwrap(state).map_err(|_| ()).expect("unique");
-    state_mut.file_watch = live;
+    agent_of_empires::server::test_support::replace_file_watch(&mut state_mut, live);
     let state = Arc::new(state_mut);
 
-    set_profile_disk_watch(&state, "rename-old", true).await;
+    add_profile_disk_watch(&state, "rename-old").await;
     assert!(
         has_disk_watch_handle(&state, "rename-old").await,
         "precondition: old profile subscription must be present"
     );
 
-    set_profile_disk_watch(&state, "rename-old", false).await;
-    set_profile_disk_watch(&state, "rename-new", true).await;
+    rename_profile_disk_watch(&state, "rename-old", "rename-new").await;
 
     assert!(
         !has_disk_watch_handle(&state, "rename-old").await,

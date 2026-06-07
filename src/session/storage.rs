@@ -280,12 +280,14 @@ impl Storage {
         })
     }
 
-    /// Construct a `Storage` wired to a noop `FileWatchService`. Used by
-    /// the test call sites that don't exercise file-watch propagation.
-    /// Bounded to test builds so production code can never accidentally
-    /// drop the watcher; production writers must construct via
-    /// `Storage::new` with a live `FileWatchService`.
-    #[cfg(any(test, feature = "test-support"))]
+    /// Construct a `Storage` wired to a noop `FileWatchService`.
+    ///
+    /// Short-lived CLI subprocesses and integration-test writers pair with
+    /// this constructor: they never drive the watcher loop, so the noop
+    /// path keeps callers free of `FileWatchService::noop()` literals at
+    /// every site. Production writers that need live in-process
+    /// propagation must construct via `Storage::new` with the daemon's
+    /// `Arc<FileWatchService>` instead.
     pub fn new_unwatched(profile: &str) -> Result<Self> {
         Self::new(profile, FileWatchService::noop())
     }

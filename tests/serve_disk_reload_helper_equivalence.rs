@@ -14,7 +14,9 @@
 #![cfg(feature = "serve")]
 
 use agent_of_empires::server::test_support::build_test_app_state;
-use agent_of_empires::server::test_support::{reload_state_instances_from_disk, StatusSource};
+use agent_of_empires::server::test_support::{
+    reload_disk_only_for_test, reload_tmux_applied_for_test,
+};
 use agent_of_empires::session::{Instance, Status};
 use chrono::TimeZone;
 
@@ -32,7 +34,7 @@ async fn reload_state_instances_from_disk_disk_only_preserves_prior_status() {
     fresh.status = Status::Idle;
     fresh.last_accessed_at = Some(chrono::Utc.with_ymd_and_hms(2024, 5, 1, 0, 0, 0).unwrap());
 
-    reload_state_instances_from_disk(&state, vec![fresh], StatusSource::DiskOnly).await;
+    reload_disk_only_for_test(&state, vec![fresh]).await;
 
     let result = state.instances.read().await;
     assert_eq!(result.len(), 1);
@@ -72,7 +74,7 @@ async fn reload_state_instances_from_disk_tmux_applied_takes_fresh_status() {
     fresh.status = Status::Running;
     fresh.last_accessed_at = Some(chrono::Utc.with_ymd_and_hms(2024, 5, 1, 0, 0, 0).unwrap());
 
-    reload_state_instances_from_disk(&state, vec![fresh], StatusSource::TmuxApplied).await;
+    reload_tmux_applied_for_test(&state, vec![fresh]).await;
 
     let result = state.instances.read().await;
     assert_eq!(result.len(), 1);
@@ -103,7 +105,7 @@ async fn reload_state_instances_from_disk_new_ids_use_fresh() {
     let state = build_test_app_state(vec![prior]);
     let new_inst = Instance::new("new", "/tmp/new");
     let new_id = new_inst.id.clone();
-    reload_state_instances_from_disk(&state, vec![new_inst], StatusSource::DiskOnly).await;
+    reload_disk_only_for_test(&state, vec![new_inst]).await;
     let result = state.instances.read().await;
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].id, new_id);

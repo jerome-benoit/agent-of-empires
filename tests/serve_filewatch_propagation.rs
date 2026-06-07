@@ -45,7 +45,8 @@ fn isolate_home(temp: &std::path::Path) {
 async fn storage_update_avoids_immediate_duplicate_delivery_after_local_notify() {
     let temp = TempDir::new().unwrap();
     isolate_home(temp.path());
-    let svc: Arc<FileWatchService> = FileWatchService::new().expect("init");
+    let svc: Arc<FileWatchService> =
+        agent_of_empires::file_watch::test_support::new_filewatch().expect("init");
     let storage = Storage::new("propagation-test", svc.clone()).expect("storage");
 
     // Pre-create both files so canonicalize matches kernel paths from
@@ -121,7 +122,7 @@ async fn cross_process_kernel_path_delivers_when_local_is_noop() {
     let temp = TempDir::new().unwrap();
     isolate_home(temp.path());
 
-    let writer_storage = Storage::new("xproc-test", FileWatchService::noop()).expect("writer");
+    let writer_storage = Storage::new_unwatched("xproc-test").expect("writer");
     writer_storage
         .update(|i, _g| {
             *i = vec![Instance::new("seed", "/tmp/seed")];
@@ -133,7 +134,8 @@ async fn cross_process_kernel_path_delivers_when_local_is_noop() {
     let sessions_path = profile_dir.join("sessions.json");
     let groups_path = profile_dir.join("groups.json");
 
-    let reader_svc: Arc<FileWatchService> = FileWatchService::new().expect("reader init");
+    let reader_svc: Arc<FileWatchService> =
+        agent_of_empires::file_watch::test_support::new_filewatch().expect("reader init");
     let (mut rx, _h) = reader_svc
         .subscribe_channel(
             WatchSpec {

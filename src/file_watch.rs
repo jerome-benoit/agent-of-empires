@@ -98,6 +98,11 @@ pub enum WatchErrorKind {
 }
 
 /// Errors surfaced by [`FileWatchService`].
+///
+/// `#[source]` carries `notify::Error`. Bumping the `notify` major
+/// requires updating consumers that downcast to inspect
+/// `notify::ErrorKind`; in this crate the only reader is
+/// `classify_notify_err` (kept inside the same module).
 #[derive(Debug, Error)]
 pub enum WatchError {
     /// The service failed to initialise (notify backend or worker thread).
@@ -184,6 +189,15 @@ pub struct FileWatchService {
     /// `send` resolves to Err and `dispatcher_dead` (pre-set on noop)
     /// suppresses the error log.
     tokio_tx: mpsc::UnboundedSender<DispatchMsg>,
+    /// Millis-since-epoch of the most recent kernel-error log emission.
+    /// `handle_kernel` skips the `warn!` if a prior log fired within
+    /// the last 1s; suppressed errors increment `dropped_kernel_err_count`
+    /// and surface in the next emitted log. Lock-free CAS for the
+    /// hot-path notify-error case.
+    last_kernel_warn_unix_ms: std::sync::atomic::AtomicI64,
+    /// Count of kernel errors suppressed by the rate-limit since the
+    /// last emitted log. Reset to 0 on every emission.
+    dropped_kernel_err_count: std::sync::atomic::AtomicU64,
 }
 
 /// RAII guard returned by [`FileWatchService::subscribe_channel`]. Dropping
@@ -206,6 +220,15 @@ impl FileWatchService {
     ///
     /// Returns [`WatchError::Init`] if spawning the dedicated drain
     /// `std::thread` fails (e.g., per-process thread limit reached).
+    ///
+    /// Per-process single-instance rule: only the daemon bootstrap and
+    /// the TUI bootstrap construct a live service; every consumer
+    /// receives an `Arc<FileWatchService>` clone instead of building
+    /// its own. The visibility stays `pub` because gating it tighter
+    /// would cascade dead-code warnings through the dispatcher
+    /// infrastructure in lib-only no-feature builds; the rule is
+    /// honor-system + doc-enforced. Integration tests outside the
+    /// crate go through [`test_support::new_filewatch`] for clarity.
     pub fn new() -> Result<Arc<Self>, WatchError> {
         if std::env::var("AOE_FILE_WATCH").as_deref() == Ok("off") {
             tracing::info!(
@@ -250,6 +273,8 @@ impl FileWatchService {
             }),
             dispatcher_dead: AtomicBool::new(false),
             tokio_tx: tokio_tx.clone(),
+            last_kernel_warn_unix_ms: std::sync::atomic::AtomicI64::new(0),
+            dropped_kernel_err_count: std::sync::atomic::AtomicU64::new(0),
         });
 
         // Drain thread: holds `notify_rx` and the SOLE `tokio_tx`. Service
@@ -301,8 +326,10 @@ impl FileWatchService {
     /// return). [`Self::notify_local_change`] is silently a no-op: the
     /// dispatcher channel's receiver is dropped at construction so any
     /// `send` Errs, and `dispatcher_dead` is pre-set so the error log path
-    /// short-circuits. Used by tests and as the graceful-degradation
-    /// fallback.
+    /// short-circuits. Used by [`Storage::new_unwatched`] and as the
+    /// graceful-degradation fallback when the live constructor fails.
+    /// Integration tests outside the crate construct via
+    /// [`Storage::new_unwatched`] or [`test_support::noop_filewatch`].
     pub fn noop() -> Arc<Self> {
         let (tokio_tx, tokio_rx) = mpsc::unbounded_channel::<DispatchMsg>();
         // Drop the receiver before returning so any future `tokio_tx.send`
@@ -315,15 +342,14 @@ impl FileWatchService {
                 watcher: None,
                 subscriptions: HashMap::new(),
                 dirs: HashMap::new(),
-                // Live services start at 1; noop never allocates ids but we
-                // keep the same invariant so the sentinel value (0) stays
-                // unique even if behavior diverges later.
                 next_id: 1,
                 pending: HashMap::new(),
                 slots: BTreeMap::new(),
             }),
             dispatcher_dead: AtomicBool::new(true),
             tokio_tx,
+            last_kernel_warn_unix_ms: std::sync::atomic::AtomicI64::new(0),
+            dropped_kernel_err_count: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -455,6 +481,7 @@ impl FileWatchService {
         ))
     }
 
+    #[cfg(not(any(test, feature = "test-support")))]
     fn subscriber_count(&self) -> usize {
         self.inner
             .lock()
@@ -463,8 +490,25 @@ impl FileWatchService {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn subscriber_count_for_test(&self) -> usize {
-        self.subscriber_count()
+    pub fn subscriber_count(&self) -> usize {
+        self.inner
+            .lock()
+            .map(|inner| inner.subscriptions.len())
+            .unwrap_or(0)
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+pub mod test_support {
+    use super::{Arc, FileWatchService, WatchError};
+
+    pub fn new_filewatch() -> Result<Arc<FileWatchService>, WatchError> {
+        FileWatchService::new()
+    }
+
+    pub fn noop_filewatch() -> Arc<FileWatchService> {
+        FileWatchService::noop()
     }
 }
 
@@ -564,9 +608,19 @@ fn matcher_matches(spec: &WatchSpec, path: &Path) -> bool {
 }
 
 fn classify_event_kind(ev: &notify::Event) -> Option<FileEventKind> {
-    use notify::EventKind;
+    use notify::event::{EventKind, ModifyKind};
+    // Modify(Metadata|Other) skipped: chmod/chown/utime do not change the
+    // bytes consumers re-read on Upserted; classifying them as Upserted
+    // would burn a reload per touch. Modify(Any) preserved because the
+    // PollWatcher backend (and FreeBSD kqueue) emit `Any` for content
+    // writes; dropping it would silence legitimate updates on those
+    // platforms.
     match ev.kind {
-        EventKind::Create(_) | EventKind::Modify(_) => Some(FileEventKind::Upserted),
+        EventKind::Create(_) => Some(FileEventKind::Upserted),
+        EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Name(_) | ModifyKind::Any) => {
+            Some(FileEventKind::Upserted)
+        }
+        EventKind::Modify(ModifyKind::Metadata(_) | ModifyKind::Other) => None,
         EventKind::Remove(_) => Some(FileEventKind::Removed),
         _ => None,
     }
@@ -635,11 +689,29 @@ fn handle_kernel(svc: &Arc<FileWatchService>, res: notify::Result<notify::Event>
     let ev = match res {
         Ok(ev) => ev,
         Err(e) => {
-            tracing::warn!(
-                target: "file_watch.service",
-                error = %e,
-                "kernel watcher emitted error; live propagation may degrade until next valid event"
-            );
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let last = svc
+                .last_kernel_warn_unix_ms
+                .load(std::sync::atomic::Ordering::Acquire);
+            if now_ms.saturating_sub(last) >= 1_000 {
+                svc.last_kernel_warn_unix_ms
+                    .store(now_ms, std::sync::atomic::Ordering::Release);
+                let dropped = svc
+                    .dropped_kernel_err_count
+                    .swap(0, std::sync::atomic::Ordering::AcqRel);
+                tracing::warn!(
+                    target: "file_watch.service",
+                    error = %e,
+                    dropped_since_last = dropped,
+                    "kernel watcher emitted error; live propagation may degrade until next valid event"
+                );
+            } else {
+                svc.dropped_kernel_err_count
+                    .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            }
             return;
         }
     };
