@@ -1,9 +1,7 @@
-//! Handler-level locks for the disk-watch rewire wiring. The earlier
-//! lower-layer tests in `serve_dynamic_profile_rewire.rs` exercise
-//! `set_profile_disk_watch` directly; these tests prove the HTTP handlers
-//! (`create_profile`, `delete_profile`, `rename_profile`) actually invoke
-//! that helper. Reverting the rewire calls in `src/server/api/system.rs`
-//! must fail at least one of these tests.
+//! Handler-level coverage for disk-watch rewires. These tests assert the HTTP
+//! handlers (`create_profile`, `delete_profile`, `rename_profile`) invoke
+//! `set_profile_disk_watch`, while `serve_dynamic_profile_rewire.rs` covers the
+//! helper's lower-level behavior directly.
 
 #![cfg(feature = "serve")]
 

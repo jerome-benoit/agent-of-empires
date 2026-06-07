@@ -3754,13 +3754,9 @@ mod tests {
         );
     }
 
-    // The startup-gap fix has two distinct guarantees: (1) the bootstrap
-    // notify fires after subscriptions are installed (covered by the
-    // older test above) and (2) writes that landed BEFORE init returned
-    // are reconciled into `state.instances` once the consumer wakes and
-    // reloads. Reverting the bootstrap wake or the initial subscription
-    // install must produce a missing or empty reload here, which would
-    // surface as `state.instances` not containing the seed.
+    // Bootstrap correctness here has two requirements: subscriptions must be
+    // installed before the first wake, and writes that land before init
+    // returns must still be visible after the consumer reloads disk state.
     #[tokio::test]
     #[serial_test::serial]
     async fn bootstrap_wake_makes_pre_init_writes_reachable_via_reload() {

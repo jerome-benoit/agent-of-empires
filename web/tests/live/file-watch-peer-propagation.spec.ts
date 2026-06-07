@@ -33,18 +33,33 @@ test.describe.serial("file-watch peer propagation", () => {
       seedFn: seedSessionViaAoeAdd({ title: "peer-source" }),
     });
     try {
-      const id = (await listSessions(serve.baseUrl))[0]!.id as string;
       await page.goto(`${serve.baseUrl}/`);
       await expect(page.getByText("peer-source")).toBeVisible({ timeout: 10_000 });
 
-      spawnSync(aoeBinary, ["session", "rename", id, "peer-target"], {
-        env: serve.env,
-        stdio: "inherit",
-      });
+      const rename = spawnSync(
+        aoeBinary,
+        ["session", "rename", "peer-source", "-t", "peer-target"],
+        {
+          env: serve.env,
+          stdio: "pipe",
+        },
+      );
+      expect(rename.status, rename.stderr.toString()).toBe(0);
 
-      // 3s ceiling absorbs FSEvents coalescing on macOS while still being
-      // tighter than the 2s poll fallback (gives confidence the kernel
-      // watcher actually fired).
+      // Prove the daemon state flips through the watcher path before the 2s
+      // poll fallback could refresh it.
+      await expect
+        .poll(
+          async () =>
+            (await listSessions(serve.baseUrl)).some(
+              (session) => session.title === "peer-target",
+            ),
+          { timeout: 1_500 },
+        )
+        .toBe(true);
+
+      // Once the watcher has updated daemon state, the dashboard can take a
+      // little longer to repaint.
       await expect(page.getByText("peer-target")).toBeVisible({ timeout: 3_000 });
     } finally {
       await serve.stop();
