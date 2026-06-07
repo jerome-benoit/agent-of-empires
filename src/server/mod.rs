@@ -260,6 +260,16 @@ pub(crate) struct DiskWatchEntry {
 /// Whether the caller has applied tmux scrape (and suppression) to
 /// `fresh.status`. `status_poll_loop` passes `TmuxApplied`; the watcher
 /// consumer passes `DiskOnly`.
+///
+/// Visibility note: this enum is `pub` so that `tests/serve_disk_reload_helper_equivalence.rs`
+/// can reach it via `server::test_support::StatusSource`. Demoting it
+/// to `pub(crate)` would force the test_support re-export to also be
+/// `pub(crate)`, which Rust's visibility rules cannot widen back to
+/// `pub` for external integration tests. The `#[doc(hidden)]` keeps
+/// it out of generated documentation; the namespace cost at the root
+/// of `agent_of_empires::server::*` is the smallest acceptable
+/// tradeoff for keeping the integration-test access path working
+/// without a parallel-enum + `From`/`Into` wrapper.
 #[doc(hidden)]
 #[derive(Copy, Clone, Debug)]
 pub enum StatusSource {
@@ -1941,22 +1951,59 @@ async fn build_disk_watch_entry(state: &Arc<AppState>, profile: &str) -> Option<
             "disk-watch forwarder exit"
         );
     });
+    // Test-only barrier: when armed, signals `entered` and parks on
+    // `release`. The race-resurrection regression test uses this to
+    // deterministically place task A "inside build" while task B
+    // attempts the same-profile remove. With the production fix
+    // (build called from inside the `disk_watch_handles` lock), task
+    // A holds the lock while parked, so B's remove must wait. With
+    // the V2-buggy ordering (build outside the lock), B would acquire
+    // the lock first and observe an empty map, allowing A to
+    // resurrect a removed entry on resume.
+    #[cfg(any(test, feature = "test-support"))]
+    {
+        let armed = disk_watch_build_barrier().lock().unwrap().clone();
+        if let Some(barrier) = armed {
+            barrier.entered.notify_one();
+            barrier.release.notified().await;
+        }
+    }
     Some(DiskWatchEntry {
         handle,
         forwarder: join.abort_handle(),
     })
 }
 
+/// Test-only barrier installed inside `build_disk_watch_entry` so the
+/// race-resurrection regression test can deterministically order task
+/// A's build against task B's concurrent remove. Production builds
+/// don't compile this hook in.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) struct DiskWatchBuildBarrier {
+    pub entered: tokio::sync::Notify,
+    pub release: tokio::sync::Notify,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn disk_watch_build_barrier(
+) -> &'static std::sync::Mutex<Option<Arc<DiskWatchBuildBarrier>>> {
+    static BARRIER: std::sync::OnceLock<std::sync::Mutex<Option<Arc<DiskWatchBuildBarrier>>>> =
+        std::sync::OnceLock::new();
+    BARRIER.get_or_init(|| std::sync::Mutex::new(None))
+}
+
 /// Set the per-profile disk-watch presence under one critical section.
 /// `present=true` re-subscribes (overwriting any prior entry under the
 /// canonical drop-then-abort order). `present=false` removes the entry.
-/// Holding `disk_watch_handles` through the full transition linearizes
-/// concurrent profile lifecycle ops on the same name; without that, an
-/// add and a remove can interleave between unsubscribe and subscribe and
-/// resurrect a watcher for a profile that was just removed.
+///
+/// Holding `disk_watch_handles` through the full transition (including
+/// the subscribe + spawn step inside `build_disk_watch_entry`) is what
+/// prevents resurrection: a concurrent remove cannot interleave between
+/// "subscription created" and "entry installed" and silently leave a
+/// stale watcher behind for a profile that was just removed.
 pub(crate) async fn set_profile_disk_watch(state: &Arc<AppState>, profile: &str, present: bool) {
+    let mut handles = state.disk_watch_handles.lock().await;
     if !present {
-        let mut handles = state.disk_watch_handles.lock().await;
         if let Some(entry) = handles.remove(profile) {
             let DiskWatchEntry { handle, forwarder } = entry;
             // Drop handle FIRST so the dispatcher stops queuing events;
@@ -1972,16 +2019,14 @@ pub(crate) async fn set_profile_disk_watch(state: &Arc<AppState>, profile: &str,
         }
         return;
     }
-    // Subscribe path. Build the entry OUTSIDE the lock so kernel calls
-    // and task spawn don't extend the critical section.
+    // Build the entry inside the lock so the subscribe + install pair
+    // is atomic. `subscribe_channel` is synchronous (registers an
+    // in-memory watch) and `tokio::spawn` returns synchronously, so
+    // holding the tokio::Mutex across this is cheap and does not yield
+    // to the runtime.
     let Some(entry) = build_disk_watch_entry(state, profile).await else {
         return;
     };
-    // Critical section: tear down any prior entry under canonical
-    // drop-then-abort, then install the new one. The whole swap happens
-    // under one lock so concurrent rewires for the same name cannot
-    // interleave between teardown and install.
-    let mut handles = state.disk_watch_handles.lock().await;
     if let Some(prior) = handles.remove(profile) {
         let DiskWatchEntry { handle, forwarder } = prior;
         drop(handle);
@@ -2015,6 +2060,31 @@ pub(crate) async fn init_disk_watch_subscriptions(state: Arc<AppState>) {
         target: "server.file_watch",
         profiles_count = count,
         "disk-watch subscriptions initialized"
+    );
+}
+
+/// Test-only variant of `init_disk_watch_subscriptions` that runs `hook`
+/// after each profile's subscription is installed. Used by the
+/// init-gap regression test to seed writes against profiles that
+/// appear LATER in the iteration order, while the bootstrap wake has
+/// not yet fired. Reverting the bootstrap wake or any per-profile
+/// install must surface as a missing reconciliation in that test.
+#[cfg(test)]
+async fn init_disk_watch_subscriptions_with_hook<F>(state: Arc<AppState>, mut hook: F)
+where
+    F: FnMut(&str) + Send,
+{
+    let profiles = crate::session::list_profiles().unwrap_or_default();
+    let count = profiles.len();
+    for profile in &profiles {
+        set_profile_disk_watch(&state, profile, true).await;
+        hook(profile);
+    }
+    state.disk_changed.notify_one();
+    tracing::info!(
+        target: "server.file_watch",
+        profiles_count = count,
+        "disk-watch subscriptions initialized (with hook)"
     );
 }
 
@@ -3523,6 +3593,181 @@ mod tests {
         set_profile_disk_watch(&state, "rewire-race", false).await;
         assert_eq!(test_support::disk_watch_handle_count(&state).await, 0);
         assert_eq!(state.file_watch.subscriber_count_for_test(), 0);
+    }
+
+    // Winner-sensitive lock for the V3.1 production fix. The test arms a
+    // cfg-gated barrier inside `build_disk_watch_entry` so we can place
+    // task A's build at a known point and then drive task B's same-name
+    // remove against it. With the V3.1 production fix (build called
+    // INSIDE the `disk_watch_handles` lock), task A holds the lock while
+    // parked at the barrier, so B's remove blocks until A finishes
+    // installing. After release, B acquires the lock, removes the entry,
+    // and the final state is empty: B's remove wins because it ran
+    // strictly AFTER A's add. With the V2 buggy ordering (build OUTSIDE
+    // the lock), B acquires the lock immediately, finds an empty map,
+    // and returns no-op. A then resumes, acquires the lock, installs
+    // its entry, and the final state has a resurrected watcher for a
+    // profile that was just supposed to be removed. Reverting V3.1 in
+    // production code must fail this test.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn set_profile_disk_watch_resists_resurrection_under_concurrent_remove() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        // SAFETY: serialized test; no other test mutates HOME concurrently.
+        unsafe { std::env::set_var("HOME", temp.path()) };
+        #[cfg(target_os = "linux")]
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+        }
+        let _ = crate::session::get_profile_dir("race-fix").expect("profile dir");
+
+        let state = test_support::build_test_app_state(Vec::new());
+        let live = FileWatchService::new().expect("live svc");
+        let mut state_mut = Arc::try_unwrap(state)
+            .map_err(|_| ())
+            .expect("unique state");
+        state_mut.file_watch = live;
+        let state = Arc::new(state_mut);
+
+        let barrier = Arc::new(DiskWatchBuildBarrier {
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+        });
+        *disk_watch_build_barrier().lock().unwrap() = Some(barrier.clone());
+
+        let s_a = state.clone();
+        let task_a = tokio::spawn(async move {
+            set_profile_disk_watch(&s_a, "race-fix", true).await;
+        });
+
+        // Wait deterministically until A is parked inside the barrier.
+        // No fixed sleep: the `entered` notification is sent strictly
+        // after `subscribe_channel` returns and the forwarder is
+        // spawned, which is the point where V2 would have released the
+        // imaginary "outside lock" window.
+        barrier.entered.notified().await;
+
+        let s_b = state.clone();
+        let task_b = tokio::spawn(async move {
+            set_profile_disk_watch(&s_b, "race-fix", false).await;
+        });
+
+        // Give B a chance to attempt the lock. Under V3.1 it parks
+        // there because A holds `disk_watch_handles`. Under V2 it
+        // would acquire and complete (no-op for an empty map).
+        // 50ms is generous; the actual `lock().await` registration is
+        // microseconds. We need SOME wait here because there is no
+        // observable signal for "task B has registered as a lock
+        // waiter" in tokio::Mutex.
+        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Release A; it finishes building, installs the entry, and
+        // releases the lock. B then acquires and removes.
+        barrier.release.notify_one();
+
+        task_a.await.expect("join A");
+        task_b.await.expect("join B");
+
+        let count = test_support::disk_watch_handle_count(&state).await;
+        let live_subs = state.file_watch.subscriber_count_for_test();
+        assert_eq!(
+            count, 0,
+            "B's remove must observe A's installed entry and tear it down (V3.1 \
+             linearization). A non-zero count here means a removed profile was \
+             resurrected by an interleaved subscribe."
+        );
+        assert_eq!(
+            live_subs, 0,
+            "live subscription count must match the empty handle map; mismatch \
+             indicates a leaked subscriber from a resurrected entry."
+        );
+
+        *disk_watch_build_barrier().lock().unwrap() = None;
+    }
+
+    // Real init-gap regression test (V3.2). The older
+    // `bootstrap_wake_makes_pre_init_writes_reachable_via_reload` test
+    // seeds disk BEFORE init starts. This one seeds disk DURING init's
+    // iteration via a hook that fires after each profile is subscribed,
+    // proving the bootstrap wake reconciles writes that landed in the
+    // window where their profile was not yet watched. Reverting the
+    // bootstrap wake makes the post-init `notified()` time out;
+    // reverting any per-profile subscribe is independent (the reload
+    // reads disk, not the watcher), but the gap-window claim itself is
+    // locked here.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn init_disk_watch_subscriptions_reconciles_writes_landing_during_iteration() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        // SAFETY: serialized test; no other test mutates HOME concurrently.
+        unsafe { std::env::set_var("HOME", temp.path()) };
+        #[cfg(target_os = "linux")]
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+        }
+
+        let storage_p1 = crate::session::Storage::new_unwatched("init-gap-p1").expect("p1");
+        storage_p1
+            .update(|i, _| {
+                *i = vec![Instance::new("p1-pre-init", "/tmp/p1-pre")];
+                Ok(())
+            })
+            .expect("seed p1");
+        let _ = crate::session::get_profile_dir("init-gap-p2").expect("p2 dir");
+
+        let state = test_support::build_test_app_state(Vec::new());
+        let live = FileWatchService::new().expect("live svc");
+        let mut state_mut = Arc::try_unwrap(state)
+            .map_err(|_| ())
+            .expect("unique state");
+        state_mut.file_watch = live;
+        let state = Arc::new(state_mut);
+
+        init_disk_watch_subscriptions_with_hook(state.clone(), |profile| {
+            if profile == "init-gap-p1" {
+                // Write to P2 at the precise moment when P1 has just
+                // been subscribed but P2 has not. The watcher path
+                // cannot deliver this event for P2 (no subscription
+                // exists yet); only the bootstrap wake plus a reload
+                // can reconcile it.
+                let storage = crate::session::Storage::new_unwatched("init-gap-p2").expect("p2");
+                storage
+                    .update(|i, _| {
+                        *i = vec![Instance::new("p2-mid-init", "/tmp/p2-mid")];
+                        Ok(())
+                    })
+                    .expect("seed p2");
+            }
+        })
+        .await;
+
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            state.disk_changed.notified(),
+        )
+        .await
+        .expect("bootstrap wake must fire after init returns");
+
+        let file_watch = state.file_watch.clone();
+        let fresh = tokio::task::spawn_blocking(move || load_all_instances(&file_watch))
+            .await
+            .expect("join")
+            .expect("load");
+        reload_state_instances_from_disk(&state, fresh, StatusSource::DiskOnly).await;
+
+        let instances = state.instances.read().await;
+        let titles: Vec<&str> = instances.iter().map(|i| i.title.as_str()).collect();
+        assert!(
+            titles.contains(&"p1-pre-init"),
+            "writes BEFORE init started must be reconciled; titles: {:?}",
+            titles
+        );
+        assert!(
+            titles.contains(&"p2-mid-init"),
+            "writes DURING init's iteration (the gap window) must be reconciled by the bootstrap wake; titles: {:?}",
+            titles
+        );
     }
 
     // The startup-gap fix has two distinct guarantees: (1) the bootstrap

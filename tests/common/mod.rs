@@ -1,7 +1,7 @@
 //! Shared helpers for integration tests under `tests/`. Each consumer
-//! declares `mod common;` to bring this in scope.
-
-#![allow(dead_code)]
+//! declares `mod common;` to bring this in scope; consumers that do
+//! not include this module via `mod common;` simply do not compile
+//! these helpers.
 
 use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, Instant};
