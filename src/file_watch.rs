@@ -286,7 +286,11 @@ impl FileWatchService {
         // Dispatcher task: holds the tokio_rx and a `Weak` so that dropping
         // the service tears the dispatcher down without strong-ref leaks.
         let svc_weak_for_dispatch = Arc::downgrade(&svc);
-        tokio::spawn(dispatcher_loop(svc_weak_for_dispatch, tokio_rx));
+        crate::task_util::spawn_supervised(
+            "file_watch.dispatcher",
+            crate::task_util::PanicPolicy::Log,
+            dispatcher_loop(svc_weak_for_dispatch, tokio_rx),
+        );
 
         Ok(svc)
     }
@@ -628,7 +632,17 @@ async fn sleep_until_optional(deadline: Option<Instant>) {
 }
 
 fn handle_kernel(svc: &Arc<FileWatchService>, res: notify::Result<notify::Event>) {
-    let Ok(ev) = res else { return };
+    let ev = match res {
+        Ok(ev) => ev,
+        Err(e) => {
+            tracing::warn!(
+                target: "file_watch.service",
+                error = %e,
+                "kernel watcher emitted error; live propagation may degrade until next valid event"
+            );
+            return;
+        }
+    };
     let Some(kind) = classify_event_kind(&ev) else {
         return;
     };

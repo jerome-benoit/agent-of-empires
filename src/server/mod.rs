@@ -1751,15 +1751,34 @@ async fn load_or_generate_token() -> anyhow::Result<String> {
 
 /// Load sessions from all profiles, matching the TUI's "all profiles" view.
 fn load_all_instances(file_watch: &Arc<FileWatchService>) -> anyhow::Result<Vec<Instance>> {
-    let profiles = crate::session::list_profiles().unwrap_or_default();
+    let profiles = match crate::session::list_profiles() {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                target: "server.file_watch",
+                error = %e,
+                "list_profiles failed; load_all_instances returning empty set"
+            );
+            return Ok(Vec::new());
+        }
+    };
     let mut all = Vec::new();
     for profile in &profiles {
-        if let Ok(storage) = Storage::new(profile, file_watch.clone()) {
-            if let Ok(mut instances) = storage.load() {
+        match Storage::new(profile, file_watch.clone()).and_then(|s| s.load()) {
+            Ok(mut instances) => {
                 for inst in &mut instances {
                     inst.source_profile = profile.clone();
                 }
                 all.extend(instances);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "server.file_watch",
+                    profile = %profile,
+                    error = %e,
+                    "load_all_instances skipped profile; sessions for this profile will be \
+                     absent from state until next successful reload"
+                );
             }
         }
     }
@@ -1931,22 +1950,26 @@ async fn build_disk_watch_entry(state: &Arc<AppState>, profile: &str) -> Option<
     let signal = state.disk_changed.clone();
     let profile_for_log = profile.to_string();
     let shutdown = state.shutdown.clone();
-    let join = tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = shutdown.cancelled() => break,
-                ev = rx.recv() => match ev {
-                    Some(_) => signal.notify_one(),
-                    None => break,
+    let join = crate::task_util::spawn_supervised(
+        "server.disk_watch.forwarder",
+        crate::task_util::PanicPolicy::Log,
+        async move {
+            loop {
+                tokio::select! {
+                    _ = shutdown.cancelled() => break,
+                    ev = rx.recv() => match ev {
+                        Some(_) => signal.notify_one(),
+                        None => break,
+                    }
                 }
             }
-        }
-        tracing::info!(
-            target: "server.file_watch",
-            profile = %profile_for_log,
-            "disk-watch forwarder exit"
-        );
-    });
+            tracing::info!(
+                target: "server.file_watch",
+                profile = %profile_for_log,
+                "disk-watch forwarder exit"
+            );
+        },
+    );
     // Test-only barrier: when armed, signals `entered` after the
     // subscription is built and parks on `release`. The enclosing
     // `set_profile_disk_watch` holds `disk_watch_handles` through the
