@@ -218,7 +218,14 @@ impl FileWatchService {
         }
         let (notify_tx, notify_rx) = std::sync::mpsc::channel();
         let watcher = match notify::recommended_watcher(move |res| {
-            let _ = notify_tx.send(res);
+            match notify_tx.send(res) {
+                Ok(()) => {}
+                Err(_) => {
+                    // Drain thread terminated; service teardown in progress.
+                    // Logging would spam during shutdown and recovery is
+                    // impossible, so silent discard is the correct policy.
+                }
+            }
         }) {
             Ok(w) => w,
             Err(e) => {
