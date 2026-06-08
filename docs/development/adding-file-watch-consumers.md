@@ -66,7 +66,7 @@ Operator escape hatch: setting this env to `off` makes `FileWatchService::new` r
 ## See also
 
 - `src/file_watch.rs` rustdoc on the types
-- `src/server/mod.rs::disk_watcher_consumer` — daemon storage-mirror consumer
-- `src/tui/home/mod.rs::rewire_disk_subscriptions` — TUI storage consumer
-- `src/tui/home/mod.rs::rewire_config_subscriptions` — TUI config consumer
-- `src/logging.rs::watch_runtime_filter` — runtime log-filter consumer
+- `src/server/mod.rs::disk_watcher_consumer`: daemon storage-mirror consumer
+- `src/tui/home/mod.rs::rewire_disk_subscriptions`: TUI storage consumer
+- `src/tui/home/mod.rs::rewire_config_subscriptions`: TUI config consumer
+- `src/logging.rs::watch_runtime_filter`: runtime log-filter consumer
