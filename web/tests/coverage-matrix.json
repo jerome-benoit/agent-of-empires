@@ -2472,12 +2472,8 @@
       "id": "sessions.file-watch-peer-propagation",
       "kind": "live-playwright",
       "risk": "high",
-      "specs": [
-        "tests/live/file-watch-peer-propagation.spec.ts"
-      ],
-      "components": [
-        "web/src/components/WorkspaceSidebar.tsx"
-      ]
+      "specs": ["tests/live/file-watch-peer-propagation.spec.ts"],
+      "components": ["web/src/components/WorkspaceSidebar.tsx"]
     }
   ]
 }

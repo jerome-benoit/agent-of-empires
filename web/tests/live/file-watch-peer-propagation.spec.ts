@@ -25,7 +25,9 @@ import {
 const aoeBinary = resolveAoeBinary();
 
 test.describe.serial("file-watch peer propagation", () => {
-  test("peer rename surfaces within the watcher budget", async ({ page }, ti) => {
+  test("peer rename surfaces within the watcher budget", async ({
+    page,
+  }, ti) => {
     const serve = await spawnAoeServe({
       authMode: "none",
       workerIndex: ti.workerIndex,
@@ -34,7 +36,9 @@ test.describe.serial("file-watch peer propagation", () => {
     });
     try {
       await page.goto(`${serve.baseUrl}/`);
-      await expect(page.getByText("peer-source")).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText("peer-source")).toBeVisible({
+        timeout: 10_000,
+      });
 
       const rename = spawnSync(
         aoeBinary,
@@ -60,7 +64,9 @@ test.describe.serial("file-watch peer propagation", () => {
 
       // Once the watcher has updated daemon state, the dashboard can take a
       // little longer to repaint.
-      await expect(page.getByText("peer-target")).toBeVisible({ timeout: 3_000 });
+      await expect(page.getByText("peer-target")).toBeVisible({
+        timeout: 3_000,
+      });
     } finally {
       await serve.stop();
     }
