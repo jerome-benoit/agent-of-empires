@@ -1567,6 +1567,7 @@ impl HomeView {
             };
             match self.file_watch.subscribe_channel(spec, 16) {
                 Ok((mut rx, handle)) => {
+                    use tracing::Instrument;
                     let dirty = std::sync::Arc::clone(&self.disk_dirty);
                     // Forwarder exits via `rx.recv() = None` when its
                     // SubscriptionHandle is dropped (rewire / HomeView
@@ -1576,6 +1577,10 @@ impl HomeView {
                     // `src/server/mod.rs:server.disk_watch.forwarder`
                     // which uses `tokio::select!` because AppState owns
                     // a daemon-wide cancellation token.
+                    let span = tracing::info_span!(
+                        "tui.disk_watch.forwarder",
+                        profile = %name
+                    );
                     let join = crate::task_util::spawn_supervised(
                         "tui.disk_watch.forwarder",
                         crate::task_util::PanicPolicy::Log,
@@ -1583,7 +1588,8 @@ impl HomeView {
                             while rx.recv().await.is_some() {
                                 dirty.store(true, std::sync::atomic::Ordering::Release);
                             }
-                        },
+                        }
+                        .instrument(span),
                     );
                     self.disk_watch_handles.insert(
                         name.clone(),

@@ -1,15 +1,14 @@
-//! TUI file-watch adapter lifetime regression.
+//! TUI file-watch forwarder lifetime regression.
 //!
-//! `HomeView::new` spawns the disk-dirty adapter task when a tokio runtime
-//! is present; this test fires a watcher event after construction and asserts
-//! that `disk_dirty == true` within the watcher budget.
-//!
-//! Reproduces the HomeView adapter wiring (forwarder task per subscription,
-//! capacity-1 fan-in mpsc, single drain task that sets the AtomicBool) in
-//! isolation, then drives a `Storage::update` write against a watched
-//! profile dir and verifies the dirty flag flips. The test catches the
-//! "adapter task accidentally dropped on construct" regression, which
-//! would leave the channel closed and the dirty flag forever stuck.
+//! `HomeView::new` spawns a per-profile forwarder task for each disk-watch
+//! subscription (sessions.json + groups.json). Each forwarder drains its
+//! receiver and sets `disk_dirty.store(true, Release)` directly; there is
+//! no intermediate adapter task or fan-in channel. This test exercises the
+//! same primitive wiring against a tokio runtime, drives a `Storage::update`
+//! write through the live `FileWatchService`, and asserts that the dirty
+//! flag flips before the heartbeat budget. The regression it catches is
+//! "forwarder task accidentally dropped on construct," which would close
+//! the channel and leave the dirty flag forever stuck.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
