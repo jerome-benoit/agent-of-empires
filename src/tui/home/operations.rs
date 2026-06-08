@@ -1008,7 +1008,9 @@ impl HomeView {
             // Re-seat the cursor on the just-unarchived session. After the
             // flat_items rebuild the row jumps from tier 99 to its real
             // tier, so without this the cursor stays at the old index and
-            // ends up on whatever row slid into that slot.
+            // ends up on whatever row slid into that slot. The session stays
+            // Stopped (archive killed its pane); the user restarts it with `e`
+            // when they want it back, same as any other stopped session.
             self.select_session_by_id(&id);
             return Ok(());
         }
@@ -1023,9 +1025,23 @@ impl HomeView {
         }
 
         self.apply_user_action(&id, |inst| inst.archive())?;
-        self.flat_items = self.build_flat_items();
         if self.sort_order == crate::session::config::SortOrder::Attention {
+            // Attention sort is a triage flow: archiving sinks the row and the
+            // cursor advances to the next item that needs attention. That path
+            // already lands selection on a live row, so it never showed the
+            // dead-pane/selection-swap jank the default sort did.
+            self.flat_items = self.build_flat_items();
             self.select_top_attention(None);
+        } else {
+            // Keep the just-archived session selected instead of letting the
+            // cursor snap to whatever neighbor slid into its slot. Reveal the
+            // Archived section so the row is visible, rebuild, then re-seat the
+            // cursor onto it. The preview then renders a calm "Archived"
+            // placeholder (render_archived_preview) instead of the killed
+            // pane's "No output available", and a second `z` unarchives it.
+            self.reveal_archived_section();
+            self.flat_items = self.build_flat_items();
+            self.select_session_by_id(&id);
         }
         Ok(())
     }
