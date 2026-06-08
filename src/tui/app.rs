@@ -242,18 +242,12 @@ impl App {
         // Check if we need to show welcome or changelog dialogs
         let mut config = Config::load_or_warn();
 
-        // Load theme from config, defaulting to the `default` builtin if
-        // empty so the TUI matches the web dashboard's empty-name fallback.
-        let theme_name = if config.theme.name.is_empty() {
-            "default"
-        } else {
-            &config.theme.name
-        };
-        let palette_mode = matches!(
-            config.theme.color_mode,
-            crate::session::config::ColorMode::Palette
-        );
-        let theme = crate::tui::styles::load_theme_with_mode(theme_name, palette_mode);
+        // Theme is a global preference: read it from the global config, never
+        // profile-merged, so boot matches Settings-close and the web dashboard
+        // (see config::resolve_theme_name). Empty maps to the `default` builtin.
+        let theme_name = config.effective_theme_name();
+        let palette_mode = config.theme_palette_mode();
+        let theme = crate::tui::styles::load_theme_with_mode(&theme_name, palette_mode);
         let current_version = env!("CARGO_PKG_VERSION").to_string();
 
         if no_agents {
@@ -264,7 +258,7 @@ impl App {
             // changelog so the warning is what the user sees first, and avoid
             // overwriting a malformed config.toml with defaults via save_config.
         } else if !config.app_state.has_seen_welcome {
-            home.show_intro(theme_name);
+            home.show_intro(&theme_name);
             config.app_state.has_seen_welcome = true;
             config.app_state.last_seen_version = Some(current_version);
             save_config(&config)?;
@@ -447,40 +441,15 @@ impl App {
     }
 
     pub fn show_startup_warning(&mut self, message: &str) {
-        // Size the dialog to fit the message after wrapping. The message area
-        // is `width - 4` columns wide (borders + 1-cell margin on each side),
-        // so each \n-separated line wraps to ceil(len / inner_width) visual
-        // rows. Borders + margin + the OK button take 6 rows.
-        //
-        // 96, not 80: at the typical ~35-col sidebar width, a centered
-        // 80-wide dialog on a 150-col terminal lands its left border exactly
-        // at the sidebar's right border, which makes the modal visually
-        // blend into the layout. 96 shifts the coincidence point off the
-        // common laptop-fullscreen width and gives long path lines (e.g.
-        // `~/.config/agent-of-empires-dev`) more breathing room.
-        const WIDTH: u16 = 96;
-        let inner_width = WIDTH.saturating_sub(4) as usize;
-        let visual_lines: usize = message
-            .lines()
-            .map(|l| {
-                if l.is_empty() {
-                    1
-                } else {
-                    l.len().div_ceil(inner_width)
-                }
-            })
-            .sum();
-        // +6 for borders/margin/button; +1 safety margin since byte-length
-        // wrap estimation under-counts when Paragraph word-wraps mid-line.
-        let height = ((visual_lines as u16).saturating_add(7)).clamp(9, 35);
         // Warnings preempt onboarding dialogs so the user sees the problem
         // before the intro walkthrough.
         self.home.intro_dialog = None;
         self.home.changelog_dialog = None;
         self.home.telemetry_consent_dialog = None;
         tracing::info!(target: "tui.dialog", dialog = "warning", "opening warning dialog");
-        self.home.info_dialog =
-            Some(crate::tui::dialogs::InfoDialog::new("Warning", message).with_size(WIDTH, height));
+        self.home.info_dialog = Some(crate::tui::dialogs::InfoDialog::sized_to_fit(
+            "Warning", message,
+        ));
     }
 
     pub fn set_theme(&mut self, name: &str) {
@@ -488,17 +457,10 @@ impl App {
         // SetTheme dispatched from the Settings view preview/apply flow will
         // re-load the theme with raw RGB colors, "breaking the coloration"
         // on terminals that were working with the user's palette preference
-        // (Termius/mosh edge cases, 8-bit-only TTYs, etc.).
-        let palette_mode = crate::session::resolve_config(
-            self.home.active_profile.as_deref().unwrap_or("default"),
-        )
-        .map(|c| {
-            matches!(
-                c.theme.color_mode,
-                crate::session::config::ColorMode::Palette
-            )
-        })
-        .unwrap_or(false);
+        // (Termius/mosh edge cases, 8-bit-only TTYs, etc.). Read from the
+        // global config: theme (and its color_mode) is a global preference,
+        // not profile-merged.
+        let palette_mode = crate::session::config::resolve_theme_palette_mode();
         self.theme = crate::tui::styles::load_theme_with_mode(name, palette_mode);
         self.needs_redraw = true;
     }
