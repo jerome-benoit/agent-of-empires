@@ -129,6 +129,12 @@ pub enum WatchError {
         #[source]
         source: Option<notify::Error>,
     },
+    /// The dispatcher task has terminated; subscriptions registered now
+    /// would be silently dead-on-arrival (handle returned but no events
+    /// would ever flow). Surfaced so callers can fall back to polling
+    /// rather than registering an entry that pretends to be live.
+    #[error("file watcher dispatcher has terminated")]
+    DispatcherDead,
 }
 
 /// Internal subscription identifier. `0` is reserved for the noop sentinel.
@@ -365,6 +371,14 @@ impl FileWatchService {
     /// construction so the send Errs and the pre-set `dispatcher_dead`
     /// latch suppresses the otherwise-misleading dispatcher-dead log.
     pub(crate) fn notify_local_change(&self, path: &Path) {
+        // Sticky latch fast-path: noop services pre-set this true at
+        // construction; live services flip it on dispatcher exit. Saves
+        // a syscall (canonicalize) and a doomed channel send per call,
+        // hot when the daemon process is shutting down or a CLI
+        // subprocess is using `Storage::new_unwatched`.
+        if self.dispatcher_dead.load(Ordering::Acquire) {
+            return;
+        }
         // Canonicalise so the debounce key (SubscriptionId, path) matches
         // the kernel echo's canonical form (e.g. `/private/var/...` on
         // macOS). Without this they hash to different debounce slots and
@@ -398,6 +412,10 @@ impl FileWatchService {
     /// Returns [`WatchError::Watch`] if registering the spec's directory
     /// with the kernel backend fails (refcount is rolled back atomically;
     /// the partial-state invariant is maintained).
+    ///
+    /// Returns [`WatchError::DispatcherDead`] when the live service's
+    /// dispatcher has terminated since construction. Noop services hit
+    /// the silent-receiver short-circuit instead and never see this.
     pub fn subscribe_channel(
         self: &Arc<Self>,
         spec: WatchSpec,
@@ -417,6 +435,12 @@ impl FileWatchService {
                     service: Arc::downgrade(self),
                 },
             ));
+        }
+        // A live service whose dispatcher has died (panic or channel
+        // close) must surface the failure: the subscriptions map would
+        // otherwise accept an entry that silently never receives events.
+        if self.dispatcher_dead.load(Ordering::Acquire) {
+            return Err(WatchError::DispatcherDead);
         }
         // Canonicalise the directory so kernel-emitted paths (which arrive
         // already canonical, e.g., `/private/var/...` on macOS) match the
@@ -630,6 +654,24 @@ async fn dispatcher_loop(
     svc: Weak<FileWatchService>,
     mut rx: mpsc::UnboundedReceiver<DispatchMsg>,
 ) {
+    // RAII guard ensuring `dispatcher_dead` is flipped on ANY termination
+    // path of `run_dispatcher`, including panic. Without this, a panic
+    // inside `run_dispatcher` would unwind past the post-await
+    // `log_dispatcher_dead_once` call and leave the latch false until
+    // the next channel send fails, producing a window where new
+    // subscriptions register against a dead dispatcher and silently
+    // never receive events.
+    struct ExitLatch<'a> {
+        svc: &'a Weak<FileWatchService>,
+    }
+    impl Drop for ExitLatch<'_> {
+        fn drop(&mut self) {
+            if let Some(arc) = self.svc.upgrade() {
+                log_dispatcher_dead_once(&arc, "dispatcher_loop_exit");
+            }
+        }
+    }
+    let _guard = ExitLatch { svc: &svc };
     let exit_reason = run_dispatcher(svc.clone(), &mut rx).await;
     if let Some(arc) = svc.upgrade() {
         log_dispatcher_dead_once(&arc, exit_reason);
