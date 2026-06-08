@@ -1343,24 +1343,16 @@ impl HomeView {
 
         let mut all_instances = Vec::new();
 
-        let mut profile_set_changed = false;
         if self.active_profile.is_none() {
             let current_profiles = list_profiles()?;
             for name in &current_profiles {
                 if !self.storages.contains_key(name) {
                     self.storages
                         .insert(name.clone(), Storage::new(name, self.file_watch.clone())?);
-                    profile_set_changed = true;
                 }
             }
-            let before = self.storages.len();
             self.storages.retain(|k, _| current_profiles.contains(k));
-            if self.storages.len() != before {
-                profile_set_changed = true;
-            }
-            if profile_set_changed {
-                self.rewire_disk_subscriptions(&current_profiles)?;
-            }
+            self.rewire_disk_subscriptions(&current_profiles)?;
         }
 
         for (profile_name, storage) in &self.storages {
@@ -1487,12 +1479,6 @@ impl HomeView {
             return Ok(());
         }
 
-        // Clear the latched watcher-init failure at the start of each rewire
-        // pass; the install loop below repopulates it on any subscribe_channel
-        // Err, so the latch tracks "most recent install attempt result"
-        // rather than monotonically accumulating.
-        self.reload_failure_state.clear_watcher_init_failure();
-
         let prior: HashSet<String> = self.disk_watch_handles.keys().cloned().collect();
         let target: HashSet<&String> = current.iter().collect();
 
@@ -1523,6 +1509,11 @@ impl HomeView {
         if prior == current.iter().cloned().collect() && inode_invalidated.is_empty() {
             return Ok(());
         }
+
+        // Clear the latch ahead of the install loop. `record_watcher_init_failure`
+        // re-latches it on any `subscribe_channel` Err below, so the latch
+        // reflects the outcome of this rewire pass.
+        self.reload_failure_state.clear_watcher_init_failure();
 
         let to_remove: Vec<String> = prior
             .iter()

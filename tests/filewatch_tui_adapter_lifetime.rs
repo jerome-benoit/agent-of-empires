@@ -31,8 +31,8 @@ fn isolate_home(temp: &std::path::Path) {
 
 struct ForwarderHarness {
     disk_dirty: Arc<AtomicBool>,
-    _forwarder: tokio::task::AbortHandle,
     _handle: agent_of_empires::file_watch::SubscriptionHandle,
+    _forwarder: tokio::task::AbortHandle,
 }
 
 async fn spawn_harness(svc: Arc<FileWatchService>, dir: PathBuf) -> ForwarderHarness {
@@ -60,8 +60,8 @@ async fn spawn_harness(svc: Arc<FileWatchService>, dir: PathBuf) -> ForwarderHar
 
     ForwarderHarness {
         disk_dirty,
-        _forwarder: forwarder_join.abort_handle(),
         _handle: handle,
+        _forwarder: forwarder_join.abort_handle(),
     }
 }
 

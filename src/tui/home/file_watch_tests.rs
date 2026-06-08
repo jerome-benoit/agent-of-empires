@@ -136,3 +136,47 @@ async fn rewire_disk_subscriptions_drops_removed_profile_entry() {
         "exactly one live subscription remains after the removal"
     );
 }
+
+/// Locks the no-op fast-path invariant: when `rewire_disk_subscriptions`
+/// is called with an unchanged profile set and no inode invalidation, the
+/// fast-path returns without running the install loop, and a previously
+/// latched `watcher_init_error` must be preserved (the install loop is
+/// the only path that re-latches via `record_watcher_init_failure`).
+#[tokio::test]
+#[serial]
+async fn rewire_no_op_preserves_latched_watcher_init_failure() {
+    let temp = TempDir::new().expect("tempdir");
+    isolate_home(temp.path());
+
+    let live = FileWatchService::new().expect("live svc");
+    crate::session::get_profile_dir("hv-noop").expect("seed dir");
+
+    let mut view = HomeView::new(
+        Some("hv-noop".to_string()),
+        crate::tmux::AvailableTools::with_tools(&["claude"]),
+        live.clone(),
+    )
+    .expect("HomeView::new");
+
+    view.rewire_disk_subscriptions(&["hv-noop".to_string()])
+        .expect("install");
+    assert!(
+        view.disk_watch_handles.contains_key("hv-noop"),
+        "precondition: hv-noop installed"
+    );
+
+    view.reload_failure_state
+        .record_watcher_init_failure("seed: simulated prior failure");
+    assert!(
+        view.reload_failure_state.has_any_failure(),
+        "precondition: latch is set"
+    );
+
+    view.rewire_disk_subscriptions(&["hv-noop".to_string()])
+        .expect("no-op rewire");
+
+    assert!(
+        view.reload_failure_state.has_any_failure(),
+        "no-op rewire (unchanged set, no inode change) must preserve the watcher_init_error latch"
+    );
+}
