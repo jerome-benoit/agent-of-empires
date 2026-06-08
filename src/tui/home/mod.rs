@@ -846,12 +846,6 @@ pub struct HomeView {
     /// profile forwarders: idempotent `store(true, Release)` collapses
     /// multiple events between two reloads into one reload regardless of
     /// source file.
-    ///
-    /// Disk-watch wiring cluster (file_watch, disk_dirty,
-    /// disk_watch_handles, reload_failure_state). Tracked for
-    /// sub-struct extraction (`DiskWatchState`) once the parallel
-    /// config-watch cluster lands in PR1741, so both move out of
-    /// HomeView together. See follow-up issue.
     pub(super) disk_dirty: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Per-profile subscription pairs; see `rewire_disk_subscriptions`
     /// for the canonical drop-then-abort removal order.
@@ -1536,11 +1530,11 @@ impl HomeView {
                 }
             }
         }
-        tracing::info!(
+        tracing::debug!(
             target: "tui.file_watch",
             added = ?to_add,
             removed = ?to_remove,
-            "rewire_disk_subscriptions: set-diff update"
+            "reconciled per-profile disk-watch subscriptions"
         );
         Ok(())
     }

@@ -1793,9 +1793,9 @@ fn poll_update_receiver(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DiskRefreshDecision {
-    None,
-    Watcher,
     Heartbeat,
+    Watcher,
+    None,
 }
 
 /// Pure refresh-policy decision. Inputs are plain values so this helper
