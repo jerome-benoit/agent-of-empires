@@ -306,7 +306,10 @@ impl Storage {
             return Ok(Vec::new());
         }
 
-        let instances: Vec<Instance> = serde_json::from_str(&content)?;
+        let mut instances: Vec<Instance> = serde_json::from_str(&content)?;
+        for inst in &mut instances {
+            inst.set_file_watch(self.file_watch.clone());
+        }
         Ok(instances)
     }
 

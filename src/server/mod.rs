@@ -2024,10 +2024,10 @@ async fn build_disk_watch_entry(state: &Arc<AppState>, profile: &str) -> Option<
 /// into production builds.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) struct DiskWatchBuildBarrier {
-    pub entered: tokio::sync::Notify,
-    pub release: tokio::sync::Notify,
+    pub(crate) entered: tokio::sync::Notify,
+    pub(crate) release: tokio::sync::Notify,
     #[cfg(test)]
-    pub armed: tokio::sync::Notify,
+    pub(crate) armed: tokio::sync::Notify,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -3588,8 +3588,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
         }
 
-        let storage =
-            crate::session::Storage::new("startup-gap", FileWatchService::noop()).expect("storage");
+        let storage = crate::session::Storage::new_unwatched("startup-gap").expect("storage");
         storage
             .update(|instances, _groups| {
                 *instances = vec![Instance::new("seed", "/tmp/seed")];

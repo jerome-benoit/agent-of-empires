@@ -849,7 +849,7 @@ impl HomeView {
         };
 
         for profile_name in &profile_names {
-            let storage = Storage::new(profile_name, crate::file_watch::FileWatchService::noop())?;
+            let storage = Storage::new_unwatched(profile_name)?;
             let (mut instances, groups) = storage.load_with_groups()?;
             for inst in &mut instances {
                 inst.source_profile = profile_name.clone();
@@ -1172,10 +1172,8 @@ impl HomeView {
             let current_profiles = list_profiles()?;
             for name in &current_profiles {
                 if !self.storages.contains_key(name) {
-                    self.storages.insert(
-                        name.clone(),
-                        Storage::new(name, crate::file_watch::FileWatchService::noop())?,
-                    );
+                    self.storages
+                        .insert(name.clone(), Storage::new_unwatched(name)?);
                 }
             }
             self.storages.retain(|k, _| current_profiles.contains(k));
@@ -1560,6 +1558,7 @@ impl HomeView {
                 id,
                 session_id,
                 expected_prior.as_deref(),
+                &crate::file_watch::FileWatchService::noop(),
             ) {
                 crate::session::SidWrite::Applied => {
                     to_apply.push((id.clone(), session_id.clone()));
@@ -2157,9 +2156,7 @@ impl HomeView {
 
                 // Ensure target profile storage exists
                 if !self.storages.contains_key(&target_profile) {
-                    if let Ok(s) =
-                        Storage::new(&target_profile, crate::file_watch::FileWatchService::noop())
-                    {
+                    if let Ok(s) = Storage::new_unwatched(&target_profile) {
                         self.storages.insert(target_profile.clone(), s);
                     }
                 }
@@ -2815,7 +2812,7 @@ impl HomeView {
         let mut entries: Vec<ProfileEntry> = profiles
             .iter()
             .map(|name| {
-                let session_count = Storage::new(name, crate::file_watch::FileWatchService::noop())
+                let session_count = Storage::new_unwatched(name)
                     .and_then(|s| s.load())
                     .map(|instances| instances.len())
                     .unwrap_or(0);
@@ -3591,10 +3588,8 @@ impl HomeView {
         }
 
         if !self.storages.contains_key(target) {
-            self.storages.insert(
-                target.to_string(),
-                Storage::new(target, crate::file_watch::FileWatchService::noop())?,
-            );
+            self.storages
+                .insert(target.to_string(), Storage::new_unwatched(target)?);
         }
 
         self.pending_deletions

@@ -570,6 +570,16 @@ pub struct Instance {
     /// will re-set it within one tick if the pane is genuinely dead).
     #[serde(skip)]
     pub pane_dead_observed: bool,
+
+    /// Live FileWatchService handle for in-process Local fast-path
+    /// notifications when this Instance's storage is mutated. `None` for
+    /// Instances created via `Instance::new` without explicit injection;
+    /// `Storage::load*` automatically injects its own Arc into every
+    /// loaded Instance so daemon and TUI hot paths reach the live
+    /// service. Falls back to `FileWatchService::noop()` at use sites
+    /// when `None`, preserving prior behavior for ad-hoc constructions.
+    #[serde(skip, default)]
+    pub(crate) file_watch: Option<std::sync::Arc<crate::file_watch::FileWatchService>>,
 }
 
 /// Append yolo-mode flags or environment variables to a launch command.
@@ -688,6 +698,7 @@ pub(crate) fn persist_session_to_storage(
     instance_id: &str,
     session_id: &str,
     expected_prior: Option<&str>,
+    file_watch: &std::sync::Arc<crate::file_watch::FileWatchService>,
 ) -> SidWrite {
     if !is_valid_session_id(session_id) {
         tracing::warn!(target: "session.store",
@@ -698,10 +709,7 @@ pub(crate) fn persist_session_to_storage(
         return SidWrite::Failed;
     }
 
-    let storage = match super::storage::Storage::new(
-        profile,
-        crate::file_watch::FileWatchService::noop(),
-    ) {
+    let storage = match super::storage::Storage::new(profile, file_watch.clone()) {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!(target: "session.store", "Failed to create storage for session ID persistence: {}", e);
@@ -804,7 +812,30 @@ impl Instance {
             session_id_poller: None,
             retroactive_capture_excludes: HashSet::new(),
             pane_dead_observed: false,
+            file_watch: None,
         }
+    }
+
+    /// Inject the live FileWatchService Arc into this Instance for
+    /// in-process Local fast-path notifications during subsequent storage
+    /// mutations. Called by `Storage::load*` automatically; manual call
+    /// sites are daemon-side recovery and TUI session-creation paths that
+    /// build Instances without going through Storage::load.
+    pub(crate) fn set_file_watch(
+        &mut self,
+        fw: std::sync::Arc<crate::file_watch::FileWatchService>,
+    ) {
+        self.file_watch = Some(fw);
+    }
+
+    /// Resolve the live `Arc<FileWatchService>` for this Instance, falling
+    /// back to a noop service when none was injected (ad-hoc construction
+    /// or pre-injection state). Use sites pair this with `Storage::new`
+    /// directly because `new_unwatched` would shadow a live injection.
+    fn resolve_file_watch(&self) -> std::sync::Arc<crate::file_watch::FileWatchService> {
+        self.file_watch
+            .clone()
+            .unwrap_or_else(crate::file_watch::FileWatchService::noop)
     }
 
     /// Whether a title rename should also move the worktree directory leaf,
@@ -882,10 +913,9 @@ impl Instance {
     /// `set-session-id` would otherwise be silently overwritten. No-op on
     /// storage error or if the row is gone from disk.
     fn reconcile_from_disk(&mut self) {
-        let Ok(storage) = super::storage::Storage::new(
-            &self.effective_profile(),
-            crate::file_watch::FileWatchService::noop(),
-        ) else {
+        let Ok(storage) =
+            super::storage::Storage::new(&self.effective_profile(), self.resolve_file_watch())
+        else {
             tracing::warn!(target: "session.store",
                 session = %self.id,
                 "failed to open storage to reload disk state before launch; using in-memory value");
@@ -948,7 +978,13 @@ impl Instance {
         }
         let profile = self.effective_profile();
         let baseline = self.agent_session_id.as_deref();
-        match persist_session_to_storage(&profile, &self.id, &fresh, baseline) {
+        match persist_session_to_storage(
+            &profile,
+            &self.id,
+            &fresh,
+            baseline,
+            &self.resolve_file_watch(),
+        ) {
             SidWrite::Applied => {
                 self.agent_session_id = Some(fresh);
             }
@@ -2143,10 +2179,7 @@ impl Instance {
             }
         }
 
-        let storage = match super::storage::Storage::new(
-            profile,
-            crate::file_watch::FileWatchService::noop(),
-        ) {
+        let storage = match super::storage::Storage::new(profile, self.resolve_file_watch()) {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!(target: "session.store",
@@ -2266,10 +2299,7 @@ impl Instance {
     /// reload both fields from disk so memory matches whatever the
     /// closure committed (or the peer's state on Skipped).
     fn clear_session_for_resume_fallback(&mut self, profile: &str, stale_sid: &str) -> SidWrite {
-        let storage = match super::storage::Storage::new(
-            profile,
-            crate::file_watch::FileWatchService::noop(),
-        ) {
+        let storage = match super::storage::Storage::new(profile, self.resolve_file_watch()) {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!(target: "session.store",
@@ -5682,8 +5712,13 @@ mod tests {
                 })
                 .unwrap();
 
-            let outcome =
-                super::persist_session_to_storage("cas-persist-mismatch", &id, "ours", Some("old"));
+            let outcome = super::persist_session_to_storage(
+                "cas-persist-mismatch",
+                &id,
+                "ours",
+                Some("old"),
+                &crate::file_watch::FileWatchService::noop(),
+            );
             assert_eq!(outcome, super::SidWrite::Skipped);
 
             let loaded = storage.load().unwrap();
@@ -5712,8 +5747,13 @@ mod tests {
                 })
                 .unwrap();
 
-            let outcome =
-                super::persist_session_to_storage("cas-persist-match", &id, "new", Some("old"));
+            let outcome = super::persist_session_to_storage(
+                "cas-persist-match",
+                &id,
+                "new",
+                Some("old"),
+                &crate::file_watch::FileWatchService::noop(),
+            );
             assert_eq!(outcome, super::SidWrite::Applied);
 
             let loaded = storage.load().unwrap();
@@ -5753,6 +5793,7 @@ mod tests {
                 &id,
                 "new-sid",
                 Some("old-sid"),
+                &crate::file_watch::FileWatchService::noop(),
             );
 
             assert_eq!(inst.agent_session_id.as_deref(), Some("old-sid"));

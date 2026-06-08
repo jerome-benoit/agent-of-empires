@@ -214,6 +214,17 @@ pub struct SubscriptionHandle {
     service: Weak<FileWatchService>,
 }
 
+impl std::fmt::Debug for FileWatchService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FileWatchService")
+            .field(
+                "dispatcher_dead",
+                &self.dispatcher_dead.load(Ordering::Acquire),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 impl FileWatchService {
     /// Construct the live service. Spawns the drain thread + tokio dispatcher.
     ///
@@ -227,14 +238,10 @@ impl FileWatchService {
     /// Returns [`WatchError::Init`] if spawning the dedicated drain
     /// `std::thread` fails (e.g., per-process thread limit reached).
     ///
-    /// Per-process single-instance rule: only the daemon bootstrap and
-    /// the TUI bootstrap construct a live service; every consumer
-    /// receives an `Arc<FileWatchService>` clone instead of building
-    /// its own. The visibility stays `pub` because gating it tighter
-    /// would cascade dead-code warnings through the dispatcher
-    /// infrastructure in lib-only no-feature builds; the rule is
-    /// honor-system + doc-enforced. Integration tests outside the
-    /// crate go through [`test_support::new_filewatch`] for clarity.
+    /// Per-process single-instance rule: each process constructs exactly
+    /// one live service at bootstrap and threads `Arc<Self>` through every
+    /// consumer rather than building its own. Integration tests outside
+    /// the crate go through [`test_support::new_filewatch`] for clarity.
     pub fn new() -> Result<Arc<Self>, WatchError> {
         if std::env::var("AOE_FILE_WATCH").as_deref() == Ok("off") {
             tracing::info!(
