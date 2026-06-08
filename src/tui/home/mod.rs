@@ -884,9 +884,9 @@ pub(super) struct DiskWatchEntry {
     canonical_dir: std::path::PathBuf,
 }
 
-/// Drop the subscription handle FIRST so the dispatcher stops queuing
-/// events on this id, then abort the forwarder; aborting first would
-/// race the still-active source channel.
+/// Drop the subscription handle FIRST. Closing the source channel
+/// before aborting the forwarder ensures no in-flight event reaches
+/// an aborted task.
 fn drop_disk_watch_entry(entry: DiskWatchEntry) {
     let DiskWatchEntry {
         handle,
@@ -899,14 +899,12 @@ fn drop_disk_watch_entry(entry: DiskWatchEntry) {
 
 /// Per-tick reload failure tracking. Tick-driven reload paths in
 /// `App::run` (heartbeat `reload()`, watcher-driven `reload_storage_only()`)
-/// must never propagate errors out of the tick loop because that would
-/// kill the TUI on transient or persistent disk faults. Instead they
-/// route through `handle_tick_reload_storage` which records the result
-/// here, and the tick loop surfaces a single aggregated `info_dialog`
-/// per failure burst rather than spamming on every tick.
+/// route results through `handle_tick_reload_storage`, which records
+/// failures here so the tick loop surfaces a single aggregated
+/// `info_dialog` per failure burst rather than one dialog per tick.
 ///
 /// `dialog_acknowledged` latches once the dialog is shown and clears
-/// only after every source returns to healthy, ensuring the user is
+/// only after every source returns to healthy, so the user is
 /// notified once per failure burst, not once per tick.
 #[derive(Default)]
 pub(super) struct ReloadFailureState {
@@ -915,9 +913,8 @@ pub(super) struct ReloadFailureState {
     /// Latched description of the most recent watcher-init failure
     /// (typically `subscribe_channel` returning Err). Surfaced in the
     /// reload-failure dialog body so the user sees that live propagation
-    /// is degraded for this profile; the 5s heartbeat reload still works
-    /// so functionality survives. Cleared on the next successful rewire
-    /// pass for that profile.
+    /// is degraded for this profile. Cleared on the next successful
+    /// rewire pass for that profile.
     watcher_init_error: Option<String>,
     dialog_acknowledged: bool,
 }
@@ -1328,10 +1325,10 @@ impl HomeView {
 
     /// Full reload: status-hook config-cache refresh + storage. Used by
     /// the 5s heartbeat tick and by event-driven sites (attach-return,
-    /// save+reload pairs, profile switch). The watcher path uses
-    /// `reload_storage_only` instead because the watcher only fires on
-    /// `sessions.json` / `groups.json`; status-hook config has its own
-    /// (still-future) subscription path.
+    /// save+reload pairs, profile switch). Watcher-driven ticks call
+    /// `reload_storage_only` because the watcher only fires on
+    /// `sessions.json` / `groups.json`; status-hook config is not
+    /// watched.
     pub fn reload(&mut self) -> anyhow::Result<()> {
         self.refresh_status_hook_config_cache();
         self.reload_storage_only()
@@ -1505,7 +1502,7 @@ impl HomeView {
         // entry even when the name set is unchanged, since notify
         // NonRecursive watches do not auto-reattach across the inode
         // change on Linux inotify or macOS FSEvents.
-        let inode_invalidated: Vec<String> = prior
+        let inode_invalidated: HashSet<String> = prior
             .iter()
             .filter(|name| {
                 let entry = match self.disk_watch_handles.get(*name) {
@@ -1523,18 +1520,18 @@ impl HomeView {
             .cloned()
             .collect();
 
-        if prior.iter().collect::<HashSet<&String>>() == target && inode_invalidated.is_empty() {
+        if prior == current.iter().cloned().collect() && inode_invalidated.is_empty() {
             return Ok(());
         }
 
         let to_remove: Vec<String> = prior
             .iter()
-            .filter(|n| !target.contains(*n) || inode_invalidated.iter().any(|i| i == *n))
+            .filter(|n| !target.contains(*n) || inode_invalidated.contains(*n))
             .cloned()
             .collect();
         let to_add: Vec<String> = current
             .iter()
-            .filter(|n| !prior.contains(*n) || inode_invalidated.iter().any(|i| i == *n))
+            .filter(|n| !prior.contains(*n) || inode_invalidated.contains(*n))
             .cloned()
             .collect();
 
@@ -1568,16 +1565,12 @@ impl HomeView {
             match self.file_watch.subscribe_channel(spec, 16) {
                 Ok((mut rx, handle)) => {
                     use tracing::Instrument;
-                    let dirty = std::sync::Arc::clone(&self.disk_dirty);
+                    let dirty = self.disk_dirty.clone();
                     // Forwarder exits via `rx.recv() = None` when its
                     // SubscriptionHandle is dropped (rewire / HomeView
-                    // teardown). The TUI process has no graceful-drain
-                    // phase so no `CancellationToken` is plumbed through
-                    // here; cf. server's analog at
-                    // `src/server/mod.rs:server.disk_watch.forwarder`
-                    // which uses `tokio::select!` because AppState owns
-                    // a daemon-wide cancellation token.
-                    let span = tracing::info_span!(
+                    // teardown). The TUI has no graceful-drain phase, so
+                    // no `CancellationToken` is plumbed through here.
+                    let span = tracing::debug_span!(
                         "tui.disk_watch.forwarder",
                         profile = %name
                     );

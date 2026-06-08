@@ -1,10 +1,8 @@
-//! In-module tests for `HomeView` file-watch wiring. The tests under
-//! `tests/filewatch_tui_*.rs` reproduce the adapter wiring in
-//! isolation against the public `file_watch` API; the tests here
-//! exercise the real `HomeView::new` and
-//! `HomeView::rewire_disk_subscriptions` paths so failures in the
-//! TUI-side wiring surface directly rather than only in a
-//! hand-written reproduction.
+//! In-module tests for `HomeView` file-watch wiring, exercising
+//! `HomeView::new` and `HomeView::rewire_disk_subscriptions` directly.
+//! The integration-level tests under `tests/filewatch_tui_*.rs`
+//! exercise the same wiring against the public `file_watch` API in
+//! isolation.
 //!
 //! Async TUI tests are segregated to this module so the much larger
 //! synchronous `tests.rs` file is not forced to mix sync `#[test]`

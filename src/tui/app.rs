@@ -1186,16 +1186,15 @@ impl App {
                 needs_full_refresh = true;
             }
 
-            // Disk reload: heartbeat (canonical defense-in-depth) plus the
-            // file-watch-driven kick.
-            // Both gate on `live_send.is_none()` so reloads never interrupt
-            // a paste-in-progress; the dirty flag stays latched (Acquire
-            // pairs with the forwarder/adapter Release) until the next
-            // eligible tick. The watcher path uses `reload_storage_only`
-            // (storage + profile rediscovery only) because the watcher is
-            // scoped to `sessions.json` / `groups.json`; the heartbeat
-            // path keeps the full `reload()` so the status-hook config
-            // cache and mouse-capture toggle stay refreshed.
+            // Disk reload: heartbeat (defense-in-depth) plus the
+            // file-watch-driven kick. Both gate on `live_send.is_none()`
+            // so reloads never interrupt a paste-in-progress; the dirty
+            // flag stays latched (Acquire pairs with the forwarder/adapter
+            // Release) until the next eligible tick. The watcher is scoped
+            // to `sessions.json` / `groups.json`, so the watcher path calls
+            // `reload_storage_only` (storage + profile rediscovery only);
+            // the heartbeat path calls full `reload()` to refresh the
+            // status-hook config cache and mouse-capture toggle.
             let live_idle = self.home.live_send.is_none();
             let heartbeat_due = last_disk_refresh.elapsed() >= DISK_REFRESH_INTERVAL;
             // Only consume the dirty latch when we're eligible to act on
@@ -1816,13 +1815,11 @@ fn decide_disk_refresh(live_idle: bool, heartbeat_due: bool, dirty: bool) -> Dis
     }
 }
 
-/// Tick-driven reload errors must never propagate out of the main loop.
-/// A malformed `sessions.json` or `groups.json` written by a peer process
-/// would otherwise kill the TUI on the next watcher kick or heartbeat.
-/// This helper logs the error, records it in `ReloadFailureState` for
-/// later one-shot dialog surfacing, and lets the tick loop continue with
-/// the previous in-memory state. The next successful reload clears the
-/// recorded failure.
+/// Catches reload errors so the tick loop never propagates them. A
+/// malformed `sessions.json` or `groups.json` written by a peer process
+/// is logged, recorded in `ReloadFailureState` for one-shot dialog
+/// surfacing, and the tick loop continues with the previous in-memory
+/// state. The next successful reload clears the recorded failure.
 fn handle_tick_reload_storage(
     result: anyhow::Result<()>,
     state: &mut crate::tui::home::ReloadFailureState,

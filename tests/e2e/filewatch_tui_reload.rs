@@ -4,11 +4,10 @@
 //!
 //! The test launches the TUI under tmux, then performs a `Storage::update`
 //! against the same profile dir from outside the TUI process (mimicking a
-//! peer CLI invocation). Without the `FileWatchService` subscription the
-//! TUI would not see the new row until the next 5 s heartbeat tick. With
-//! the subscription wired in `HomeView::new`, the dirty flag flips, the
-//! tick consumes it, `reload_storage_only` runs, and the new session row
-//! lands on screen within the harness's 1.5 s timeout.
+//! peer CLI invocation). With the subscription wired in `HomeView::new`,
+//! the dirty flag flips, the tick consumes it, `reload_storage_only` runs,
+//! and the new session row lands on screen within the harness's 1.5 s
+//! timeout.
 
 use std::sync::Arc;
 use std::time::Duration;

@@ -29,14 +29,13 @@ fn isolate_home(temp: &std::path::Path) {
     };
 }
 
-struct AdapterHarness {
+struct ForwarderHarness {
     disk_dirty: Arc<AtomicBool>,
-    _adapter: tokio::task::AbortHandle,
     _forwarder: tokio::task::AbortHandle,
     _handle: agent_of_empires::file_watch::SubscriptionHandle,
 }
 
-async fn spawn_harness(svc: Arc<FileWatchService>, dir: PathBuf) -> AdapterHarness {
+async fn spawn_harness(svc: Arc<FileWatchService>, dir: PathBuf) -> ForwarderHarness {
     let sessions_path = dir.join("sessions.json");
     let groups_path = dir.join("groups.json");
 
@@ -51,28 +50,16 @@ async fn spawn_harness(svc: Arc<FileWatchService>, dir: PathBuf) -> AdapterHarne
         )
         .expect("subscribe_channel");
 
-    let (combined_tx, mut combined_rx) = tokio::sync::mpsc::channel::<()>(1);
-
     let disk_dirty = Arc::new(AtomicBool::new(false));
-    let adapter_dirty = Arc::clone(&disk_dirty);
-    let adapter_join = tokio::spawn(async move {
-        while combined_rx.recv().await.is_some() {
-            adapter_dirty.store(true, Ordering::Release);
-        }
-    });
-
+    let forwarder_dirty = Arc::clone(&disk_dirty);
     let forwarder_join = tokio::spawn(async move {
         while rx.recv().await.is_some() {
-            match combined_tx.try_send(()) {
-                Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Full(())) => {}
-                Err(tokio::sync::mpsc::error::TrySendError::Closed(())) => break,
-            }
+            forwarder_dirty.store(true, Ordering::Release);
         }
     });
 
-    AdapterHarness {
+    ForwarderHarness {
         disk_dirty,
-        _adapter: adapter_join.abort_handle(),
         _forwarder: forwarder_join.abort_handle(),
         _handle: handle,
     }

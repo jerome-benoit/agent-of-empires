@@ -180,10 +180,9 @@ pub async fn run(profile: &str, startup_warning: Option<String>) -> Result<()> {
     // The TUI process owns its own FileWatchService Arc; threaded into every
     // consumer (HomeView, DiffView, per-profile Storage) so peer-process
     // writes to `sessions.json` / `groups.json` propagate within the
-    // primitive's debounce window instead of waiting for the 5s heartbeat.
-    // Mirror the server's degrade pattern (src/server/mod.rs): backend init
-    // failure must not abort the TUI; fall back to a noop service so live
-    // propagation goes silent but the 5s heartbeat keeps reload working.
+    // primitive's debounce window. Init failure must not abort the TUI;
+    // fall back to a noop service. The 5s heartbeat path is the sole
+    // reload signal in that case.
     let file_watch = crate::file_watch::FileWatchService::new().unwrap_or_else(|e| {
         tracing::warn!(
             target: "tui.file_watch",
