@@ -5759,7 +5759,79 @@ mod tests {
             let loaded = storage.load().unwrap();
             assert_eq!(loaded[0].agent_session_id.as_deref(), Some("new"));
         }
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        #[serial]
+        async fn persist_session_to_storage_delivers_notification_to_in_process_subscriber() {
+            use crate::file_watch::{FileMatcher, FileWatchService, WatchSpec};
+            use std::sync::Arc;
+            use std::time::Duration;
+            use tokio::time::timeout;
 
+            let temp = tempdir().unwrap();
+            std::env::set_var("HOME", temp.path());
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+
+            // Seed via a noop service so the seed write produces no Local
+            // notification on the live service constructed below; the
+            // subscriber attaches AFTER the seed so any seed-side kernel
+            // echo is filtered out by the subscribe boundary.
+            let seed_storage =
+                crate::session::storage::Storage::new_unwatched("sid-persist-notify").unwrap();
+            let mut inst = Instance::new("title", "/tmp/x");
+            inst.agent_session_id = Some("old".to_string());
+            let id = inst.id.clone();
+            let on_disk = vec![inst.clone()];
+            seed_storage
+                .update(|i, g| {
+                    *i = on_disk.clone();
+                    *g = crate::session::GroupTree::new_with_groups(&on_disk, &[]).get_all_groups();
+                    Ok(())
+                })
+                .unwrap();
+            drop(seed_storage);
+
+            let svc: Arc<FileWatchService> = FileWatchService::new().expect("init");
+            let profile_dir = crate::session::get_profile_dir_path("sid-persist-notify").unwrap();
+            let sessions_path = profile_dir.join("sessions.json");
+            let (mut rx, _handle) = svc
+                .subscribe_channel(
+                    WatchSpec {
+                        dir: profile_dir,
+                        matcher: FileMatcher::Exact(sessions_path),
+                        debounce: Some(Duration::from_millis(75)),
+                    },
+                    4,
+                )
+                .expect("subscribe");
+
+            let outcome = super::persist_session_to_storage(
+                "sid-persist-notify",
+                &id,
+                "new-sid",
+                Some("old"),
+                &svc,
+            );
+            assert_eq!(outcome, super::SidWrite::Applied);
+
+            // Wiring assertion: the in-process subscriber receives a delivery
+            // for sessions.json within sub-tick budget. The Local-first
+            // invariant of notify_local_change vs the kernel echo is locked
+            // separately by file_watch::tests::
+            // notify_local_change_delivers_local_first_and_tolerates_late_kernel_echo;
+            // the dispatcher's debounce window may coalesce both into a
+            // kernel-sourced slot on platforms where canonicalize latency
+            // exceeds the kernel pipeline.
+            let evt = timeout(Duration::from_millis(2_500), rx.recv())
+                .await
+                .expect("delivery within budget")
+                .expect("dispatcher alive");
+            assert_eq!(
+                evt.path.file_name().and_then(|n| n.to_str()),
+                Some("sessions.json"),
+                "subscriber must observe the sessions.json write"
+            );
+        }
         #[test]
         #[serial]
         fn reconcile_from_disk_picks_up_peer_persist() {
