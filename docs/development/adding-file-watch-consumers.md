@@ -6,16 +6,16 @@
 
 Each process constructs exactly one live `FileWatchService` at bootstrap (`Arc<Self>`) and threads the clone through every consumer. `FileWatchService::new()` is the canonical constructor; do not call it from arbitrary call sites. Tests outside the crate go through `test_support::new_filewatch` to make the rule discoverable.
 
-The daemon constructs its instance in `start_server` (`src/server/mod.rs`); the TUI constructs its own in `tui::run` (`src/tui/mod.rs`); they are independent because cross-process subscribers always go through the kernel watcher anyway.
+The daemon constructs its instance in `start_server` (`src/server/mod.rs`) and threads it through `Storage::new` and the per-profile disk-watch subscriptions. Short-lived CLI subprocesses and the native TUI use `Storage::new_unwatched` (a noop service): they have no in-process subscriber, and any change they persist still reaches the daemon through its kernel watcher. Per-process live instances are independent because cross-process subscribers always go through the kernel watcher anyway.
 
 ## Consumer recipe
 
 ```rust
+let config_path = profile_dir.join("config.toml");
 let spec = WatchSpec {
-    dir: profile_dir,                   // canonicalized inside subscribe_channel
-    matcher: FileMatcher::Exact("config.toml"),
-    debounce: Duration::from_millis(100),
-    deliver_immediately: false,
+    dir: profile_dir,                            // canonicalized inside subscribe_channel
+    matcher: FileMatcher::Exact(config_path),    // Exact(PathBuf); see also AnyOf(Vec<PathBuf>)
+    debounce: Some(Duration::from_millis(100)),  // None disables debouncing
 };
 let (mut rx, handle) = svc.subscribe_channel(spec, capacity)?;
 // keep `handle` alive for the consumer's lifetime; drop = unsubscribe
@@ -67,6 +67,5 @@ Operator escape hatch: setting this env to `off` makes `FileWatchService::new` r
 
 - `src/file_watch.rs` rustdoc on the types
 - `src/server/mod.rs::disk_watcher_consumer`: daemon storage-mirror consumer
-- `src/tui/home/mod.rs::rewire_disk_subscriptions`: TUI storage consumer
-- `src/tui/home/mod.rs::rewire_config_subscriptions`: TUI config consumer
+- `src/server/mod.rs::build_disk_watch_entry` / `drop_disk_watch_entry`: the canonical handle + forwarder lifetime pattern
 - `src/logging.rs::watch_runtime_filter`: runtime log-filter consumer
