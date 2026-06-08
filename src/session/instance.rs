@@ -574,10 +574,10 @@ pub struct Instance {
     /// Live FileWatchService handle for in-process Local fast-path
     /// notifications when this Instance's storage is mutated. `None` for
     /// Instances created via `Instance::new` without explicit injection;
-    /// `Storage::load*` automatically injects its own Arc into every
-    /// loaded Instance so daemon and TUI hot paths reach the live
-    /// service. Falls back to `FileWatchService::noop()` at use sites
-    /// when `None`, preserving prior behavior for ad-hoc constructions.
+    /// `Storage::load*` injects its own Arc into every loaded Instance
+    /// so daemon and TUI hot paths reach the live service. Use sites
+    /// fall back to `FileWatchService::noop()` when `None`, so ad-hoc
+    /// constructions remain functional without an explicit injection.
     #[serde(skip, default)]
     pub(crate) file_watch: Option<std::sync::Arc<crate::file_watch::FileWatchService>>,
 }

@@ -1976,7 +1976,7 @@ async fn build_disk_watch_entry(state: &Arc<AppState>, profile: &str) -> Option<
         }
     };
     let signal = state.disk_changed.clone();
-    let profile = profile.to_string();
+    let profile = profile.to_owned();
     let shutdown = state.shutdown.clone();
     let join = crate::task_util::spawn_supervised(
         "server.disk_watch.forwarder",
@@ -1991,7 +1991,7 @@ async fn build_disk_watch_entry(state: &Arc<AppState>, profile: &str) -> Option<
                     }
                 }
             }
-            tracing::info!(
+            tracing::debug!(
                 target: "server.file_watch",
                 profile = %profile,
                 "disk-watch forwarder exit"
@@ -2038,6 +2038,27 @@ pub(crate) fn disk_watch_build_barrier(
     BARRIER.get_or_init(|| std::sync::Mutex::new(None))
 }
 
+/// RAII guard for the test barrier slot: installs on construction and
+/// clears unconditionally on drop, so a panicking test cannot leave
+/// the slot armed for subsequent tests in the same process.
+#[cfg(test)]
+pub(crate) struct DiskWatchBuildBarrierGuard;
+
+#[cfg(test)]
+impl DiskWatchBuildBarrierGuard {
+    pub(crate) fn install(barrier: Arc<DiskWatchBuildBarrier>) -> Self {
+        *disk_watch_build_barrier().lock().unwrap() = Some(barrier);
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for DiskWatchBuildBarrierGuard {
+    fn drop(&mut self) {
+        *disk_watch_build_barrier().lock().unwrap() = None;
+    }
+}
+
 /// Drop the subscription handle FIRST so the dispatcher stops queuing
 /// events on this id, then abort the forwarder; aborting first would
 /// race a buffered `try_send`. Centralized so every teardown path keeps
@@ -2065,8 +2086,8 @@ pub(crate) async fn add_profile_disk_watch(state: &Arc<AppState>, profile: &str)
     if let Some(prior) = handles.remove(profile) {
         drop_disk_watch_entry(prior);
     }
-    handles.insert(profile.to_string(), entry);
-    tracing::info!(
+    handles.insert(profile.to_owned(), entry);
+    tracing::debug!(
         target: "server.file_watch",
         profile = %profile,
         op = "add",
@@ -2079,7 +2100,7 @@ pub(crate) async fn remove_profile_disk_watch(state: &Arc<AppState>, profile: &s
     let mut handles = state.disk_watch_handles.lock().await;
     if let Some(entry) = handles.remove(profile) {
         drop_disk_watch_entry(entry);
-        tracing::info!(
+        tracing::debug!(
             target: "server.file_watch",
             profile = %profile,
             op = "remove",
@@ -2109,8 +2130,8 @@ pub(crate) async fn rename_profile_disk_watch(state: &Arc<AppState>, old: &str, 
     if let Some(prior) = handles.remove(new) {
         drop_disk_watch_entry(prior);
     }
-    handles.insert(new.to_string(), entry);
-    tracing::info!(
+    handles.insert(new.to_owned(), entry);
+    tracing::debug!(
         target: "server.file_watch",
         old = %old,
         new = %new,
@@ -3726,7 +3747,7 @@ mod tests {
             release: tokio::sync::Notify::new(),
             armed: tokio::sync::Notify::new(),
         });
-        *disk_watch_build_barrier().lock().unwrap() = Some(barrier.clone());
+        let _barrier_guard = DiskWatchBuildBarrierGuard::install(barrier.clone());
 
         let s_a = state.clone();
         let task_a = tokio::spawn(async move {
@@ -3777,8 +3798,6 @@ mod tests {
             "live subscription count must match the empty handle map; mismatch \
              indicates a leaked subscriber from a resurrected entry."
         );
-
-        *disk_watch_build_barrier().lock().unwrap() = None;
     }
 
     // Writes that land during init's per-profile iteration, before
