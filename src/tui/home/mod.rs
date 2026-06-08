@@ -874,13 +874,25 @@ pub struct HomeView {
 pub(super) struct DiskWatchEntry {
     handle: crate::file_watch::SubscriptionHandle,
     forwarder: tokio::task::AbortHandle,
+    /// Canonicalized profile dir at install time. Compared against the
+    /// current canonical dir on rewire to detect peer-driven
+    /// delete-and-recreate (same name, new inode); on mismatch the entry
+    /// is treated as needing rewire even when the profile name set is
+    /// unchanged. notify NonRecursive watches do not auto-reattach to a
+    /// recreated directory on Linux inotify (IN_IGNORED) or macOS
+    /// FSEvents (path-based but inconsistent across platforms).
+    canonical_dir: std::path::PathBuf,
 }
 
 /// Drop the subscription handle FIRST so the dispatcher stops queuing
 /// events on this id, then abort the forwarder; aborting first would
 /// race the still-active source channel.
 fn drop_disk_watch_entry(entry: DiskWatchEntry) {
-    let DiskWatchEntry { handle, forwarder } = entry;
+    let DiskWatchEntry {
+        handle,
+        forwarder,
+        canonical_dir: _,
+    } = entry;
     drop(handle);
     forwarder.abort();
 }
@@ -900,6 +912,13 @@ fn drop_disk_watch_entry(entry: DiskWatchEntry) {
 pub(super) struct ReloadFailureState {
     storage_failed: bool,
     storage_error: Option<String>,
+    /// Latched description of the most recent watcher-init failure
+    /// (typically `subscribe_channel` returning Err). Surfaced in the
+    /// reload-failure dialog body so the user sees that live propagation
+    /// is degraded for this profile; the 5s heartbeat reload still works
+    /// so functionality survives. Cleared on the next successful rewire
+    /// pass for that profile.
+    watcher_init_error: Option<String>,
     dialog_acknowledged: bool,
 }
 
@@ -916,14 +935,34 @@ impl ReloadFailureState {
                 }
             }
             Err(e) => {
+                if !self.storage_failed {
+                    self.dialog_acknowledged = false;
+                }
                 self.storage_failed = true;
                 self.storage_error = Some(format!("{e:#}"));
             }
         }
     }
 
-    fn has_any_failure(&self) -> bool {
-        self.storage_failed
+    pub(super) fn record_watcher_init_failure(&mut self, detail: &str) {
+        let was_clear = self.watcher_init_error.is_none();
+        self.watcher_init_error = Some(detail.to_string());
+        if was_clear {
+            self.dialog_acknowledged = false;
+        }
+    }
+
+    pub(super) fn clear_watcher_init_failure(&mut self) {
+        if self.watcher_init_error.is_some() {
+            self.watcher_init_error = None;
+            if !self.has_any_failure() {
+                self.dialog_acknowledged = false;
+            }
+        }
+    }
+
+    pub(super) fn has_any_failure(&self) -> bool {
+        self.storage_failed || self.watcher_init_error.is_some()
     }
 
     pub(super) fn has_unacknowledged_failure(&self) -> bool {
@@ -934,6 +973,9 @@ impl ReloadFailureState {
         let mut lines: Vec<String> = vec!["The following reload sources are degraded:".to_string()];
         if let Some(e) = &self.storage_error {
             lines.push(format!("- Storage: {e}"));
+        }
+        if let Some(e) = &self.watcher_init_error {
+            lines.push(format!("- Watcher init: {e}"));
         }
         lines.push(String::new());
         lines.push("Previous in-memory state preserved; will retry on next tick.".to_string());
@@ -1448,21 +1490,51 @@ impl HomeView {
             return Ok(());
         }
 
+        // Clear the latched watcher-init failure at the start of each rewire
+        // pass; the install loop below repopulates it on any subscribe_channel
+        // Err, so the latch tracks "most recent install attempt result"
+        // rather than monotonically accumulating.
+        self.reload_failure_state.clear_watcher_init_failure();
+
         let prior: HashSet<String> = self.disk_watch_handles.keys().cloned().collect();
         let target: HashSet<&String> = current.iter().collect();
 
-        if prior.iter().collect::<HashSet<&String>>() == target {
+        // Detect peer-driven delete-and-recreate of any prior profile dir
+        // by comparing each prior entry's stored canonical_dir against the
+        // current canonical resolution. Mismatch forces a rewire of that
+        // entry even when the name set is unchanged, since notify
+        // NonRecursive watches do not auto-reattach across the inode
+        // change on Linux inotify or macOS FSEvents.
+        let inode_invalidated: Vec<String> = prior
+            .iter()
+            .filter(|name| {
+                let entry = match self.disk_watch_handles.get(*name) {
+                    Some(e) => e,
+                    None => return false,
+                };
+                let current_canonical = crate::session::get_profile_dir(name)
+                    .ok()
+                    .and_then(|p| std::fs::canonicalize(&p).ok());
+                match current_canonical {
+                    Some(canonical) => canonical != entry.canonical_dir,
+                    None => true,
+                }
+            })
+            .cloned()
+            .collect();
+
+        if prior.iter().collect::<HashSet<&String>>() == target && inode_invalidated.is_empty() {
             return Ok(());
         }
 
         let to_remove: Vec<String> = prior
             .iter()
-            .filter(|n| !target.contains(*n))
+            .filter(|n| !target.contains(*n) || inode_invalidated.iter().any(|i| i == *n))
             .cloned()
             .collect();
         let to_add: Vec<String> = current
             .iter()
-            .filter(|n| !prior.contains(*n))
+            .filter(|n| !prior.contains(*n) || inode_invalidated.iter().any(|i| i == *n))
             .cloned()
             .collect();
 
@@ -1485,6 +1557,7 @@ impl HomeView {
                     continue;
                 }
             };
+            let canonical_dir = std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
             let sessions_path = dir.join("sessions.json");
             let groups_path = dir.join("groups.json");
             let spec = WatchSpec {
@@ -1517,6 +1590,7 @@ impl HomeView {
                         DiskWatchEntry {
                             handle,
                             forwarder: join.abort_handle(),
+                            canonical_dir,
                         },
                     );
                 }
@@ -1527,6 +1601,8 @@ impl HomeView {
                         error = %e,
                         "subscribe_channel failed; falling back to 5s heartbeat for this profile"
                     );
+                    self.reload_failure_state
+                        .record_watcher_init_failure(&format!("{}: {}", name, e));
                 }
             }
         }
