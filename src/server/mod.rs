@@ -3615,7 +3615,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         // SAFETY: serialized test; no other test mutates HOME concurrently.
         unsafe { std::env::set_var("HOME", temp.path()) };
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         unsafe {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
         }
@@ -3670,7 +3670,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         // SAFETY: serialized test; no other test mutates HOME concurrently.
         unsafe { std::env::set_var("HOME", temp.path()) };
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         unsafe {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
         }
@@ -3739,7 +3739,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         // SAFETY: serialized test; no other test mutates HOME concurrently.
         unsafe { std::env::set_var("HOME", temp.path()) };
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         unsafe {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
         }
@@ -3824,7 +3824,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         // SAFETY: serialized test; no other test mutates HOME concurrently.
         unsafe { std::env::set_var("HOME", temp.path()) };
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         unsafe {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
         }
@@ -3901,7 +3901,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         // SAFETY: serialized test; no other test mutates HOME concurrently.
         unsafe { std::env::set_var("HOME", temp.path()) };
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         unsafe {
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
         }
