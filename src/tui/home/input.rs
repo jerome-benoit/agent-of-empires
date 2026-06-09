@@ -744,6 +744,12 @@ impl HomeView {
                 }
                 None
             }
+            "archive_group" => {
+                if let Err(e) = self.archive_selected_group() {
+                    tracing::error!(target: "tui.input", "Failed to archive group: {}", e);
+                }
+                None
+            }
             "stop_session" => self.pending_stop_session.take().map(Action::StopSession),
             "force_remove_session" => {
                 if let Some(session_id) = self.pending_force_remove_session.take() {
@@ -757,6 +763,38 @@ impl HomeView {
             "quit" => Some(Action::Quit),
             _ => None,
         }
+    }
+
+    /// Confirm before archiving every active session under the focused group.
+    /// Archiving a whole project at once is a bigger hammer than the single-row
+    /// `z`, so it routes through a prompt. Archiving is reversible, hence the
+    /// calmer neutral tone rather than the destructive red. No-ops silently
+    /// (no prompt) when the group has no active sessions left to archive.
+    pub(super) fn prompt_archive_selected_group(&mut self) {
+        let Some(group_path) = self.selected_group.clone() else {
+            return;
+        };
+        let count = self.active_sessions_in_selected_group().len();
+        if count == 0 {
+            return;
+        }
+        // Project mode groups by repo, Manual mode by user-assigned path; name
+        // the scope accordingly and show the full path so nested groups that
+        // share a leaf segment aren't ambiguous.
+        let (title, scope) = if self.group_by == crate::session::config::GroupByMode::Project {
+            ("Archive project", "project")
+        } else {
+            ("Archive group", "group")
+        };
+        let noun = if count == 1 { "session" } else { "sessions" };
+        self.confirm_dialog = Some(
+            ConfirmDialog::new(
+                title,
+                &format!("Archive all {count} {noun} in {scope} \"{group_path}\"?"),
+                "archive_group",
+            )
+            .neutral(),
+        );
     }
 
     /// Discard unsaved Settings changes: force-close the view, clear the
@@ -2208,7 +2246,9 @@ impl HomeView {
             ActionId::Restart => self.open_restart_dialog(),
             ActionId::Update => return self.run_update(update_info),
             ActionId::ToggleArchive => {
-                if let Err(e) = self.toggle_archive_at_cursor() {
+                if self.selected_group.is_some() {
+                    self.prompt_archive_selected_group();
+                } else if let Err(e) = self.toggle_archive_at_cursor() {
                     tracing::error!("toggle_archive_at_cursor failed: {}", e);
                 }
             }
