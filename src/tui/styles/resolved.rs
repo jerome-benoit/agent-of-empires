@@ -24,7 +24,7 @@ use ratatui::style::Color;
 use serde::Serialize;
 use tracing::debug;
 
-use super::{load_theme, Theme, ThemeAppearance};
+use super::{contrast::contrast_ratio as wcag_contrast_ratio, load_theme, Theme, ThemeAppearance};
 
 /// Source classification for a resolved theme. Frontends use this to
 /// label the picker entry (e.g. "(custom)" vs the builtin name) and to
@@ -387,11 +387,7 @@ fn readable_on(bg: Color) -> Color {
 }
 
 fn contrast_ratio(a: Color, b: Color) -> f32 {
-    let a_l = relative_luminance(a);
-    let b_l = relative_luminance(b);
-    let lighter = a_l.max(b_l);
-    let darker = a_l.min(b_l);
-    (lighter + 0.05) / (darker + 0.05)
+    wcag_contrast_ratio(a, b).unwrap_or(0.0)
 }
 
 /// Rec. 601 relative luminance (0.0 to 1.0). Coarser than WCAG's
@@ -553,6 +549,28 @@ mod tests {
                 "{name}: color-text-on-brand must remain readable on brand-600"
             );
         }
+    }
+
+    #[test]
+    fn on_brand_token_uses_wcag_contrast_for_custom_mid_amber() {
+        let theme = Theme {
+            accent: Color::Rgb(0xb6, 0x76, 0x08),
+            ..Theme::default()
+        };
+
+        let projection = web_projection(&theme, ThemeAppearance::Dark);
+        let fg = color_from_hex(projection.css_vars.get("--color-text-on-brand").unwrap());
+        let bg = color_from_hex(projection.css_vars.get("--color-brand-600").unwrap());
+
+        assert_eq!(fg, WHITE);
+        assert!(
+            contrast_ratio(BLACK, bg) < 4.5,
+            "regression fixture should keep black below AA contrast"
+        );
+        assert!(
+            contrast_ratio(fg, bg) >= 4.5,
+            "custom amber text-on-brand must use the WCAG-readable foreground"
+        );
     }
 
     fn parse_hex(s: &str) -> String {
