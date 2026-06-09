@@ -180,21 +180,42 @@ fn web_projection(theme: &Theme, appearance: ThemeAppearance) -> CssVarProjectio
     css.insert("--color-surface-600".into(), hex(surface_600));
     css.insert("--color-surface-500".into(), hex(surface_500));
 
-    // Brand ramp anchored on theme.accent. Up two rungs lifts toward
-    // text (legibility for hover/CTAs); down one rung sinks toward
-    // background (button bodies). Matches the original Empire
-    // brand-400/500/600/700 progression so existing Tailwind classes
-    // keep their visual relationship to chrome.
+    // Brand ramp anchored on theme.accent. Dark themes use Tailwind's
+    // usual light-to-dark progression so brand-100 reads on brand-900
+    // button bodies. Light themes invert the ramp for the same utility
+    // pair; translucent brand-900 bodies composite over light surfaces,
+    // so their foreground needs to come from the dark end.
     let accent = theme.accent;
-    css.insert("--color-brand-100".into(), hex(mix(accent, WHITE, 0.8)));
-    css.insert("--color-brand-200".into(), hex(mix(accent, WHITE, 0.65)));
-    css.insert("--color-brand-300".into(), hex(mix(accent, WHITE, 0.45)));
-    css.insert("--color-brand-400".into(), hex(mix(accent, WHITE, 0.2)));
-    css.insert("--color-brand-500".into(), hex(accent));
-    css.insert("--color-brand-600".into(), hex(mix(accent, BLACK, 0.15)));
-    css.insert("--color-brand-700".into(), hex(mix(accent, BLACK, 0.3)));
-    css.insert("--color-brand-800".into(), hex(mix(accent, BLACK, 0.45)));
-    css.insert("--color-brand-900".into(), hex(mix(accent, BLACK, 0.55)));
+    let brand_ramp = match appearance {
+        ThemeAppearance::Dark => [
+            mix(accent, WHITE, 0.8),
+            mix(accent, WHITE, 0.65),
+            mix(accent, WHITE, 0.45),
+            mix(accent, WHITE, 0.2),
+            accent,
+            mix(accent, BLACK, 0.15),
+            mix(accent, BLACK, 0.3),
+            mix(accent, BLACK, 0.45),
+            mix(accent, BLACK, 0.55),
+        ],
+        ThemeAppearance::Light => [
+            mix(accent, BLACK, 0.85),
+            mix(accent, BLACK, 0.7),
+            mix(accent, BLACK, 0.55),
+            mix(accent, BLACK, 0.35),
+            accent,
+            mix(accent, WHITE, 0.2),
+            mix(accent, WHITE, 0.4),
+            mix(accent, WHITE, 0.6),
+            mix(accent, WHITE, 0.8),
+        ],
+    };
+    for (step, color) in [100, 200, 300, 400, 500, 600, 700, 800, 900]
+        .into_iter()
+        .zip(brand_ramp)
+    {
+        css.insert(format!("--color-brand-{step}"), hex(color));
+    }
 
     // Accent ramp anchored on theme.terminal_border (the existing
     // teal-style anchor used by the TUI's accent surface), so secondary
@@ -474,6 +495,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn brand_button_pair_keeps_contrast_in_light_theme() {
+        let theme = resolve_theme("catppuccin-latte");
+        let fg = color_from_hex(theme.web.css_vars.get("--color-brand-100").unwrap());
+        let bg = color_from_hex(theme.web.css_vars.get("--color-brand-900").unwrap());
+        let surface = color_from_hex(theme.web.css_vars.get("--color-surface-900").unwrap());
+        let composited_bg = composite(bg, surface, 0.4);
+
+        assert!(
+            contrast_ratio(fg, composited_bg) >= 4.5,
+            "catppuccin-latte: text-brand-100 must remain readable on bg-brand-900/40"
+        );
+    }
+
     fn parse_hex(s: &str) -> String {
         s.to_string()
     }
@@ -483,6 +518,36 @@ mod tests {
         let g = u8::from_str_radix(&s[2..4], 16).unwrap();
         let b = u8::from_str_radix(&s[4..6], 16).unwrap();
         relative_luminance(Color::Rgb(r, g, b))
+    }
+
+    fn color_from_hex(hex: &str) -> Color {
+        let s = hex.trim_start_matches('#');
+        let r = u8::from_str_radix(&s[0..2], 16).unwrap();
+        let g = u8::from_str_radix(&s[2..4], 16).unwrap();
+        let b = u8::from_str_radix(&s[4..6], 16).unwrap();
+        Color::Rgb(r, g, b)
+    }
+
+    fn composite(fg: Color, bg: Color, alpha: f32) -> Color {
+        let (fr, fg_g, fb) = rgb_components(fg);
+        let (br, bg_g, bb) = rgb_components(bg);
+        Color::Rgb(
+            composite_channel(fr, br, alpha),
+            composite_channel(fg_g, bg_g, alpha),
+            composite_channel(fb, bb, alpha),
+        )
+    }
+
+    fn composite_channel(fg: u8, bg: u8, alpha: f32) -> u8 {
+        ((fg as f32 * alpha) + (bg as f32 * (1.0 - alpha))).round() as u8
+    }
+
+    fn contrast_ratio(a: Color, b: Color) -> f32 {
+        let a_l = relative_luminance(a);
+        let b_l = relative_luminance(b);
+        let lighter = a_l.max(b_l);
+        let darker = a_l.min(b_l);
+        (lighter + 0.05) / (darker + 0.05)
     }
 
     fn web_semantic_color_vars_used_by_dashboard() -> BTreeSet<String> {
