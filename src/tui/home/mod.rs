@@ -1487,7 +1487,11 @@ impl HomeView {
         // current canonical resolution. Mismatch forces a rewire of that
         // entry even when the name set is unchanged, since notify
         // NonRecursive watches do not auto-reattach across the inode
-        // change on Linux inotify or macOS FSEvents.
+        // change on Linux inotify or macOS FSEvents. Resolve via the
+        // non-creating `get_profile_dir_path`: this is a read-only
+        // existence/canonicalization probe, and `get_profile_dir` would
+        // resurrect a profile dir that a peer just deleted, leaving the
+        // removed profile visible in `list_profiles()` forever.
         let inode_invalidated: HashSet<String> = prior
             .iter()
             .filter(|name| {
@@ -1495,7 +1499,7 @@ impl HomeView {
                     Some(e) => e,
                     None => return false,
                 };
-                let current_canonical = crate::session::get_profile_dir(name)
+                let current_canonical = crate::session::get_profile_dir_path(name)
                     .ok()
                     .and_then(|p| std::fs::canonicalize(&p).ok());
                 match current_canonical {

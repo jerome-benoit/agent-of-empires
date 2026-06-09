@@ -70,13 +70,24 @@ fn dynamic_profile_add_and_remove_keeps_subscriptions_in_sync() {
         "TUI should not have crashed after profile dir removal"
     );
 
+    // The active-profile filter is not auto-reset when its dir vanishes,
+    // so the list header still reads `aoe [scratch]`. Switch back to
+    // all-profiles mode first: with the active profile gone from the
+    // list, the picker opens with "all" highlighted at the top
+    // (ProfilePickerDialog::new falls back to index 0), so Enter selects
+    // it and the header drops the profile tag.
     h.send_keys("P");
     h.wait_for("Profiles");
-    // Polls the picker until "scratch" disappears, replacing a fixed
-    // 2.5s sleep that padded every CI run while still flaking under
-    // load. Substring "scratch" rather than "scratch  0 sessions" so a
-    // stale row with a different session count still trips the
-    // assertion.
+    h.send_keys("Enter");
+    h.wait_for_absent("Profiles", Duration::from_secs(5));
+
+    // Now in all-profiles mode the header carries no profile tag, so a
+    // lingering "scratch" can only be a stale picker row. Reopen the
+    // picker and assert the removed profile is gone. Substring "scratch"
+    // rather than "scratch  0 sessions" so a stale row with any session
+    // count still trips the assertion.
+    h.send_keys("P");
+    h.wait_for("Profiles");
     h.wait_for_absent("scratch", Duration::from_secs(5));
     h.send_keys("Escape");
     h.wait_for_absent("Profiles", Duration::from_secs(5));
