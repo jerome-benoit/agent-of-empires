@@ -29,15 +29,14 @@ export interface TourRunnerProps {
 // Theme via the app's resolved-theme CSS variables (web/src/index.css) so the
 // tooltip tracks light vs dark instead of being pinned to dark hex. These land
 // as inline CSS styles, where var() resolves. The exception is overlayColor: it
-// is painted as an SVG fill *attribute*, where var() does not reliably resolve,
-// so the scrim stays a literal translucent dark (it reads correctly over both
-// light and dark content).
-const OPTIONS: Partial<Options> = {
+// is painted as an SVG fill attribute, where var() does not reliably resolve,
+// so the scrim stays a theme-agnostic translucent black.
+export const TOUR_RUNNER_OPTIONS: Partial<Options> = {
   buttons: ["skip", "back", "primary"] as ButtonType[],
   showProgress: true,
   skipBeacon: true,
   primaryColor: "var(--color-brand-600)",
-  overlayColor: "rgba(2, 6, 23, 0.65)",
+  overlayColor: "rgba(0, 0, 0, 0.65)",
   textColor: "var(--color-text-primary)",
   zIndex: 10_000,
   scrollOffset: 96,
@@ -45,7 +44,7 @@ const OPTIONS: Partial<Options> = {
 
 const LOCALE = { skip: "Skip", last: "Done", next: "Next", back: "Back" };
 
-const STYLES: Partial<Styles> = {
+export const TOUR_RUNNER_STYLES: Partial<Styles> = {
   tooltip: {
     backgroundColor: "var(--color-surface-800)",
     border: "1px solid var(--color-surface-700)",
@@ -62,8 +61,7 @@ const STYLES: Partial<Styles> = {
   buttonPrimary: {
     backgroundColor: "var(--color-brand-600)",
     borderRadius: 6,
-    // Dark text reads on the amber primary in both themes; keep it fixed.
-    color: "#0f172a",
+    color: "var(--color-text-on-brand)",
   },
   buttonBack: { color: "var(--color-text-secondary)" },
   buttonSkip: { color: "var(--color-text-dim)" },
@@ -122,9 +120,9 @@ export default function TourRunner({ run, steps, onFinish }: TourRunnerProps) {
       run={run}
       steps={joyrideSteps}
       continuous
-      options={OPTIONS}
+      options={TOUR_RUNNER_OPTIONS}
       locale={LOCALE}
-      styles={STYLES}
+      styles={TOUR_RUNNER_STYLES}
       onEvent={handleEvent}
     />
   );
