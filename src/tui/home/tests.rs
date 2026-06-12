@@ -160,6 +160,148 @@ fn interactive_refresh_reopens_hotkey_warning_dialog() {
     );
 }
 
+#[test]
+#[serial]
+fn watcher_refresh_stashes_pending_watcher_theme() {
+    let temp = TempDir::new().unwrap();
+    setup_test_home(&temp);
+    let _storage = Storage::new_unwatched("test").unwrap();
+    let global_config = crate::session::get_app_dir().unwrap().join("config.toml");
+    std::fs::write(&global_config, "[theme]\nname = \"dracula\"\n").unwrap();
+
+    let mut view = HomeView::new(
+        Some("test".to_string()),
+        AvailableTools::with_tools(&["claude"]),
+        crate::file_watch::FileWatchService::noop(),
+    )
+    .unwrap();
+    assert!(
+        view.pending_watcher_theme.is_none(),
+        "precondition: HomeView::new must not stash a pending watcher theme"
+    );
+
+    view.refresh_from_config(super::ConfigRefreshOrigin::Watcher);
+    assert_eq!(
+        view.pending_watcher_theme.as_deref(),
+        Some("dracula"),
+        "watcher-driven refresh must stash the resolved theme name so the tick loop can dispatch App::set_theme"
+    );
+}
+
+#[test]
+#[serial]
+fn interactive_refresh_does_not_stash_pending_watcher_theme() {
+    let temp = TempDir::new().unwrap();
+    setup_test_home(&temp);
+    let _storage = Storage::new_unwatched("test").unwrap();
+    let global_config = crate::session::get_app_dir().unwrap().join("config.toml");
+    std::fs::write(&global_config, "[theme]\nname = \"dracula\"\n").unwrap();
+
+    let mut view = HomeView::new(
+        Some("test".to_string()),
+        AvailableTools::with_tools(&["claude"]),
+        crate::file_watch::FileWatchService::noop(),
+    )
+    .unwrap();
+    assert!(
+        view.pending_watcher_theme.is_none(),
+        "precondition: HomeView::new must not stash a pending watcher theme"
+    );
+
+    view.refresh_from_config(super::ConfigRefreshOrigin::Interactive);
+    assert!(
+        view.pending_watcher_theme.is_none(),
+        "interactive refresh must not stash a pending theme; settings/intro input handlers dispatch Action::SetTheme directly"
+    );
+}
+
+#[test]
+#[serial]
+fn take_pending_watcher_theme_clears_the_field() {
+    let temp = TempDir::new().unwrap();
+    setup_test_home(&temp);
+    let _storage = Storage::new_unwatched("test").unwrap();
+
+    let mut view = HomeView::new(
+        Some("test".to_string()),
+        AvailableTools::with_tools(&["claude"]),
+        crate::file_watch::FileWatchService::noop(),
+    )
+    .unwrap();
+    view.pending_watcher_theme = Some("zinc".to_string());
+
+    let first = view.take_pending_watcher_theme();
+    let second = view.take_pending_watcher_theme();
+    assert_eq!(first.as_deref(), Some("zinc"));
+    assert!(
+        second.is_none(),
+        "take must drain the pending field so a single watcher refresh dispatches at most one set_theme"
+    );
+}
+
+#[test]
+#[serial]
+fn watcher_refresh_stashes_global_theme_not_profile_override() {
+    use crate::session::profile_config::{save_profile_config, ProfileConfig};
+    let temp = TempDir::new().unwrap();
+    setup_test_home(&temp);
+    let _storage = Storage::new_unwatched("test").unwrap();
+
+    let global_config = crate::session::get_app_dir().unwrap().join("config.toml");
+    std::fs::write(&global_config, "[theme]\nname = \"dracula\"\n").unwrap();
+
+    let profile_overrides: ProfileConfig =
+        serde_json::from_value(serde_json::json!({"theme": {"name": "empire"}}))
+            .expect("legacy hand-edited overrides may carry a theme key even though theme is global by contract");
+    save_profile_config("test", &profile_overrides).unwrap();
+
+    let mut view = HomeView::new(
+        Some("test".to_string()),
+        AvailableTools::with_tools(&["claude"]),
+        crate::file_watch::FileWatchService::noop(),
+    )
+    .unwrap();
+    assert!(
+        view.pending_watcher_theme.is_none(),
+        "precondition: HomeView::new must not stash a pending watcher theme"
+    );
+
+    view.refresh_from_config(super::ConfigRefreshOrigin::Watcher);
+    assert_eq!(
+        view.pending_watcher_theme.as_deref(),
+        Some("dracula"),
+        "watcher path must stash the global theme name via resolve_theme_name; a stale per-profile theme override (legacy or hand-edited) must not mask the global value"
+    );
+}
+
+#[test]
+#[serial]
+fn second_watcher_refresh_overwrites_stale_stash() {
+    let temp = TempDir::new().unwrap();
+    setup_test_home(&temp);
+    let _storage = Storage::new_unwatched("test").unwrap();
+
+    let mut view = HomeView::new(
+        Some("test".to_string()),
+        AvailableTools::with_tools(&["claude"]),
+        crate::file_watch::FileWatchService::noop(),
+    )
+    .unwrap();
+
+    let global_config = crate::session::get_app_dir().unwrap().join("config.toml");
+    std::fs::write(&global_config, "[theme]\nname = \"dracula\"\n").unwrap();
+    view.refresh_from_config(super::ConfigRefreshOrigin::Watcher);
+    assert_eq!(view.pending_watcher_theme.as_deref(), Some("dracula"));
+
+    std::fs::write(&global_config, "[theme]\nname = \"empire\"\n").unwrap();
+    view.refresh_from_config(super::ConfigRefreshOrigin::Watcher);
+    assert_eq!(
+        view.pending_watcher_theme.as_deref(),
+        Some("empire"),
+        "second watcher refresh must overwrite the stale stash; first-write-wins would silently drop the latest theme change"
+    );
+}
+
 fn create_test_env_with_sessions(count: usize) -> TestEnv {
     use crate::session::config::GroupByMode;
     let temp = TempDir::new().unwrap();

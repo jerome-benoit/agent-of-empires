@@ -1252,6 +1252,9 @@ impl App {
             if config_kick {
                 let result = self.home.try_refresh_from_config_watcher();
                 handle_tick_reload_config(result, &mut self.home.reload_failure_state);
+                if let Some(theme_name) = self.home.take_pending_watcher_theme() {
+                    self.set_theme(&theme_name);
+                }
                 refresh_needed = true;
                 needs_full_refresh = true;
             }

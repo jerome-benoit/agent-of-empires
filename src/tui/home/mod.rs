@@ -892,6 +892,14 @@ pub struct HomeView {
     /// single aggregated `info_dialog` (multi-source body) and avoid
     /// spamming on every tick while a file remains broken.
     pub(super) reload_failure_state: ReloadFailureState,
+    /// Theme name queued by `apply_config_to_state` on the Watcher path.
+    /// Drained by the tick loop in `App::run` via `take_pending_watcher_theme`
+    /// so `App::set_theme` can be called (theme state lives on `App`, not
+    /// `HomeView`). The Interactive path dispatches `Action::SetTheme`
+    /// directly and never sets this field. On a settings save the watcher
+    /// echo also fires this path (idempotent: the Interactive dispatch
+    /// already applied the same theme).
+    pub(super) pending_watcher_theme: Option<String>,
 }
 
 /// Identifies config-watch entries without letting a profile literally named
@@ -1405,6 +1413,8 @@ impl HomeView {
             config_watch_handles: HashMap::new(),
             watcher_config_refresh_count: std::sync::atomic::AtomicU64::new(0),
             reload_failure_state: ReloadFailureState::default(),
+            // App::new loads the boot theme; no startup stash from HomeView.
+            pending_watcher_theme: None,
         };
 
         view.tool_hotkey_cache = input::build_tool_hotkey_cache(&view.tool_configs);
@@ -5375,6 +5385,31 @@ impl HomeView {
                 &hotkey_warnings.join("\n"),
             ));
         }
+        // Watcher path: stash for tick-loop dispatch (App owns theme state).
+        // Reads via `resolve_theme_name` (global-only by contract), not
+        // `config.theme.name` which would carry a stale per-profile override.
+        // Guard is load-bearing: Interactive already returns
+        // `Action::SetTheme` directly from input handlers, so stashing
+        // unconditionally would double-dispatch on every settings save.
+        // Note: `resolve_theme_name` swallows read errors via `load_or_warn`
+        // and falls back to "zinc"; a peer write landing between the
+        // `resolve_config` above and this call momentarily flips the theme
+        // and the next watcher event recovers. Diverges from the
+        // "preserve prior state on Err" contract honored by other fields
+        // here; acceptable since `set_theme` is idempotent and the race
+        // window is microseconds wide.
+        if matches!(origin, ConfigRefreshOrigin::Watcher) {
+            self.pending_watcher_theme = Some(crate::session::config::resolve_theme_name());
+        }
+    }
+
+    /// Drain the theme name stashed by `apply_config_to_state` on the
+    /// Watcher path. The tick loop in `App::run` calls this after
+    /// `try_refresh_from_config_watcher` and dispatches the result to
+    /// `App::set_theme`. Returns `None` outside the watcher path or
+    /// after a previous take in the same tick.
+    pub(super) fn take_pending_watcher_theme(&mut self) -> Option<String> {
+        self.pending_watcher_theme.take()
     }
 
     /// Export the watcher-config-refresh counter to a hidden file in
