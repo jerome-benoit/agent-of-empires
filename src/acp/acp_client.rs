@@ -8588,7 +8588,9 @@ mod tests {
             AcpError::Spawn(msg) => {
                 assert!(msg.contains("codex-acp"), "should echo the binary: {msg}");
                 assert!(
-                    msg.contains("Install with: npm install -g @zed-industries/codex-acp"),
+                    msg.contains(
+                        "Install with: npm install -g @agentclientprotocol/codex-acp@latest"
+                    ),
                     "should append the exact install command: {msg}"
                 );
             }
@@ -9785,8 +9787,9 @@ mod tests {
         // The supervisor's post-spawn `set_mode(profile.yolo_mode_id)` is
         // gated by this same `is_mode_advertised` guard. Pin each adapter's
         // YOLO id against the modes that adapter actually advertises, so a
-        // mismatch (the #1142 codex bug: `bypassPermissions` vs `full-access`)
-        // can't silently get dropped again.
+        // mismatch (the #1142 codex bug, or the
+        // @agentclientprotocol/codex-acp `agent-full-access` rename) can't
+        // silently get dropped again.
         let claude_modes = Some(vec![
             "auto".to_string(),
             "default".to_string(),
@@ -9796,8 +9799,8 @@ mod tests {
         ]);
         let codex_modes = Some(vec![
             "read-only".to_string(),
-            "auto".to_string(),
-            "full-access".to_string(),
+            "agent".to_string(),
+            "agent-full-access".to_string(),
         ]);
 
         let claude_yolo = agent_profiles::resolve("claude").yolo_mode_id.unwrap();
@@ -9811,6 +9814,8 @@ mod tests {
             &codex_modes,
             false
         ));
+        // The old Zed adapter id is stale for @agentclientprotocol/codex-acp.
+        assert!(!is_mode_advertised("full-access", &codex_modes, false));
     }
 
     #[test]

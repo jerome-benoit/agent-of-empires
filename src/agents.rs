@@ -92,7 +92,7 @@ pub struct AgentHookConfig {
     /// Hook events to register (status transitions and session lifecycle).
     pub events: &'static [HookEvent],
     /// On-disk format of the settings file. Drives target-kind selection in
-    /// [`crate::hooks::iter_hook_targets_in`], which feeds the v015 marker
+    /// `crate::hooks::iter_hook_targets_in`, which feeds the v015 marker
     /// walker and the uninstall path.
     pub format: HookFormat,
 }
@@ -131,10 +131,10 @@ pub struct SidecarHooks {
     /// config file instead of the standalone `host_config_subpath` agent, and
     /// skips `post_install_host`. `None` for agents whose hooks apply
     /// regardless of which agent is selected. See
-    /// [`crate::session::Instance::install_agent_status_hooks`].
+    /// `crate::session::Instance::install_agent_status_hooks`.
     pub selected_agent_hooks: Option<SelectedAgentHooks>,
     /// On-disk format of the sidecar's config file. Drives marker-presence
-    /// walker dispatch in [`crate::hooks::has_aoe_marker`].
+    /// walker dispatch in `crate::hooks::has_aoe_marker`.
     pub format: SidecarFormat,
 }
 
@@ -158,7 +158,7 @@ pub struct SelectedAgentHooks {
 }
 
 /// On-disk format of a sidecar agent's config file. Drives
-/// marker-presence walker dispatch in [`crate::hooks::has_aoe_marker`].
+/// marker-presence walker dispatch in `crate::hooks::has_aoe_marker`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidecarFormat {
     /// Settl `[[hooks]]` table in `.settl/config.toml`.
@@ -852,10 +852,10 @@ pub fn get_agent(name: &str) -> Option<&'static AgentDef> {
 /// default), so AoE must not install hooks into `good`, an agent the CLI is not
 /// running. Returning `None` makes AoE fall back to its standalone hooks agent,
 /// which is what the CLI effectively does. This also gives extra-args the final
-/// say over a command override when [`crate::session::Instance::selected_agent_args`]
+/// say over a command override when `crate::session::Instance::selected_agent_args`
 /// concatenates command then extra-args.
 ///
-/// A value is rejected by [`is_safe_agent_name`] (empty, `.`/`..`, leading dash,
+/// A value is rejected by `is_safe_agent_name` (empty, `.`/`..`, leading dash,
 /// or a path separator) so a parsed value can be safely joined to an agents
 /// directory without path traversal. Whitespace-tokenized, which matches how AoE
 /// assembles the launch string; quoted values containing spaces are not handled

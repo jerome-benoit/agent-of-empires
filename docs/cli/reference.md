@@ -1138,7 +1138,7 @@ Export a built-in theme as a TOML file for customization
 
 ###### **Options:**
 
-* `-o`, `--output <OUTPUT>` — Output file path (defaults to <name>.toml in the themes directory)
+* `-o`, `--output <OUTPUT>` — Output file path (defaults to `<name>.toml` in the themes directory)
 
 
 

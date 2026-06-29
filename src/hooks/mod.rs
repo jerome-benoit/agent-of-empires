@@ -3649,6 +3649,9 @@ hooks_auto_accept: false
 
     #[test]
     fn test_hook_command_session_id_skips_when_no_session_id() {
+        if skip_if_no_jq() {
+            return;
+        }
         let tmp = TempDir::new().unwrap();
         let payload = r#"{"cwd":"/x","other":"value"}"#;
         let output = run_session_id_hook(payload, "no_sid", tmp.path());

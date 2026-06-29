@@ -314,11 +314,11 @@ pub struct SandboxInfo {
     pub container_workdir: Option<String>,
     /// `KEY=VALUE` pairs minted on the host by `host_hooks.before_start` when
     /// the container last came up. Injected into the container environment as
-    /// inherited (leak-safe) entries by [`super::environment::collect_environment`].
+    /// inherited (leak-safe) entries by `super::environment::collect_environment`.
     ///
     /// Runtime-only and secret: never serialized (so short-lived tokens never
     /// hit disk and a stale value never survives a restart) and re-minted on the
-    /// next container come-up. See [`Instance::ensure_before_start_env`].
+    /// next container come-up. See `Instance::ensure_before_start_env`.
     #[serde(skip)]
     pub before_start_env: Vec<(String, String)>,
 }
@@ -1335,6 +1335,7 @@ impl Instance {
 
     pub fn unarchive(&mut self) {
         self.archived_at = None;
+        self.idle_dormant_since = None;
     }
 
     pub fn is_archived(&self) -> bool {
@@ -4550,6 +4551,23 @@ mod tests {
         assert!(inst.is_idle_dormant());
         inst.touch_last_accessed();
         assert!(!inst.is_idle_dormant());
+    }
+
+    #[test]
+    fn test_unarchive_clears_idle_dormant() {
+        let mut inst = Instance::new("test", "/tmp/test");
+        inst.archive();
+        inst.mark_idle_dormant();
+        assert!(inst.is_archived());
+        assert!(inst.is_idle_dormant());
+
+        inst.unarchive();
+
+        assert!(!inst.is_archived());
+        assert!(
+            !inst.is_idle_dormant(),
+            "unarchive should wake sessions blocked by idle auto-stop"
+        );
     }
 
     #[test]

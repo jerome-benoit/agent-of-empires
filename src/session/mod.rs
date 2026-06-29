@@ -102,7 +102,7 @@ use std::time::Duration;
 
 /// App dir name under the XDG config base (`$XDG_CONFIG_HOME`, default
 /// `~/.config`). Always used on Linux; used on macOS when the user opts into
-/// the XDG layout (see [`get_app_dir_path`] and issue #1948). Debug builds use
+/// the XDG layout (see `get_app_dir_path` and issue #1948). Debug builds use
 /// a `-dev` suffix so a `cargo run` instance shares no state with an installed
 /// release binary.
 pub const APP_DIR_NAME_XDG: &str = if cfg!(debug_assertions) {
@@ -308,7 +308,7 @@ pub fn get_profile_dir(profile: &str) -> Result<PathBuf> {
 /// Use this for read-only operations (loading config, looking up paths)
 /// where the directory-creation side effect of [`get_profile_dir`] would
 /// pollute `profiles/` with empty stub directories. Notably, GET
-/// /api/settings?profile=<name> for an unknown profile used to create
+/// `/api/settings?profile=<name>` for an unknown profile used to create
 /// that profile's directory as a side effect of the read, which then
 /// made the unknown profile appear in subsequent GET /api/profiles
 /// responses. Routing those reads through this helper keeps the lookup

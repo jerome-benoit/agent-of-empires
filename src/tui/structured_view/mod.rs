@@ -6,7 +6,7 @@
 //!
 //! Directory name is `structured_view` (not `structured view`) to avoid colliding
 //! with `src/acp/` per the recipe in
-//! https://github.com/agent-of-empires/agent-of-empires/issues/1018#issuecomment-4444040929.
+//! <https://github.com/agent-of-empires/agent-of-empires/issues/1018#issuecomment-4444040929>.
 
 pub mod input;
 pub mod mention;
