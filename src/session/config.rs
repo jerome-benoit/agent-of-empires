@@ -1619,7 +1619,7 @@ pub enum ColorMode {
     /// modern terminals and SSH sessions that pass RGB correctly.
     #[default]
     Truecolor,
-    /// Emit 256-palette escapes (\e[38;5;<idx>m) by converting every theme
+    /// Emit 256-palette escapes (`\e[38;5;<idx>m`) by converting every theme
     /// Rgb(r,g,b) to the nearest xterm-256 index. Use this when the transport
     /// (notably some mosh clients) mishandles 24-bit RGB; preview panes in
     /// aoe already use 256-palette via ansi-to-tui, so palette mode renders

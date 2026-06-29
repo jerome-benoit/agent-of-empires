@@ -61,7 +61,7 @@ impl AgentRegistry {
     /// to a registry key.
     ///
     /// Sources verified against
-    /// https://agentclientprotocol.com/get-started/agents.md
+    /// <https://agentclientprotocol.com/get-started/agents.md>
     /// (Jan 2026):
     ///
     ///   claude   → claude-agent-acp     (Zed adapter for Claude SDK)

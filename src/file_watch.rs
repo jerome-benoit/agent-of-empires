@@ -409,7 +409,7 @@ impl FileWatchService {
     /// Construct a noop service: no kernel watcher, no drain thread, no
     /// dispatcher. [`Self::subscribe_channel`] returns Ok with an
     /// immediately-closed receiver (its paired sender is dropped before
-    /// return). [`Self::notify_local_change`] is silently a no-op: the
+    /// return). `Self::notify_local_change` is silently a no-op: the
     /// dispatcher channel's receiver is dropped at construction so any
     /// `send` Errs, and `dispatcher_dead` is pre-set so the error log path
     /// short-circuits. Used by `Storage::new_unwatched` and as the

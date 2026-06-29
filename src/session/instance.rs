@@ -314,11 +314,11 @@ pub struct SandboxInfo {
     pub container_workdir: Option<String>,
     /// `KEY=VALUE` pairs minted on the host by `host_hooks.before_start` when
     /// the container last came up. Injected into the container environment as
-    /// inherited (leak-safe) entries by [`super::environment::collect_environment`].
+    /// inherited (leak-safe) entries by `super::environment::collect_environment`.
     ///
     /// Runtime-only and secret: never serialized (so short-lived tokens never
     /// hit disk and a stale value never survives a restart) and re-minted on the
-    /// next container come-up. See [`Instance::ensure_before_start_env`].
+    /// next container come-up. See `Instance::ensure_before_start_env`.
     #[serde(skip)]
     pub before_start_env: Vec<(String, String)>,
 }
