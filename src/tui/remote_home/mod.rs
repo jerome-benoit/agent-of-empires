@@ -84,6 +84,7 @@ impl RemoteHomeState {
 pub async fn run_standalone(endpoint: DaemonEndpoint) -> Result<()> {
     use crossterm::event::{
         DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     };
     use crossterm::execute;
     use crossterm::terminal::{
@@ -104,6 +105,16 @@ pub async fn run_standalone(endpoint: DaemonEndpoint) -> Result<()> {
         EnableBracketedPaste,
         EnableMouseCapture
     )?;
+    // Push the kitty enhancement stack so the remote picker and the
+    // structured-view it hands off to see `Shift+Enter` as a distinct
+    // KeyEvent (#2362). Cross-machine `AOE_DAEMON_URL` flows enter raw
+    // mode here and never go through `TerminalGuard`, so a missing push
+    // here would regress remote users vs. local TUI users.
+    #[cfg(unix)]
+    execute!(
+        stdout,
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+    )?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let mut event_stream = EventStream::new();
@@ -113,6 +124,8 @@ pub async fn run_standalone(endpoint: DaemonEndpoint) -> Result<()> {
 
     let result = run(&mut terminal, &mut event_stream, &theme, endpoint).await;
 
+    #[cfg(unix)]
+    execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags)?;
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
