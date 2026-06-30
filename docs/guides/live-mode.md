@@ -71,11 +71,12 @@ page their own UI keep working.
 
 `Shift+Enter` inserts a newline into the agent's input box on
 kitty-protocol-capable terminals (Ghostty, Kitty, WezTerm, foot, Konsole
-24+, recent Alacritty). On terminals that do not speak the kitty
-keyboard protocol (Apple Terminal, default iTerm2, Termius, Mosh),
-`Shift+Enter` submits like bare `Enter`; use `Option+Enter` (which sends
-`ESC+CR` natively on many terminals) or configure the terminal to send
-`ESC+CR` for `Shift+Enter` as a fallback.
+24+, Alacritty 0.13+, recent xterm). On terminals that do not speak the
+kitty keyboard protocol (Apple Terminal, default iTerm2, Termius, Mosh),
+`Shift+Enter` submits like bare `Enter`; use `Alt+Enter` (or
+`Option+Enter` on macOS), which sends `ESC+CR` natively on many
+terminals, or configure the terminal to send `ESC+CR` for `Shift+Enter`
+as a fallback.
 
 ## Configuration
 
