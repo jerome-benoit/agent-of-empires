@@ -316,7 +316,7 @@ impl ContainerTerminalSession {
 /// belonging to `id`. The single-index `kill` methods only target one
 /// deterministic name; this scans the live session list so the multi-terminal
 /// web tabs (`_t{N}` suffixes) and any title-change orphans are all reaped on
-/// session teardown. Mirrors [`kill_all_tool_sessions_for_id`].
+/// session teardown. Mirrors [`crate::tmux::kill_all_tool_sessions_for_id`].
 pub fn kill_all_terminals_for_id(id: &str) {
     let needle = format!("_{}", truncate_id(id, 8));
 
