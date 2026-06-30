@@ -83,11 +83,8 @@ pub async fn run_standalone(session_id: &str) -> anyhow::Result<()> {
         EnableMouseCapture
     )?;
     // Push the kitty enhancement stack so `Shift+Enter` arrives as
-    // `KeyEvent { Enter, SHIFT }` inside the structured-view composer (#2362).
-    // Same flag and same best-effort posture as `TerminalGuard::enter`: raw
-    // mode + alt screen + paste + mouse capture are already on by this point,
-    // so a `?` here on a transient push failure would skip teardown and wedge
-    // the terminal.
+    // `KeyEvent { Enter, SHIFT }` inside the structured-view composer
+    // (#2362). Best-effort like `TerminalGuard::enter`.
     #[cfg(unix)]
     let _ = execute!(
         stdout,

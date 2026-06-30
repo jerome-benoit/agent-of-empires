@@ -502,11 +502,8 @@ impl App {
             EnableBracketedPaste,
             crossterm::cursor::Hide
         )?;
-        // Repush the kitty enhancement stack symmetric with the pop above (#2362).
-        // Best-effort, mirrors `TerminalGuard::enter`: a transient push failure
-        // would only lose Shift+Enter disambiguation, not worth aborting the
-        // tmux-attach resume flow with the terminal already back in raw + alt
-        // screen.
+        // Repush the kitty enhancement stack symmetric with the pop above
+        // (#2362). Best-effort, mirrors `TerminalGuard::enter`.
         #[cfg(unix)]
         let _ = crossterm::execute!(
             terminal.backend_mut(),

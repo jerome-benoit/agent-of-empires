@@ -107,11 +107,8 @@ pub async fn run_standalone(endpoint: DaemonEndpoint) -> Result<()> {
     )?;
     // Push the kitty enhancement stack so the remote picker and the
     // structured-view it hands off to see `Shift+Enter` as a distinct
-    // KeyEvent (#2362). Cross-machine `AOE_DAEMON_URL` flows enter raw
-    // mode here and never go through `TerminalGuard`, so a missing push
-    // here would regress remote users vs. local TUI users. Best-effort
-    // for the same reason `TerminalGuard::enter` is: a transient push
-    // failure would skip teardown and wedge the terminal.
+    // KeyEvent (#2362). Best-effort like `TerminalGuard::enter`; the
+    // `AOE_DAEMON_URL` flow never enters via `TerminalGuard`.
     #[cfg(unix)]
     let _ = execute!(
         stdout,
