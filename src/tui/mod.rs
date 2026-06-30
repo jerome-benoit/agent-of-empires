@@ -142,10 +142,15 @@ impl TerminalGuard {
         // distinction (status quo before #2362), not anything worth aborting
         // TUI startup for. Mirrors the Drop pop's best-effort posture.
         #[cfg(unix)]
-        let _ = execute!(
+        if let Err(err) = execute!(
             stdout,
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
-        );
+        ) {
+            tracing::debug!(
+                target: "tui.input",
+                "kitty keyboard enhancement push failed (Shift+Enter will submit instead of inserting newline): {err}",
+            );
+        }
         Ok(Self {
             disable_mouse: !mosh_active,
         })
