@@ -29,6 +29,13 @@ fn isolate_home(temp: &std::path::Path) {
     };
 }
 
+fn watcher_err(profile: Option<&str>, message: &str) -> super::WatcherInitError {
+    super::WatcherInitError {
+        profile: profile.map(str::to_owned),
+        message: message.to_owned(),
+    }
+}
+
 /// Poll `pred` every 25ms up to `deadline`. Avoids a fixed sleep that
 /// would either flake on slow CI or pad the test runtime on fast paths.
 async fn wait_until<F>(deadline: Duration, mut pred: F) -> bool
@@ -555,7 +562,7 @@ async fn rewire_after_profile_delete_watcher_warning_survives_recovery_edge() {
 /// is called with an unchanged profile set and no inode invalidation, the
 /// fast-path returns without running the install loop, and a previously
 /// latched `disk_watcher_init_error` must be preserved (the install loop
-/// is the only path that re-latches via `record_disk_watcher_init_failure`).
+/// is the only path that re-latches via `apply_disk_watcher_init_pass`).
 #[tokio::test]
 #[serial]
 async fn rewire_no_op_preserves_latched_disk_watcher_init_failure() {
@@ -579,7 +586,10 @@ async fn rewire_no_op_preserves_latched_disk_watcher_init_failure() {
     );
 
     view.reload_failure_state
-        .record_disk_watcher_init_failure("hv-noop", "simulated prior failure");
+        .apply_disk_watcher_init_pass(Some(watcher_err(
+            Some("hv-noop"),
+            "simulated prior failure",
+        )));
     assert!(
         view.reload_failure_state.has_any_failure(),
         "precondition: latch is set"
@@ -617,7 +627,10 @@ async fn rewire_disk_clears_stale_latch_when_failing_profile_is_removed() {
     .expect("HomeView::new");
 
     view.reload_failure_state
-        .record_disk_watcher_init_failure("ghost", "simulated subscribe failure");
+        .apply_disk_watcher_init_pass(Some(watcher_err(
+            Some("ghost"),
+            "simulated subscribe failure",
+        )));
     assert!(
         view.reload_failure_state.has_any_failure(),
         "precondition: latch is set, references the now-deleted profile"
@@ -653,7 +666,10 @@ async fn rewire_config_clears_stale_latch_when_failing_profile_is_removed() {
     .expect("HomeView::new");
 
     view.reload_failure_state
-        .record_config_watcher_init_failure(Some("ghost"), "simulated subscribe failure");
+        .apply_config_watcher_init_pass(Some(watcher_err(
+            Some("ghost"),
+            "simulated subscribe failure",
+        )));
     assert!(
         view.reload_failure_state.has_any_failure(),
         "precondition: latch is set, references the now-deleted profile"
@@ -691,7 +707,7 @@ async fn config_init_failure_survives_concurrent_disk_rewire_clear() {
     .expect("HomeView::new");
 
     view.reload_failure_state
-        .record_config_watcher_init_failure(None, "seed: config init failed");
+        .apply_config_watcher_init_pass(Some(watcher_err(None, "seed: config init failed")));
     assert!(
         view.reload_failure_state.has_any_failure(),
         "precondition: config latch is set"
@@ -757,8 +773,9 @@ fn reload_failure_state_dialog_body_aggregates_all_four_sources() {
     let mut state = super::ReloadFailureState::default();
     state.record_storage(&Err::<(), _>(anyhow::anyhow!("storage err")));
     state.record_config(&Err::<(), _>(anyhow::anyhow!("config err")));
-    state.record_disk_watcher_init_failure("agg-disk", "disk subscribe denied");
-    state.record_config_watcher_init_failure(None, "config subscribe denied");
+    state
+        .apply_disk_watcher_init_pass(Some(watcher_err(Some("agg-disk"), "disk subscribe denied")));
+    state.apply_config_watcher_init_pass(Some(watcher_err(None, "config subscribe denied")));
 
     let body = state.build_dialog_body();
     assert!(
@@ -783,22 +800,25 @@ fn reload_failure_state_dialog_body_aggregates_all_four_sources() {
 fn reload_failure_state_watcher_init_failure_lifecycle_is_per_source() {
     let mut state = super::ReloadFailureState::default();
 
-    state.record_disk_watcher_init_failure("life-disk", "first disk install failed");
+    state.apply_disk_watcher_init_pass(Some(watcher_err(
+        Some("life-disk"),
+        "first disk install failed",
+    )));
     assert!(
         state.has_unacknowledged_failure(),
         "disk_watcher_init_error contributes to has_any_failure"
     );
 
-    state.record_config_watcher_init_failure(None, "first config install failed");
+    state.apply_config_watcher_init_pass(Some(watcher_err(None, "first config install failed")));
     state.acknowledge_dialog();
 
-    state.clear_disk_watcher_init_failure();
+    state.apply_disk_watcher_init_pass(None);
     assert!(
         state.has_any_failure(),
         "clearing only the disk slot leaves the config slot latched"
     );
 
-    state.clear_config_watcher_init_failure();
+    state.apply_config_watcher_init_pass(None);
     assert!(
         !state.has_any_failure(),
         "clearing the last failing source removes all latches"
@@ -806,6 +826,117 @@ fn reload_failure_state_watcher_init_failure_lifecycle_is_per_source() {
     assert!(
         !state.has_unacknowledged_failure(),
         "clearing the last failing source resets the ack latch"
+    );
+}
+
+/// Issue #2112 regression: when the same disk-watcher init failure
+/// recurs on every rewire pass, the user's acknowledgement must
+/// persist across passes. Locks the bug fix.
+#[test]
+fn reload_failure_ack_persists_across_identical_rewire_failures() {
+    let mut state = super::ReloadFailureState::default();
+
+    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("p"), "permission denied")));
+    state.acknowledge_dialog();
+    assert!(!state.has_unacknowledged_failure());
+
+    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("p"), "permission denied")));
+    assert!(
+        !state.has_unacknowledged_failure(),
+        "identical failure across rewire passes must not re-arm the ack latch (#2112)"
+    );
+}
+
+/// A materially different error message (new root cause) is treated as
+/// a fresh failure and re-arms the dialog even when the source slot is
+/// unchanged.
+#[test]
+fn reload_failure_re_arms_when_message_changes() {
+    let mut state = super::ReloadFailureState::default();
+
+    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("p"), "EMFILE")));
+    state.acknowledge_dialog();
+
+    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("p"), "ENOSPC")));
+    assert!(
+        state.has_unacknowledged_failure(),
+        "a changed error message surfaces a fresh notification"
+    );
+}
+
+/// A failure migrating to a different profile name is also a content
+/// change and re-arms the dialog.
+#[test]
+fn reload_failure_re_arms_when_profile_changes() {
+    let mut state = super::ReloadFailureState::default();
+
+    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("a"), "denied")));
+    state.acknowledge_dialog();
+
+    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("b"), "denied")));
+    assert!(
+        state.has_unacknowledged_failure(),
+        "a failure relocating to a different profile re-arms the dialog"
+    );
+}
+
+/// The invariant at `ReloadFailureState`'s healthy-to-failed transition
+/// must survive the fix: a NEW source (config-watcher init) appearing
+/// during an already-acknowledged disk-watcher init burst still re-arms
+/// the dialog so the user sees the additional failure.
+#[test]
+fn reload_failure_re_arms_when_new_source_joins_burst() {
+    let mut state = super::ReloadFailureState::default();
+
+    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("p"), "denied")));
+    state.acknowledge_dialog();
+    assert!(!state.has_unacknowledged_failure());
+
+    state.apply_config_watcher_init_pass(Some(watcher_err(None, "denied")));
+    assert!(
+        state.has_unacknowledged_failure(),
+        "a NEW failing source during an acked burst surfaces a fresh notification"
+    );
+}
+
+/// When two sources are failing and the user has acknowledged, an
+/// unrelated source going through its own clear-then-record-same-content
+/// rewire cycle must not re-arm the dialog. Locks per-source isolation
+/// of the ack semantics.
+#[test]
+fn reload_failure_ack_persists_when_only_other_source_clears_and_rerecords() {
+    let mut state = super::ReloadFailureState::default();
+
+    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("p"), "disk denied")));
+    state.apply_config_watcher_init_pass(Some(watcher_err(None, "config denied")));
+    state.acknowledge_dialog();
+    assert!(!state.has_unacknowledged_failure());
+
+    state.apply_config_watcher_init_pass(Some(watcher_err(None, "config denied")));
+    assert!(
+        !state.has_unacknowledged_failure(),
+        "an unchanged adjacent-source rewire pass must not re-arm the ack latch"
+    );
+}
+
+/// A failure that fully clears and then later returns produces a fresh
+/// dialog even if its content is byte-identical to the previously
+/// acknowledged failure. Locks the recovery-then-refailure UX.
+#[test]
+fn reload_failure_re_arms_when_failure_fully_clears_then_returns() {
+    let mut state = super::ReloadFailureState::default();
+
+    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("p"), "EMFILE")));
+    state.acknowledge_dialog();
+    assert!(!state.has_unacknowledged_failure());
+
+    state.apply_disk_watcher_init_pass(None);
+    assert!(!state.has_any_failure(), "all sources cleared");
+
+    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("p"), "EMFILE")));
+    assert!(
+        state.has_unacknowledged_failure(),
+        "a failure that fully cleared and then returned must surface a fresh dialog"
     );
 }
 
