@@ -830,9 +830,8 @@ fn reload_failure_state_watcher_init_failure_lifecycle_is_per_source() {
     );
 }
 
-/// Issue #2112 regression: when the same disk-watcher init failure
-/// recurs on every rewire pass, the user's acknowledgement must
-/// persist across passes. Locks the bug fix.
+/// Regression test for #2112: identical disk-watcher-init failures
+/// across rewire passes must not re-arm the ack latch.
 #[test]
 fn reload_failure_ack_persists_across_identical_rewire_failures() {
     let mut state = super::ReloadFailureState::default();
@@ -930,8 +929,8 @@ fn reload_failure_re_arms_when_kind_crosses_watch_resolution_boundary() {
     );
 }
 
-/// A failure migrating to a different profile name is also a content
-/// change and re-arms the dialog.
+/// Profile name is part of the failure's ack-identity, so a relocation
+/// re-arms the dialog under stable error content.
 #[test]
 fn reload_failure_re_arms_when_profile_changes() {
     let mut state = super::ReloadFailureState::default();
@@ -946,10 +945,8 @@ fn reload_failure_re_arms_when_profile_changes() {
     );
 }
 
-/// The invariant at `ReloadFailureState`'s healthy-to-failed transition
-/// must survive the fix: a NEW source (config-watcher init) appearing
-/// during an already-acknowledged disk-watcher init burst still re-arms
-/// the dialog so the user sees the additional failure.
+/// A new failing source appearing during an already-acknowledged
+/// burst re-arms the dialog so the additional failure is surfaced.
 #[test]
 fn reload_failure_re_arms_when_new_source_joins_burst() {
     let mut state = super::ReloadFailureState::default();
@@ -965,10 +962,9 @@ fn reload_failure_re_arms_when_new_source_joins_burst() {
     );
 }
 
-/// When two sources are failing and the user has acknowledged, an
-/// unrelated source going through its own clear-then-record-same-content
-/// rewire cycle must not re-arm the dialog. Locks per-source isolation
-/// of the ack semantics.
+/// When two sources are failing and the user has acknowledged, a
+/// same-content `apply_*_init_pass` on the unrelated slot must not
+/// re-arm the dialog. Locks per-source isolation of the ack semantics.
 #[test]
 fn reload_failure_ack_persists_when_only_other_source_clears_and_rerecords() {
     let mut state = super::ReloadFailureState::default();

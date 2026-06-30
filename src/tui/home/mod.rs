@@ -1653,7 +1653,7 @@ pub(super) enum WatcherInitErrorKind {
     Resolution,
 }
 
-/// Latched record of a watcher init failure. The disk slot always carries
+/// Latched record of a watcher-init failure. The disk slot always carries
 /// `Some(profile)`; the config slot carries `None` for the global config
 /// watch and `Some(profile)` per-profile. Equality is keyed on
 /// `(profile, kind)` so the `message` field is free to drift across
@@ -1770,14 +1770,14 @@ impl ReloadFailureState {
     pub(super) fn apply_disk_watcher_init_pass(&mut self, new: Option<WatcherInitError>) {
         let was = std::mem::replace(&mut self.disk_watcher_init_error, new);
         match (&was, &self.disk_watcher_init_error) {
-            (None, None) => {}
             (Some(prev), Some(curr)) if prev == curr => {}
+            (None, None) => {}
             (Some(_), None) => {
                 if !self.has_any_failure() {
                     self.dialog_acknowledged = false;
                 }
             }
-            (None, Some(_)) | (Some(_), Some(_)) => {
+            (_, Some(_)) => {
                 self.dialog_acknowledged = false;
             }
         }
@@ -1789,14 +1789,14 @@ impl ReloadFailureState {
     pub(super) fn apply_config_watcher_init_pass(&mut self, new: Option<WatcherInitError>) {
         let was = std::mem::replace(&mut self.config_watcher_init_error, new);
         match (&was, &self.config_watcher_init_error) {
-            (None, None) => {}
             (Some(prev), Some(curr)) if prev == curr => {}
+            (None, None) => {}
             (Some(_), None) => {
                 if !self.has_any_failure() {
                     self.dialog_acknowledged = false;
                 }
             }
-            (None, Some(_)) | (Some(_), Some(_)) => {
+            (_, Some(_)) => {
                 self.dialog_acknowledged = false;
             }
         }
