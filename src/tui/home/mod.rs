@@ -1643,7 +1643,7 @@ impl ConfigWatchState {
 /// guarantee; ack-equality is keyed on the structured kind so a
 /// future Display drift does not silently re-arm the dialog on the
 /// same persistent failure.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum WatcherInitErrorKind {
     Watch(crate::file_watch::WatchErrorKind),
     /// The app-dir resolution path errored before a subscribe attempt
@@ -1656,9 +1656,7 @@ pub(super) enum WatcherInitErrorKind {
 /// Latched record of a watcher-init failure. The disk slot always carries
 /// `Some(profile)`; the config slot carries `None` for the global config
 /// watch and `Some(profile)` per-profile. Equality is keyed on
-/// `(profile, kind)` so the `message` field is free to drift across
-/// passes (e.g. notify-rs Display changes) without breaking the ack
-/// latch.
+/// `(profile, kind)`; `message` is display-only.
 pub(super) struct WatcherInitError {
     pub(super) profile: Option<String>,
     pub(super) kind: WatcherInitErrorKind,

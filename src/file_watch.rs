@@ -207,8 +207,8 @@ pub enum WatchError {
 
 impl WatchError {
     /// Coarse classification of the failure. Stable across `notify` Display
-    /// drift, so callers that key on the error identity (e.g. dialog ack
-    /// latches) can compare on this rather than the formatted message.
+    /// drift, so callers that key on error identity can compare on this
+    /// rather than the formatted message.
     pub fn kind(&self) -> WatchErrorKind {
         match self {
             WatchError::Init { kind, .. } | WatchError::Watch { kind, .. } => *kind,
