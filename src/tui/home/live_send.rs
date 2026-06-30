@@ -1856,7 +1856,7 @@ mod tests {
     #[test]
     fn shift_enter_emits_esc_cr_hex_bytes() {
         // Shift+Enter on a kitty-protocol-capable terminal lands here
-        // (issue #2362). The agent in the pane reads ESC+CR as the
+        // (#2362). The agent in the pane reads ESC+CR as the
         // readline meta-Enter "insert newline" convention, identical
         // to how Alt+Enter / M-Enter already works today on terminals
         // that pre-encode Shift+Enter as ESC+CR (Ghostty default).
@@ -1898,6 +1898,21 @@ mod tests {
                 KeyModifiers::CONTROL | KeyModifiers::SHIFT,
             )),
             "C-S-Enter",
+        );
+    }
+
+    #[test]
+    fn alt_shift_enter_falls_through_to_named() {
+        // Symmetric to `ctrl_shift_enter_falls_through_to_named`: any
+        // modifier set beyond SHIFT alone is rejected by strict equality
+        // and falls through to the named-key path so a future keybind
+        // can target `M-S-Enter` distinctly from plain Shift+Enter.
+        assert_named(
+            translate(k_mod(
+                KeyCode::Enter,
+                KeyModifiers::ALT | KeyModifiers::SHIFT,
+            )),
+            "M-S-Enter",
         );
     }
 
