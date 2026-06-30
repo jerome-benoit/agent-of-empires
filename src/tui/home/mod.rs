@@ -1293,6 +1293,7 @@ impl DiskWatchState {
                     );
                     new_init_error = Some(WatcherInitError {
                         profile: Some(name.clone()),
+                        kind: WatcherInitErrorKind::Watch(e.kind()),
                         message: e.to_string(),
                     });
                 }
@@ -1508,6 +1509,7 @@ impl ConfigWatchState {
                             );
                             new_init_error = Some(WatcherInitError {
                                 profile: None,
+                                kind: WatcherInitErrorKind::Watch(e.kind()),
                                 message: e.to_string(),
                             });
                         }
@@ -1521,6 +1523,7 @@ impl ConfigWatchState {
                     );
                     new_init_error = Some(WatcherInitError {
                         profile: None,
+                        kind: WatcherInitErrorKind::Resolution,
                         message: format!("app dir resolution failed: {e}"),
                     });
                 }
@@ -1607,6 +1610,7 @@ impl ConfigWatchState {
                     );
                     new_init_error = Some(WatcherInitError {
                         profile: Some(name.clone()),
+                        kind: WatcherInitErrorKind::Watch(e.kind()),
                         message: e.to_string(),
                     });
                 }
@@ -1634,14 +1638,40 @@ impl ConfigWatchState {
     }
 }
 
+/// Stable identity for a watcher-init failure across rewire passes.
+/// The `notify` crate's Display string is not part of its stability
+/// guarantee; ack-equality is keyed on the structured kind so a
+/// future Display drift does not silently re-arm the dialog on the
+/// same persistent failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WatcherInitErrorKind {
+    Watch(crate::file_watch::WatchErrorKind),
+    /// The app-dir resolution path errored before a subscribe attempt
+    /// could be made. Distinct from any `Watch(_)` variant so a
+    /// resolution failure followed by a backend failure surfaces as a
+    /// content change.
+    Resolution,
+}
+
 /// Latched record of a watcher init failure. The disk slot always carries
 /// `Some(profile)`; the config slot carries `None` for the global config
-/// watch and `Some(profile)` per-profile.
-#[derive(PartialEq, Eq)]
+/// watch and `Some(profile)` per-profile. Equality is keyed on
+/// `(profile, kind)` so the `message` field is free to drift across
+/// passes (e.g. notify-rs Display changes) without breaking the ack
+/// latch.
 pub(super) struct WatcherInitError {
     pub(super) profile: Option<String>,
+    pub(super) kind: WatcherInitErrorKind,
     pub(super) message: String,
 }
+
+impl PartialEq for WatcherInitError {
+    fn eq(&self, other: &Self) -> bool {
+        self.profile == other.profile && self.kind == other.kind
+    }
+}
+
+impl Eq for WatcherInitError {}
 
 /// Per-tick reload failure tracking. Tick-driven reload paths in
 /// `App::run` (heartbeat `reload()`, watcher-driven `reload_storage_only()`,

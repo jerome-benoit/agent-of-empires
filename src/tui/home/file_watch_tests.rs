@@ -32,6 +32,7 @@ fn isolate_home(temp: &std::path::Path) {
 fn watcher_err(profile: Option<&str>, message: &str) -> super::WatcherInitError {
     super::WatcherInitError {
         profile: profile.map(str::to_owned),
+        kind: super::WatcherInitErrorKind::Watch(crate::file_watch::WatchErrorKind::Other),
         message: message.to_owned(),
     }
 }
@@ -847,20 +848,85 @@ fn reload_failure_ack_persists_across_identical_rewire_failures() {
     );
 }
 
-/// A materially different error message (new root cause) is treated as
-/// a fresh failure and re-arms the dialog even when the source slot is
-/// unchanged.
+/// A different classified error kind (new root cause with different
+/// remediation) is treated as a fresh failure and re-arms the dialog
+/// even when the source slot is unchanged.
 #[test]
-fn reload_failure_re_arms_when_message_changes() {
+fn reload_failure_re_arms_when_error_kind_changes() {
+    use crate::file_watch::WatchErrorKind;
     let mut state = super::ReloadFailureState::default();
 
-    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("p"), "EMFILE")));
+    state.apply_disk_watcher_init_pass(Some(super::WatcherInitError {
+        profile: Some("p".to_string()),
+        kind: super::WatcherInitErrorKind::Watch(WatchErrorKind::ResourceExhausted),
+        message: "EMFILE".to_string(),
+    }));
     state.acknowledge_dialog();
 
-    state.apply_disk_watcher_init_pass(Some(watcher_err(Some("p"), "ENOSPC")));
+    state.apply_disk_watcher_init_pass(Some(super::WatcherInitError {
+        profile: Some("p".to_string()),
+        kind: super::WatcherInitErrorKind::Watch(WatchErrorKind::Permission),
+        message: "EACCES".to_string(),
+    }));
     assert!(
         state.has_unacknowledged_failure(),
-        "a changed error message surfaces a fresh notification"
+        "a changed error kind surfaces a fresh notification"
+    );
+}
+
+/// Defense-in-depth against `notify`-rs Display drift: the same
+/// classified failure on the same profile is ack-equal even when the
+/// formatted message string differs. Without this, a future
+/// `notify::Error` Display change (e.g. an added watch descriptor)
+/// would re-arm the dialog on the same persistent failure and the
+/// #2112 fix would silently regress.
+#[test]
+fn reload_failure_ack_persists_when_message_drifts_but_kind_is_stable() {
+    use crate::file_watch::WatchErrorKind;
+    let mut state = super::ReloadFailureState::default();
+
+    state.apply_disk_watcher_init_pass(Some(super::WatcherInitError {
+        profile: Some("p".to_string()),
+        kind: super::WatcherInitErrorKind::Watch(WatchErrorKind::ResourceExhausted),
+        message: "Too many open files (os error 24)".to_string(),
+    }));
+    state.acknowledge_dialog();
+
+    state.apply_disk_watcher_init_pass(Some(super::WatcherInitError {
+        profile: Some("p".to_string()),
+        kind: super::WatcherInitErrorKind::Watch(WatchErrorKind::ResourceExhausted),
+        message: "EMFILE: watch descriptor 8192 exhausted on /tmp/p".to_string(),
+    }));
+    assert!(
+        !state.has_unacknowledged_failure(),
+        "a drifted message with stable kind must not re-arm the ack latch"
+    );
+}
+
+/// A failure crossing the `Watch` <-> `Resolution` variant boundary
+/// is a genuine root-cause change (kernel-backend failure vs app-dir
+/// resolution failure have disjoint remediations) and re-arms the
+/// dialog. Locks the cross-variant arm of the ack-equality contract.
+#[test]
+fn reload_failure_re_arms_when_kind_crosses_watch_resolution_boundary() {
+    use crate::file_watch::WatchErrorKind;
+    let mut state = super::ReloadFailureState::default();
+
+    state.apply_config_watcher_init_pass(Some(super::WatcherInitError {
+        profile: None,
+        kind: super::WatcherInitErrorKind::Watch(WatchErrorKind::Backend),
+        message: "subscribe failed".to_string(),
+    }));
+    state.acknowledge_dialog();
+
+    state.apply_config_watcher_init_pass(Some(super::WatcherInitError {
+        profile: None,
+        kind: super::WatcherInitErrorKind::Resolution,
+        message: "app dir resolution failed".to_string(),
+    }));
+    assert!(
+        state.has_unacknowledged_failure(),
+        "a kind transition between Watch and Resolution surfaces a fresh notification"
     );
 }
 
