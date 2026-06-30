@@ -475,7 +475,7 @@ impl App {
         // across the suspend, and tmux gets a clean outer terminal regardless
         // of its own extended-keys configuration (#2362).
         #[cfg(unix)]
-        crossterm::execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags)?;
+        let _ = crossterm::execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
         crossterm::execute!(
             terminal.backend_mut(),
             crossterm::terminal::LeaveAlternateScreen,
@@ -503,11 +503,15 @@ impl App {
             crossterm::cursor::Hide
         )?;
         // Repush the kitty enhancement stack symmetric with the pop above (#2362).
+        // Best-effort, mirrors `TerminalGuard::enter`: a transient push failure
+        // would only lose Shift+Enter disambiguation, not worth aborting the
+        // tmux-attach resume flow with the terminal already back in raw + alt
+        // screen.
         #[cfg(unix)]
-        crossterm::execute!(
+        let _ = crossterm::execute!(
             terminal.backend_mut(),
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
-        )?;
+        );
         // Defer mouse-capture restore to sync_mouse_capture so we don't
         // briefly enable it only to disable again when the user returned
         // to the serve view. sync_mouse_capture itself respects the Mouse

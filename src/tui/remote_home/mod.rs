@@ -109,12 +109,14 @@ pub async fn run_standalone(endpoint: DaemonEndpoint) -> Result<()> {
     // structured-view it hands off to see `Shift+Enter` as a distinct
     // KeyEvent (#2362). Cross-machine `AOE_DAEMON_URL` flows enter raw
     // mode here and never go through `TerminalGuard`, so a missing push
-    // here would regress remote users vs. local TUI users.
+    // here would regress remote users vs. local TUI users. Best-effort
+    // for the same reason `TerminalGuard::enter` is: a transient push
+    // failure would skip teardown and wedge the terminal.
     #[cfg(unix)]
-    execute!(
+    let _ = execute!(
         stdout,
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
-    )?;
+    );
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let mut event_stream = EventStream::new();
@@ -125,7 +127,7 @@ pub async fn run_standalone(endpoint: DaemonEndpoint) -> Result<()> {
     let result = run(&mut terminal, &mut event_stream, &theme, endpoint).await;
 
     #[cfg(unix)]
-    execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags)?;
+    let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
