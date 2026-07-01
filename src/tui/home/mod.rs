@@ -2270,9 +2270,9 @@ impl HomeView {
         // Disk subscriptions stay scoped to the loaded storages: in
         // single-profile mode (`aoe --profile X`) the user opted into
         // exactly that profile's instance state, so we don't watch
-        // sessions.json/groups.json for unrelated profiles. Sorted
-        // so the rewire install-loop ack identity stays stable across
-        // HashMap rehash between ticks (see #2584).
+        // sessions.json/groups.json for unrelated profiles. Sorted so
+        // the install-loop's last-write-wins target stays stable across
+        // HashMap rehash between rewire ticks (see #2584).
         let mut initial_disk_profiles: Vec<String> = view.storages.keys().cloned().collect();
         initial_disk_profiles.sort();
         view.rewire_disk_subscriptions(&initial_disk_profiles);
