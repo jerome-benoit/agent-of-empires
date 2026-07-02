@@ -58,6 +58,16 @@ fn compose_list_title(
     format!(" {}{}{} ", prefix, profile_tag, suffix)
 }
 
+/// Source of truth for the pane-arrangement passed to `render_list` /
+/// `render_preview`, so their border masks honor DESIGN.md's single-shared-
+/// separator invariant.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum PaneLayout {
+    Collapsed,
+    Stacked,
+    SideBySide,
+}
+
 /// Extra rows captured beyond the visible window so moderate scrolls don't
 /// force a fresh capture on every wheel tick. Cache invalidation uses the same
 /// reserve to decide when the captured window can no longer cover the
@@ -573,7 +583,7 @@ impl HomeView {
             self.list_area = Rect::default();
             self.list_inner_area = Rect::default();
             self.render_collapsed_strip(frame, chunks[0], theme);
-            self.render_preview(frame, chunks[1], theme);
+            self.render_preview(frame, chunks[1], theme, PaneLayout::Collapsed);
         } else if available_width < responsive::STACKED_BREAKPOINT {
             let main_height = main_chunks[0].height;
             let list_height = responsive::stacked_list_height(main_height);
@@ -589,8 +599,8 @@ impl HomeView {
             // path exposes the resize-by-drag affordance.
             self.divider_col = None;
 
-            self.render_list(frame, chunks[0], theme);
-            self.render_preview(frame, chunks[1], theme);
+            self.render_list(frame, chunks[0], theme, PaneLayout::Stacked);
+            self.render_preview(frame, chunks[1], theme, PaneLayout::Stacked);
         } else {
             // Side-by-side: cap list width so the preview pane keeps its
             // usability floor (PREVIEW_MIN_WIDTH).
@@ -612,8 +622,8 @@ impl HomeView {
             // list's y-range (matches preview's y-range in side-by-side).
             self.divider_col = Some(chunks[1].x);
 
-            self.render_list(frame, chunks[0], theme);
-            self.render_preview(frame, chunks[1], theme);
+            self.render_list(frame, chunks[0], theme, PaneLayout::SideBySide);
+            self.render_preview(frame, chunks[1], theme, PaneLayout::SideBySide);
         }
         self.render_status_bar(frame, main_chunks[1], theme);
 
@@ -769,7 +779,7 @@ impl HomeView {
         frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), inner);
     }
 
-    fn render_list(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn render_list(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, layout: PaneLayout) {
         self.list_area = area;
         let profile = self.active_profile_display();
         let title = match &self.view_mode {
@@ -792,24 +802,33 @@ impl HomeView {
                 (theme.terminal_border, theme.terminal_border)
             }
         };
-        // Current sort indicator on the bottom-right of the list block. Uses
-        // ratatui's `title_bottom` so it renders on the existing border and
-        // never intersects row content.
+        // Stacked drops BOTTOM so the preview's TOP is the single shared seam
+        // (DESIGN.md). Collapsed is unreachable here today (render_collapsed_strip
+        // owns that path) but matches Stacked so a future re-plumbing can't
+        // spring a doubled seam.
+        let borders = match layout {
+            PaneLayout::Stacked | PaneLayout::Collapsed => Borders::TOP | Borders::LEFT,
+            PaneLayout::SideBySide => Borders::TOP | Borders::LEFT | Borders::BOTTOM,
+        };
+        // Sort indicator rides `title_bottom`; ratatui only renders it when the
+        // BOTTOM border exists, so it yields in stacked mode (still reachable via `s`).
         let sort_indicator = format!(" sort: {} ", self.sort_order.label());
-        let block = Block::default()
-            .borders(Borders::TOP | Borders::LEFT | Borders::BOTTOM)
+        let mut block = Block::default()
+            .borders(borders)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color))
             .title(title)
             .title_style(Style::default().fg(title_color).bold())
-            .title_bottom(
+            .padding(Padding::horizontal(1));
+        if borders.contains(Borders::BOTTOM) {
+            block = block.title_bottom(
                 Line::from(Span::styled(
                     sort_indicator,
                     Style::default().fg(theme.dimmed),
                 ))
                 .right_aligned(),
-            )
-            .padding(Padding::horizontal(1));
+            );
+        }
 
         let inner = block.inner(area);
         self.list_inner_area = inner;
@@ -1928,7 +1947,7 @@ impl HomeView {
         self.active_preview_cache().captured_lines
     }
 
-    fn render_preview(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn render_preview(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, layout: PaneLayout) {
         let compact = area.width < responsive::STACKED_BREAKPOINT;
         let (border_color, title_color) = match self.view_mode {
             ViewMode::Structured => (theme.border, theme.title),
@@ -1951,8 +1970,14 @@ impl HomeView {
             (border_color, title_color)
         };
 
+        // All arms `Borders::ALL` today: in Stacked the preview's TOP is the
+        // shared seam. Match kept exhaustive so asymmetric changes stay grep-visible.
+        let borders = match layout {
+            PaneLayout::Collapsed | PaneLayout::Stacked | PaneLayout::SideBySide => Borders::ALL,
+        };
+
         let mut block = Block::default()
-            .borders(Borders::ALL)
+            .borders(borders)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color))
             .padding(Padding::horizontal(1));
