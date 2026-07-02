@@ -34,6 +34,64 @@ pub fn is_pid_alive(_pid: u32) -> bool {
     false
 }
 
+/// Ask the kernel which process is listening on this Unix domain socket
+/// by connecting and reading the peer's credentials. Returns `Some(pid)`
+/// if the path resolves to a live UDS with a valid peer, `None` otherwise
+/// (path missing, wrong file type, peer already gone, or a target other
+/// than Linux/macOS).
+///
+/// Callers (`worker_registry::terminate`, `shutdown_and_wait`) use this
+/// as the fallback source of the runner PID when the on-disk record is
+/// unreadable at the I/O layer (permissions, wrong file type, transient
+/// failure), so an unreadable record no longer means the runner escapes
+/// both SIGTERM and the wait. Note: `worker_registry::load` coerces
+/// `serde_json` parse errors to `Ok(None)`, so corrupt JSON stays in
+/// the "runner already gone" bucket and does not reach this fallback.
+///
+/// Blocking-connect caveat: uses synchronous `UnixStream::connect`,
+/// which returns in microseconds against a healthy same-host listener.
+/// A wedged runner (D-state kernel thread, accept loop hung) could
+/// block the caller until the peer wakes or the kernel drops the
+/// listener. Callers today are the shutdown path where that runner is
+/// anyway the target of SIGTERM. A non-blocking `connect(2)` plus
+/// `poll(POLLOUT, timeout)` follow-up is tracked as #2621.
+///
+/// See #2102.
+#[cfg(target_os = "linux")]
+pub fn peer_pid_from_socket(path: &Path) -> Option<u32> {
+    use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
+    let stream = std::os::unix::net::UnixStream::connect(path).ok()?;
+    let creds = getsockopt(&stream, PeerCredentials).ok()?;
+    let pid = creds.pid();
+    (pid > 0).then_some(pid as u32)
+}
+
+#[cfg(target_os = "macos")]
+pub fn peer_pid_from_socket(path: &Path) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let stream = std::os::unix::net::UnixStream::connect(path).ok()?;
+    let mut pid: libc::pid_t = 0;
+    let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+    // SAFETY: `stream` keeps the fd valid for the duration of the syscall.
+    // `pid` is aligned and sized for `pid_t`; `len` is initialized to
+    // `sizeof(pid_t)`, which is what LOCAL_PEERPID writes on success.
+    let rc = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_LOCAL,
+            libc::LOCAL_PEERPID,
+            std::ptr::addr_of_mut!(pid).cast::<libc::c_void>(),
+            &mut len,
+        )
+    };
+    (rc == 0 && pid > 0).then_some(pid as u32)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+pub fn peer_pid_from_socket(_path: &Path) -> Option<u32> {
+    None
+}
+
 /// Signal a worker's entire process group, then the worker pid itself.
 ///
 /// A worker is spawned `setsid` (a fresh session, so it is the leader of
