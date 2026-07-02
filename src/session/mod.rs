@@ -8,6 +8,7 @@ pub mod config;
 pub(crate) mod container_config;
 pub mod deletion;
 pub(crate) mod environment;
+pub mod fork;
 mod groups;
 pub mod idle_reap;
 mod instance;
@@ -43,6 +44,7 @@ pub use config::{
 };
 pub(crate) use environment::user_shell;
 pub use environment::{validate_env_entries, validate_env_entry};
+pub use fork::{ForkDenied, ForkSeed};
 pub use groups::{
     append_archived_section, append_archived_section_by_project, append_trash_section,
     archived_project_sub_path, flatten_sessions_by_attention, flatten_tree,
@@ -50,6 +52,8 @@ pub use groups::{
     is_within_archived_section, is_within_trash_section, Group, GroupTree, Item,
     ARCHIVED_SECTION_NAME, ARCHIVED_SECTION_PATH, TRASH_SECTION_NAME, TRASH_SECTION_PATH,
 };
+#[cfg(feature = "serve")]
+pub(crate) use instance::ResumeAttemptPolicy;
 pub(crate) use instance::{persist_session_to_storage, ResumeIntent, SidWrite};
 pub use instance::{
     EnsureReadyError, EnsureReadyOutcome, Instance, LaunchSidOutcome, SandboxInfo, SessionBucket,

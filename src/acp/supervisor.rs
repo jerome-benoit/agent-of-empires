@@ -475,6 +475,11 @@ pub struct SpawnRequest {
     /// advertises `load_session = true`, the spawn calls
     /// `LoadSessionRequest` instead of `NewSessionRequest`.
     pub stored_acp_session_id: Option<String>,
+    /// When `Some`, this spawn is a structured fork: the handshake sends
+    /// `session/fork` against this parent ACP session id (if the agent
+    /// advertises the capability) rather than `session/new` / `session/load`.
+    /// Sourced from `Instance.fork_pending`.
+    pub fork_from: Option<String>,
     /// When `Some`, the agent runs inside the named Docker container.
     /// The supervisor wraps the agent argv in `docker exec` and the
     /// daemon-side fs/terminal handlers route across the container
@@ -1297,6 +1302,7 @@ impl<S: BroadcastSink> Supervisor<S> {
             model,
             effort,
             stored_acp_session_id,
+            fork_from,
             sandbox_info,
             source_profile,
             yolo_mode,
@@ -1417,6 +1423,7 @@ impl<S: BroadcastSink> Supervisor<S> {
             default_effort: effort,
             socket_path: Some(socket_path),
             stored_acp_session_id: stored_acp_session_id.clone(),
+            fork_from,
             sandbox_info,
             source_profile,
             mcp_servers,
@@ -1659,9 +1666,21 @@ impl<S: BroadcastSink> Supervisor<S> {
                                             target: "acp.supervisor",
                                             session = %session_id,
                                             %reason,
-                                            "clearing cached id after session/load failure"
+                                            "clearing cached id and any pending fork after a context reset"
                                         );
                                         spawn_config.stored_acp_session_id = None;
+                                        // Also drop any pending fork: a reset is
+                                        // emitted when session/fork fails or the
+                                        // agent can't fork. Without clearing this,
+                                        // a crash-respawn re-reads fork_from and
+                                        // re-issues the same failing session/fork
+                                        // (a bounded retry loop up to the respawn
+                                        // budget), and a healthy fork-unsupported
+                                        // fallback re-emits this reset on every
+                                        // respawn. The fork is one-shot; a respawn
+                                        // must resume the child (session/load), not
+                                        // re-fork the parent.
+                                        spawn_config.fork_from = None;
                                     }
                                 }
                                 super::worker_registry::update_stored_acp_session_id(
@@ -3140,6 +3159,7 @@ mod tests {
                 model: None,
                 effort: None,
                 stored_acp_session_id: None,
+                fork_from: None,
                 seed_history_replay: false,
                 sandbox_info: None,
                 source_profile: None,
@@ -3181,6 +3201,7 @@ mod tests {
                 model: None,
                 effort: None,
                 stored_acp_session_id: None,
+                fork_from: None,
                 seed_history_replay: false,
                 sandbox_info: None,
                 source_profile: None,
@@ -3397,6 +3418,7 @@ mod tests {
             default_effort: None,
             socket_path: Some(socket_path.clone()),
             stored_acp_session_id: None,
+            fork_from: None,
             seed_history_replay: false,
             artifact_dir: None,
             sandbox_info: None,
@@ -3490,6 +3512,7 @@ mod tests {
             default_effort: None,
             socket_path: Some(tmp.path().join("dummy.sock")),
             stored_acp_session_id: None,
+            fork_from: None,
             seed_history_replay: false,
             artifact_dir: None,
             sandbox_info: None,
@@ -3566,6 +3589,7 @@ mod tests {
             default_effort: None,
             socket_path: Some(tmp.path().join("dummy.sock")),
             stored_acp_session_id: None,
+            fork_from: None,
             seed_history_replay: false,
             artifact_dir: None,
             sandbox_info: None,
@@ -3642,6 +3666,7 @@ mod tests {
             default_effort: None,
             socket_path: Some(tmp.path().join("dummy.sock")),
             stored_acp_session_id: None,
+            fork_from: None,
             seed_history_replay: false,
             artifact_dir: None,
             sandbox_info: None,
@@ -3771,6 +3796,7 @@ mod tests {
             default_effort: None,
             socket_path: Some(tmp.path().join("dummy.sock")),
             stored_acp_session_id: None,
+            fork_from: None,
             seed_history_replay: false,
             artifact_dir: None,
             sandbox_info: None,
@@ -4904,6 +4930,7 @@ mod tests {
                 model: None,
                 effort: None,
                 stored_acp_session_id: None,
+                fork_from: None,
                 seed_history_replay: false,
                 sandbox_info: None,
                 source_profile: None,
@@ -4979,6 +5006,7 @@ mod tests {
                 model: None,
                 effort: None,
                 stored_acp_session_id: None,
+                fork_from: None,
                 seed_history_replay: false,
                 sandbox_info: None,
                 source_profile: None,
@@ -5192,6 +5220,7 @@ mod tests {
                 model: None,
                 effort: None,
                 stored_acp_session_id: None,
+                fork_from: None,
                 seed_history_replay: false,
                 sandbox_info: None,
                 source_profile: None,
@@ -5246,6 +5275,7 @@ mod tests {
                 model: None,
                 effort: None,
                 stored_acp_session_id: None,
+                fork_from: None,
                 seed_history_replay: false,
                 sandbox_info: None,
                 source_profile: None,

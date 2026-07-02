@@ -17,6 +17,7 @@ use crate::agents;
 use crate::session::civilizations::is_default_civ_name;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Per-session smart-rename state surfaced to the dashboard so the sidebar can
 /// show that a session will be (or is being) auto-named. `Inactive` for
@@ -150,6 +151,32 @@ pub fn check_eligible_resolved(
     Ok(agent.expect("check_eligible Ok implies a built-in agent"))
 }
 
+/// Config fields the smart-rename indicator and runtime gate both consume.
+/// Named fields (rather than a tuple) prevent the sidebar `cfg_cache` and
+/// `try_smart_rename` from drifting on positional order.
+#[derive(Debug, Clone)]
+pub struct SmartRenameConfig {
+    pub setting_on: bool,
+    pub rename_agent: String,
+    pub overrides: HashMap<String, String>,
+}
+
+/// Resolve smart-rename config for a session, honoring repo-local overrides
+/// in `<project_path>/.agent-of-empires/config.toml`. Shared helper so
+/// `try_smart_rename` and the sidebar indicator overlay in
+/// `src/server/api/sessions.rs` cannot drift. Falls back to the
+/// profile-only config (with a warning) on a missing or malformed repo
+/// config, matching [`crate::session::repo_config::resolve_config_with_repo_or_warn`].
+pub fn resolve_smart_rename_config(profile: &str, project_path: &Path) -> SmartRenameConfig {
+    let cfg = crate::session::repo_config::resolve_config_with_repo_or_warn(profile, project_path)
+        .session;
+    SmartRenameConfig {
+        setting_on: cfg.smart_rename,
+        rename_agent: cfg.smart_rename_agent,
+        overrides: cfg.agent_command_override,
+    }
+}
+
 /// Hard cap on how much of the user's first message is handed to the one-shot
 /// call. A title needs only the opening intent, and very large argv values can
 /// trip some shells/agents.
@@ -179,17 +206,24 @@ pub fn build_prompt(user_message: &str) -> String {
 }
 
 /// Build the argv for a one-shot title call, or `None` when the agent has no
-/// known one-shot mode. Always `[binary, oneshot_token, prompt]`: the prompt is
-/// a single argv element passed straight to the process, never interpolated
-/// into a shell string, so untrusted user text cannot inject arguments.
+/// known one-shot mode. Shape is `[binary, oneshot_token, extra.., prompt,
+/// trailing..]`: the prompt is a single argv element passed straight to the
+/// process, never interpolated into a shell string, so untrusted user text
+/// cannot inject arguments. `oneshot_trailing_args` is only populated for
+/// flag-value one-shots (e.g. copilot `-p`), where the CLI binds the prompt to
+/// the flag, so trailing flags after it stay unambiguous.
 pub fn build_oneshot_argv(agent: &agents::AgentDef, prompt: &str) -> Option<Vec<String>> {
     let token = agent.oneshot_flag?;
     let mut argv = vec![agent.binary.to_string(), token.to_string()];
     // Static per-agent flags (e.g. codex `--skip-git-repo-check`) go between the
-    // one-shot token and the prompt; the prompt stays the final argv element so
+    // one-shot token and the prompt; the prompt stays directly after them so
     // untrusted user text can never be read as an argument.
     argv.extend(agent.oneshot_extra_args().iter().map(|s| s.to_string()));
     argv.push(prompt.to_string());
+    // Static trailing flags (e.g. copilot `-s --allow-all-tools --no-ask-user`)
+    // follow the prompt for flag-value one-shots; the CLI has already bound the
+    // prompt to the one-shot flag, so these parse as options, not the prompt.
+    argv.extend(agent.oneshot_trailing_args().iter().map(|s| s.to_string()));
     Some(argv)
 }
 
@@ -372,16 +406,16 @@ mod serve {
             return;
         };
 
-        let config = crate::session::profile_config::resolve_config_or_warn(&profile);
+        let cfg = resolve_smart_rename_config(&profile, Path::new(&project_path));
         let agent = match check_eligible_resolved(
             structured,
-            config.session.smart_rename,
+            cfg.setting_on,
             &title,
             &tool,
-            &config.session.smart_rename_agent,
+            &cfg.rename_agent,
             sandboxed,
             &command,
-            &config.session.agent_command_override,
+            &cfg.overrides,
         ) {
             Ok(agent) => agent,
             Err(reason) => {
@@ -686,6 +720,27 @@ mod tests {
     }
 
     #[test]
+    fn argv_copilot_appends_silent_autoapprove_flags_after_prompt() {
+        // Copilot's `-p` binds the prompt as its value, so the auto-approve and
+        // silent flags follow the prompt. Without them a non-interactive title
+        // call can block on a permission prompt or print stats that pollute the
+        // title; with them stdout is just the final answer.
+        let argv = build_oneshot_argv(agents::get_agent("copilot").unwrap(), "name this")
+            .expect("copilot one-shot");
+        assert_eq!(
+            argv,
+            vec![
+                "copilot",
+                "-p",
+                "name this",
+                "-s",
+                "--allow-all-tools",
+                "--no-ask-user"
+            ]
+        );
+    }
+
+    #[test]
     fn resolve_rename_tool_falls_back_to_session() {
         // Empty / whitespace setting => use the session's own tool.
         assert_eq!(resolve_rename_tool("claude", ""), "claude");
@@ -873,5 +928,57 @@ mod tests {
         assert!(sanitize_title(&"z".repeat(80), "x").is_none());
         // Numeric-only is not a title.
         assert!(sanitize_title("12345", "x").is_none());
+    }
+
+    // Regression for #2351: pins the shared helper that both `try_smart_rename`
+    // and the sidebar indicator overlay in `src/server/api/sessions.rs` route
+    // through. The helper is verified in isolation here; call-site coverage is
+    // design-level (reverting either site to bypass the helper is visible in
+    // review because both explicitly name `resolve_smart_rename_config`).
+    #[test]
+    #[serial_test::serial]
+    fn resolve_smart_rename_config_honors_repo_local_overrides() {
+        let home = tempfile::tempdir().expect("tempdir HOME");
+        // SAFETY: serialized by `#[serial]`; matches `set_tmp_home` in
+        // `src/session/mcp_state.rs`.
+        unsafe {
+            std::env::set_var("HOME", home.path());
+            std::env::set_var("XDG_CONFIG_HOME", home.path().join(".config"));
+        }
+
+        let repo = tempfile::tempdir().expect("tempdir repo");
+        let cfg_dir = repo.path().join(".agent-of-empires");
+        std::fs::create_dir_all(&cfg_dir).unwrap();
+        std::fs::write(
+            cfg_dir.join("config.toml"),
+            r#"
+[session]
+smart_rename_agent = "opencode"
+
+[session.agent_command_override]
+claude = "my-wrapper"
+"#,
+        )
+        .unwrap();
+
+        let cfg = resolve_smart_rename_config("default", repo.path());
+        assert_eq!(cfg.rename_agent, "opencode");
+        assert_eq!(
+            cfg.overrides.get("claude").map(String::as_str),
+            Some("my-wrapper"),
+        );
+
+        let agent = check_eligible_resolved(
+            true,
+            cfg.setting_on,
+            "Vikings",
+            "claude",
+            &cfg.rename_agent,
+            false,
+            "",
+            &cfg.overrides,
+        )
+        .expect("eligible");
+        assert_eq!(agent.binary, "opencode");
     }
 }
