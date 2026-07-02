@@ -61,7 +61,7 @@ fn compose_list_title(
 /// Source of truth for the pane-arrangement passed to `render_list` /
 /// `render_preview`, so their border masks honor DESIGN.md's single-shared-
 /// separator invariant.
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum PaneLayout {
     Collapsed,
     Stacked,
@@ -69,13 +69,16 @@ enum PaneLayout {
 }
 
 impl PaneLayout {
-    /// Border mask for the list block. Stacked (and defensively Collapsed)
-    /// drop BOTTOM so the preview's TOP becomes the single shared seam;
-    /// SideBySide keeps the full box because the shared seam runs vertically
-    /// (list has no RIGHT, preview's LEFT is the divider).
+    /// Border mask for the list block, per DESIGN.md's single-shared-separator
+    /// invariant. Stacked (and defensively Collapsed) drop BOTTOM because the
+    /// preview's TOP is the shared horizontal seam, but keep RIGHT since the
+    /// pane spans full width. SideBySide keeps BOTTOM and drops RIGHT because
+    /// the preview's LEFT is the shared vertical seam.
     fn list_borders(self) -> Borders {
         match self {
-            PaneLayout::Stacked | PaneLayout::Collapsed => Borders::TOP | Borders::LEFT,
+            PaneLayout::Stacked | PaneLayout::Collapsed => {
+                Borders::TOP | Borders::LEFT | Borders::RIGHT
+            }
             PaneLayout::SideBySide => Borders::TOP | Borders::LEFT | Borders::BOTTOM,
         }
     }
@@ -3731,6 +3734,25 @@ mod tests {
         assert!(PaneLayout::SideBySide
             .list_borders()
             .contains(Borders::BOTTOM));
+    }
+
+    #[test]
+    fn stacked_list_keeps_right_border() {
+        assert!(PaneLayout::Stacked.list_borders().contains(Borders::RIGHT));
+    }
+
+    #[test]
+    fn collapsed_list_keeps_right_border() {
+        assert!(PaneLayout::Collapsed
+            .list_borders()
+            .contains(Borders::RIGHT));
+    }
+
+    #[test]
+    fn side_by_side_list_drops_right_border() {
+        assert!(!PaneLayout::SideBySide
+            .list_borders()
+            .contains(Borders::RIGHT));
     }
 
     #[test]
