@@ -618,12 +618,17 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<SessionsE
         }
     }
 
-    // Overlay the smart-rename indicator. `running` comes from the live
-    // in-flight set; `pending` from the shared eligibility predicate, so the
-    // chip cannot drift from the runtime gate. Config resolved once per profile.
+    // Overlay the smart-rename indicator. `Running` comes from the live
+    // in-flight set; `Pending` from the shared eligibility predicate, so the
+    // indicator cannot drift from the runtime gate. Config resolved once per
+    // (profile, project_path) so repo-local overrides are honored.
     {
-        use crate::session::smart_rename::{check_eligible_resolved, SmartRenameState};
+        use crate::session::smart_rename::{
+            check_eligible_resolved, resolve_smart_rename_config, SmartRenameConfig,
+            SmartRenameState,
+        };
         use std::collections::{HashMap, HashSet};
+        use std::path::Path;
         let inflight: HashSet<String> = state
             .smart_rename_inflight
             .lock()
@@ -634,8 +639,7 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<SessionsE
             .lock()
             .map(|g| g.clone())
             .unwrap_or_default();
-        let mut cfg_cache: HashMap<String, (bool, String, HashMap<String, String>)> =
-            HashMap::new();
+        let mut cfg_cache: HashMap<(String, String), SmartRenameConfig> = HashMap::new();
         for (resp, inst) in sessions.iter_mut().zip(instances.iter()) {
             resp.default_name = crate::session::civilizations::is_default_civ_name(&inst.title);
             if inflight.contains(&inst.id) {
@@ -647,28 +651,19 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<SessionsE
             if attempted.contains(&inst.id) {
                 continue;
             }
-            let (setting_on, rename_agent, overrides) = cfg_cache
-                .entry(inst.source_profile.clone())
-                .or_insert_with(|| {
-                    let cfg = crate::session::profile_config::resolve_config_or_warn(
-                        &inst.source_profile,
-                    )
-                    .session;
-                    (
-                        cfg.smart_rename,
-                        cfg.smart_rename_agent,
-                        cfg.agent_command_override,
-                    )
-                });
+            let key = (inst.source_profile.clone(), inst.project_path.clone());
+            let cfg = cfg_cache.entry(key).or_insert_with(|| {
+                resolve_smart_rename_config(&inst.source_profile, Path::new(&inst.project_path))
+            });
             let eligible = check_eligible_resolved(
                 inst.is_structured(),
-                *setting_on,
+                cfg.setting_on,
                 &inst.title,
                 &inst.tool,
-                rename_agent,
+                &cfg.rename_agent,
                 inst.is_sandboxed(),
                 &inst.command,
-                overrides,
+                &cfg.overrides,
             )
             .is_ok();
             if eligible {
