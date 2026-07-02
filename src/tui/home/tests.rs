@@ -14901,10 +14901,12 @@ mod stacked_single_seam {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
-    /// Rows whose glyphs are dominated by the horizontal box-drawing char
-    /// used by ratatui's `BorderType::Rounded`. Used to locate the shared
-    /// seam between the list and preview panes.
-    fn horizontal_border_row_indices(buf: &ratatui::buffer::Buffer) -> Vec<u16> {
+    /// Row indices whose glyphs are dominated by the horizontal box-drawing
+    /// char used by ratatui's `BorderType::Rounded`. Includes both outer box
+    /// borders and any internal horizontal dividers; the caller relies on
+    /// adjacency to detect a doubled seam, not on the rows being borders
+    /// exclusively.
+    fn horizontal_dense_rows(buf: &ratatui::buffer::Buffer) -> Vec<u16> {
         const HORIZONTAL: &str = "─";
         let mut rows = Vec::new();
         for y in 0..buf.area.height {
@@ -14944,7 +14946,7 @@ mod stacked_single_seam {
         const { assert!(60 < responsive::STACKED_BREAKPOINT) };
         let buf = render_home(&mut env, 60, 40);
 
-        let border_rows = horizontal_border_row_indices(&buf);
+        let border_rows = horizontal_dense_rows(&buf);
         assert!(
             border_rows.len() >= 3,
             "expected at least list-top, shared-seam, and preview-bottom rows; got {border_rows:?}"
@@ -14968,7 +14970,7 @@ mod stacked_single_seam {
         const { assert!(120 >= responsive::STACKED_BREAKPOINT) };
         let buf = render_home(&mut env, 120, 40);
 
-        let border_rows = horizontal_border_row_indices(&buf);
+        let border_rows = horizontal_dense_rows(&buf);
         assert!(
             !border_rows.is_empty(),
             "side-by-side must still draw horizontal borders; got {border_rows:?}"

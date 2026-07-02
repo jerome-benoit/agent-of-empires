@@ -68,6 +68,29 @@ enum PaneLayout {
     SideBySide,
 }
 
+impl PaneLayout {
+    /// Border mask for the list block. Stacked (and defensively Collapsed)
+    /// drop BOTTOM so the preview's TOP becomes the single shared seam;
+    /// SideBySide keeps the full box because the shared seam runs vertically
+    /// (list has no RIGHT, preview's LEFT is the divider).
+    fn list_borders(self) -> Borders {
+        match self {
+            PaneLayout::Stacked | PaneLayout::Collapsed => Borders::TOP | Borders::LEFT,
+            PaneLayout::SideBySide => Borders::TOP | Borders::LEFT | Borders::BOTTOM,
+        }
+    }
+
+    /// Border mask for the preview block. All arms yield `Borders::ALL` today
+    /// because the preview always owns the full box; the match is kept
+    /// exhaustive so a future asymmetric change stays type-checked instead of
+    /// silently regressing.
+    fn preview_borders(self) -> Borders {
+        match self {
+            PaneLayout::Collapsed | PaneLayout::Stacked | PaneLayout::SideBySide => Borders::ALL,
+        }
+    }
+}
+
 /// Extra rows captured beyond the visible window so moderate scrolls don't
 /// force a fresh capture on every wheel tick. Cache invalidation uses the same
 /// reserve to decide when the captured window can no longer cover the
@@ -802,14 +825,7 @@ impl HomeView {
                 (theme.terminal_border, theme.terminal_border)
             }
         };
-        // Stacked drops BOTTOM so the preview's TOP is the single shared seam
-        // (DESIGN.md). Collapsed is unreachable here today (render_collapsed_strip
-        // owns that path) but matches Stacked so a future re-plumbing cannot
-        // introduce a doubled seam.
-        let borders = match layout {
-            PaneLayout::Stacked | PaneLayout::Collapsed => Borders::TOP | Borders::LEFT,
-            PaneLayout::SideBySide => Borders::TOP | Borders::LEFT | Borders::BOTTOM,
-        };
+        let borders = layout.list_borders();
         // Sort indicator rides `title_bottom`; ratatui only renders it when the
         // BOTTOM border exists, so it yields in stacked mode (still reachable via `s`).
         let sort_indicator = format!(" sort: {} ", self.sort_order.label());
@@ -1970,14 +1986,8 @@ impl HomeView {
             (border_color, title_color)
         };
 
-        // All arms `Borders::ALL` today: in Stacked the preview's TOP is the
-        // shared seam. Match kept exhaustive so asymmetric changes stay grep-visible.
-        let borders = match layout {
-            PaneLayout::Collapsed | PaneLayout::Stacked | PaneLayout::SideBySide => Borders::ALL,
-        };
-
         let mut block = Block::default()
-            .borders(borders)
+            .borders(layout.preview_borders())
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color))
             .padding(Padding::horizontal(1));
@@ -3702,5 +3712,35 @@ mod tests {
         // Defensive: prefix near usize::MAX must not wrap. The checked_add
         // returns None which we map to "doesn't fit".
         assert_eq!(activity_column_padding(usize::MAX, 1000, 0), None);
+    }
+
+    #[test]
+    fn stacked_list_drops_bottom_border() {
+        assert!(!PaneLayout::Stacked.list_borders().contains(Borders::BOTTOM));
+    }
+
+    #[test]
+    fn collapsed_list_drops_bottom_border() {
+        assert!(!PaneLayout::Collapsed
+            .list_borders()
+            .contains(Borders::BOTTOM));
+    }
+
+    #[test]
+    fn side_by_side_list_keeps_bottom_border() {
+        assert!(PaneLayout::SideBySide
+            .list_borders()
+            .contains(Borders::BOTTOM));
+    }
+
+    #[test]
+    fn preview_always_owns_full_box() {
+        for layout in [
+            PaneLayout::Collapsed,
+            PaneLayout::Stacked,
+            PaneLayout::SideBySide,
+        ] {
+            assert_eq!(layout.preview_borders(), Borders::ALL);
+        }
     }
 }
