@@ -61,7 +61,7 @@ fn compose_list_title(
 /// Source of truth for the pane-arrangement passed to `render_list` /
 /// `render_preview`, so their border masks honor DESIGN.md's single-shared-
 /// separator invariant.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 enum PaneLayout {
     Collapsed,
     Stacked,
@@ -804,8 +804,8 @@ impl HomeView {
         };
         // Stacked drops BOTTOM so the preview's TOP is the single shared seam
         // (DESIGN.md). Collapsed is unreachable here today (render_collapsed_strip
-        // owns that path) but matches Stacked so a future re-plumbing can't
-        // spring a doubled seam.
+        // owns that path) but matches Stacked so a future re-plumbing cannot
+        // introduce a doubled seam.
         let borders = match layout {
             PaneLayout::Stacked | PaneLayout::Collapsed => Borders::TOP | Borders::LEFT,
             PaneLayout::SideBySide => Borders::TOP | Borders::LEFT | Borders::BOTTOM,

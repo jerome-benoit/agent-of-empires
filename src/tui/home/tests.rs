@@ -14890,7 +14890,7 @@ mod live_send_boot_size_tests {
 }
 
 mod stacked_single_seam {
-    //! Regression coverage for #2301: the list and preview panels must meet
+    //! Regression coverage for #2301: the list and preview panes must meet
     //! on a single shared border in every layout (DESIGN.md invariant). The
     //! stacked layout used to draw the list's BOTTOM and preview's TOP as
     //! two adjacent horizontal borders, producing a visible doubled seam.
@@ -14903,7 +14903,7 @@ mod stacked_single_seam {
 
     /// Rows whose glyphs are dominated by the horizontal box-drawing char
     /// used by ratatui's `BorderType::Rounded`. Used to locate the shared
-    /// seam between the list and preview panels.
+    /// seam between the list and preview panes.
     fn horizontal_border_row_indices(buf: &ratatui::buffer::Buffer) -> Vec<u16> {
         const HORIZONTAL: &str = "─";
         let mut rows = Vec::new();
