@@ -38,7 +38,7 @@ pub fn is_pid_alive(_pid: u32) -> bool {
 /// by connecting and reading the peer's credentials. Returns `Some(pid)`
 /// if the path resolves to a live UDS with a valid peer, `None` otherwise
 /// (path missing, wrong file type, peer already gone, connect timeout,
-/// or a target other than Linux/macOS).
+/// or a target other than Linux/Android/macOS).
 ///
 /// Callers (`worker_registry::terminate`, `shutdown_and_wait`) use this
 /// as the fallback source of the runner PID when the on-disk record is
@@ -56,7 +56,7 @@ pub fn is_pid_alive(_pid: u32) -> bool {
 /// other failure.
 ///
 /// See #2102, #2621.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub fn peer_pid_from_socket(path: &Path) -> Option<u32> {
     use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
     let stream = connect_with_timeout(path)?;
@@ -73,7 +73,7 @@ pub fn peer_pid_from_socket(path: &Path) -> Option<u32> {
     (pid > 0).then_some(pid as u32)
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos")))]
 pub fn peer_pid_from_socket(_path: &Path) -> Option<u32> {
     None
 }
@@ -83,8 +83,11 @@ pub fn peer_pid_from_socket(_path: &Path) -> Option<u32> {
 /// `None` on any failure (unreachable path, refused, timeout, syscall
 /// error), preserving the best-effort semantics of
 /// [`peer_pid_from_socket`]. See #2621.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
 fn connect_with_timeout(path: &Path) -> Option<std::os::unix::net::UnixStream> {
+    use std::os::fd::{AsFd, AsRawFd};
+    use std::os::unix::net::UnixStream;
+
     use nix::errno::Errno;
     use nix::fcntl::{fcntl, FcntlArg, FdFlag, OFlag};
     use nix::poll::{poll, PollFd, PollFlags};
@@ -92,11 +95,9 @@ fn connect_with_timeout(path: &Path) -> Option<std::os::unix::net::UnixStream> {
         connect, getsockopt, socket, sockopt::SocketError, AddressFamily, SockFlag, SockType,
         UnixAddr,
     };
-    use std::os::fd::{AsFd, AsRawFd, OwnedFd};
-    use std::os::unix::net::UnixStream;
 
     let addr = UnixAddr::new(path).ok()?;
-    let fd: OwnedFd = socket(
+    let fd = socket(
         AddressFamily::Unix,
         SockType::Stream,
         SockFlag::empty(),
@@ -113,7 +114,10 @@ fn connect_with_timeout(path: &Path) -> Option<std::os::unix::net::UnixStream> {
 
     match connect(fd.as_raw_fd(), &addr) {
         Ok(()) => {}
-        Err(Errno::EINPROGRESS) => {
+        // `EAGAIN` is Linux AF_UNIX's variant of `EINPROGRESS`
+        // (`unix(7)`): connect cannot complete immediately; the
+        // same POLLOUT wait applies.
+        Err(Errno::EINPROGRESS | Errno::EAGAIN) => {
             let mut pfds = [PollFd::new(fd.as_fd(), PollFlags::POLLOUT)];
             // 100ms: same-host UDS connect completes in microseconds
             // against a healthy listener; this cap tolerates light
@@ -467,7 +471,7 @@ mod tests {
         assert!(start.elapsed() < std::time::Duration::from_secs(1));
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     #[test]
     fn peer_pid_from_socket_healthy_listener_returns_our_pid_bounded() {
         use std::os::unix::net::UnixListener;
