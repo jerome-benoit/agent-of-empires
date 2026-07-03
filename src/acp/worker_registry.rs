@@ -26,7 +26,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 // Generic worker-subprocess plumbing now lives in `process::worker`; the
 // registry is the ACP consumer of it. Re-exported so the names referenced
@@ -397,7 +397,7 @@ pub fn pid_source_for(session_id: &str) -> Option<u32> {
             let sock = socket_path_for(session_id).ok()?; // same validator as load(); degrades to None on invalid id
             let pid = crate::process::worker::peer_pid_from_socket(&sock);
             match pid {
-                Some(peer_pid) => info!(
+                Some(peer_pid) => warn!(
                     target: "acp.registry",
                     session = %session_id,
                     pid = peer_pid,
