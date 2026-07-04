@@ -157,12 +157,19 @@ impl ContainerRuntime {
                 }
 
                 let out_json: Value = serde_json::from_slice(&output.stdout)
-                    .map_err(|e| DockerError::CommandFailed(e.to_string()))?;
+                    .map_err(|e| DockerError::InspectFailed(e.to_string()))?;
 
                 if let Some(status) = out_json.pointer("/0/status") {
                     Ok(status == "running")
                 } else {
-                    Ok(false)
+                    // Exit 0 with no /0/status: the inspect output schema
+                    // changed underneath us. Surface as Err (Probe::Unknown)
+                    // rather than silently collapsing to Ok(false), which
+                    // would let a gate site fail open on a genuinely running
+                    // container just because Apple renamed a JSON field.
+                    Err(DockerError::InspectFailed(
+                        "apple container inspect: exit 0 but no /0/status in output".into(),
+                    ))
                 }
             }
         }

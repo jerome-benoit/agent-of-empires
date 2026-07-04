@@ -43,6 +43,9 @@ pub enum DockerError {
     #[error("Failed to remove container: {0}")]
     RemoveFailed(String),
 
+    #[error("Failed to inspect container: {0}")]
+    InspectFailed(String),
+
     #[error("Docker command failed: {0}")]
     CommandFailed(String),
 

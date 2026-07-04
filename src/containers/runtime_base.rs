@@ -121,8 +121,13 @@ impl RuntimeBase {
         supports_named_volumes: false,
         supports_selinux_relabel: false,
         // Apple Container reports a missing container as
-        // `notFound: "container with ID <id> not found"`.
-        not_found_markers: &["not found"],
+        // `notFound: "container with ID <id> not found"`. The bare "not found"
+        // substring would be dangerously broad — a plausible daemon-connectivity
+        // error containing "socket not found" or "endpoint not found" would
+        // misclassify as absent and silently reintroduce #2596 on this runtime.
+        // Match the container-specific prefix instead (lowercased to align with
+        // is_not_found's case-fold).
+        not_found_markers: &["container with id"],
     };
 
     pub const PODMAN: Self = Self {
@@ -163,7 +168,7 @@ impl RuntimeBase {
         if self.is_not_found(stderr) {
             Ok(false)
         } else {
-            Err(DockerError::CommandFailed(stderr.to_string()))
+            Err(DockerError::InspectFailed(stderr.to_string()))
         }
     }
 
@@ -597,23 +602,33 @@ mod tests {
         // the exact swallowing-existence-probe failure mode #2596 fixed on
         // the discard path. Surfacing as Err lets classify_running_probe
         // map it to Probe::Unknown so gates fail closed.
+        //
+        // The three fixtures below share one property: none contain their
+        // respective runtime's not_found_marker substring, which is exactly
+        // what a real daemon-down stderr should look like. Docker and Podman
+        // strings are captured real-world CLI output; the Apple fixture is a
+        // placeholder — Apple's `container` CLI daemon-down wording is not
+        // documented in this repo. Because Apple's marker is now the specific
+        // "container with id", any daemon-down stderr NOT containing that
+        // substring correctly routes to Err regardless of exact wording.
         let docker_daemon_down =
             "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. \
              Is the docker daemon running?";
         assert!(matches!(
             RuntimeBase::DOCKER.classify_inspect_failure(docker_daemon_down),
-            Err(DockerError::CommandFailed(_))
+            Err(DockerError::InspectFailed(_))
         ));
         let podman_daemon_down = "Error: unable to connect to Podman socket: Connection refused";
         assert!(matches!(
             RuntimeBase::PODMAN.classify_inspect_failure(podman_daemon_down),
-            Err(DockerError::CommandFailed(_))
+            Err(DockerError::InspectFailed(_))
         ));
+        // Apple placeholder — see comment above.
         let apple_daemon_down =
             "Error: internalError: \"failed to connect to container daemon\" (cause: \"transient\")";
         assert!(matches!(
             RuntimeBase::APPLE_CONTAINER.classify_inspect_failure(apple_daemon_down),
-            Err(DockerError::CommandFailed(_))
+            Err(DockerError::InspectFailed(_))
         ));
     }
 

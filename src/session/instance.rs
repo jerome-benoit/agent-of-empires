@@ -3052,6 +3052,11 @@ impl Instance {
             .clone();
         let container = DockerContainer::new(&self.id, &image);
 
+        // Direct is_running()? / exists()? here rather than probe_running():
+        // this function already returns Result, so `?` correctly propagates
+        // a daemon-down transient to the caller as Err, letting them render
+        // an actionable error rather than silently falling through to a
+        // create attempt that would also fail. See #2596.
         if container.is_running()? {
             // Already up: not a come-up, so don't re-mint. Fill lazily only if a
             // fresh process attached to a running container with no values yet.
