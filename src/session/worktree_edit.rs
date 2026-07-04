@@ -73,6 +73,15 @@ pub fn sandbox_container_holds_worktree(session_id: &str, is_sandboxed: bool) ->
 /// container and its anonymous volumes; named ignore volumes (node_modules,
 /// target) are keyed by session id and survive for the recreated container.
 ///
+/// Idempotent: the removal call is unconditional, and its outcome is
+/// classified via [`classify_removal`] into removed / already-gone / failed.
+/// A separate `exists()` pre-probe would swallow the actual removal on a
+/// transient `docker inspect` failure (either `Err`, or a non-zero exit
+/// surfaced as `Ok(false)`) and orphan a live container against the old
+/// worktree path (#2596). This mirrors the deletion/creation-path fix from
+/// #2576, minus the named-volume sweep that would erase the caches this move
+/// path intentionally preserves.
+///
 /// No-op for non-sandbox sessions. The rename gate requires a stopped session
 /// (see [`sandbox_container_holds_worktree`]), so the container is not running
 /// here. Best-effort: a failure is logged, not surfaced, since the rename
@@ -82,24 +91,17 @@ pub fn discard_sandbox_container_after_move(session_id: &str, is_sandboxed: bool
         return;
     }
     let container = crate::containers::DockerContainer::from_session_id(session_id);
-    match container.exists() {
-        Ok(true) => match container.remove(true) {
-            Ok(()) => tracing::info!(
-                target: "containers.runtime",
-                session = %session_id,
-                "removed stale sandbox container after worktree move; it will be recreated with the new path on next start"
-            ),
-            Err(e) => tracing::warn!(
-                target: "containers.runtime",
-                session = %session_id,
-                "failed to remove stale sandbox container after worktree move: {e}"
-            ),
-        },
-        Ok(false) => {}
-        Err(e) => tracing::warn!(
+    match crate::containers::classify_removal(container.remove(true)) {
+        crate::containers::Teardown::Removed => tracing::info!(
             target: "containers.runtime",
             session = %session_id,
-            "could not check sandbox container existence after worktree move: {e}"
+            "removed stale sandbox container after worktree move; it will be recreated with the new path on next start"
+        ),
+        crate::containers::Teardown::AlreadyGone => {}
+        crate::containers::Teardown::Failed(e) => tracing::warn!(
+            target: "containers.runtime",
+            session = %session_id,
+            "failed to remove stale sandbox container after worktree move: {e}"
         ),
     }
 }
@@ -264,6 +266,19 @@ mod tests {
         // rename never pays a `docker inspect`. The live-container branch is the
         // same helper the tied-rename path already relies on.
         assert!(!sandbox_container_holds_worktree("any-session-id", false));
+    }
+
+    #[test]
+    fn discard_after_move_short_circuits_without_sandbox() {
+        // After the #2596 fix, the `is_sandboxed` guard is the ONLY thing that
+        // keeps a plain (non-sandbox) worktree rename from spawning a `docker`
+        // subprocess: `container.exists()` is gone and `remove(true)` is now
+        // unconditional. Bare call, no assert: the invariant is "does not hit
+        // the container runtime", proven by returning without panicking or
+        // hanging on a docker call. The Teardown-variant branches (Removed /
+        // AlreadyGone / Failed) are covered by the `classify_removal` unit
+        // tests in `containers::mod`.
+        discard_sandbox_container_after_move("any-session-id", false);
     }
 
     #[test]

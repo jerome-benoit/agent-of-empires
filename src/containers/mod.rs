@@ -67,8 +67,10 @@ pub enum Teardown {
 /// A `ContainerNotFound` error means there was nothing to remove and maps to
 /// `AlreadyGone`; every other error is a genuine `Failed`. Keeping this
 /// classification separate from I/O lets it be reasoned about and tested
-/// without a live runtime.
-fn classify_removal(result: Result<()>) -> Teardown {
+/// without a live runtime. Used by [`DockerContainer::teardown`] and by the
+/// worktree-move discard path in `session::worktree_edit`, which needs the
+/// same idempotent classification without sweeping named ignore volumes.
+pub(crate) fn classify_removal(result: Result<()>) -> Teardown {
     match result {
         Ok(()) => Teardown::Removed,
         Err(error::DockerError::ContainerNotFound(_)) => Teardown::AlreadyGone,
