@@ -468,7 +468,7 @@ mod serve {
             let Ok(_permit) = state.smart_rename_semaphore.acquire().await else {
                 return;
             };
-            run_oneshot(&argv, &project_path).await
+            run_oneshot(&session_id, &argv, &project_path).await
         };
         let Some(raw) = raw else {
             return;
@@ -499,7 +499,7 @@ mod serve {
     /// Run the agent one-shot in the session's working directory, capturing
     /// stdout. Returns `None` on spawn error, non-zero exit, or timeout. The
     /// child is killed on drop, so a timed-out call leaves no orphan.
-    async fn run_oneshot(argv: &[String], cwd: &str) -> Option<String> {
+    async fn run_oneshot(session_id: &str, argv: &[String], cwd: &str) -> Option<String> {
         use tokio::process::Command;
         let mut cmd = Command::new(&argv[0]);
         cmd.args(&argv[1..])
@@ -516,7 +516,7 @@ mod serve {
         let child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
-                tracing::debug!(target: "smart_rename", "one-shot spawn failed: {e}");
+                tracing::debug!(target: "smart_rename", session = %session_id, "one-shot spawn failed: {e}");
                 return None;
             }
         };
@@ -535,15 +535,15 @@ mod serve {
                     .into_iter()
                     .rev()
                     .collect();
-                tracing::debug!(target: "smart_rename", code = ?out.status.code(), stderr = %tail, "one-shot exited non-zero");
+                tracing::debug!(target: "smart_rename", session = %session_id, code = ?out.status.code(), stderr = %tail, "one-shot exited non-zero");
                 None
             }
             Ok(Err(e)) => {
-                tracing::debug!(target: "smart_rename", "one-shot io error: {e}");
+                tracing::debug!(target: "smart_rename", session = %session_id, "one-shot io error: {e}");
                 None
             }
             Err(_) => {
-                tracing::debug!(target: "smart_rename", "one-shot timed out");
+                tracing::debug!(target: "smart_rename", session = %session_id, "one-shot timed out");
                 None
             }
         }
@@ -637,7 +637,7 @@ mod serve {
                 "-p".to_string(),
                 "title this".to_string(),
             ];
-            assert!(run_oneshot(&argv, "").await.is_none());
+            assert!(run_oneshot("test-session", &argv, "").await.is_none());
         }
 
         #[test]

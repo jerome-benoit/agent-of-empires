@@ -3852,6 +3852,19 @@ async fn acp_event_listener(state: Arc<AppState>) {
                     )
                     .await;
                 });
+            } else {
+                // A `prompt_complete` Stopped without any persisted UserPromptSent
+                // is unexpected: `publish_user_prompt_with_attachments` runs
+                // strictly before `send_prompt` in the ACP handler, so by the
+                // time the turn ends the first prompt should be durable in the
+                // event store. A silent skip would hide a plumbing bug (attachment
+                // rollback, pruning of an old session, race with SessionCleared);
+                // surface it at debug so operators can trace it.
+                tracing::debug!(
+                    target: "smart_rename",
+                    session = %frame.session_id,
+                    "trigger fired but event store has no first_user_prompt; skipping"
+                );
             }
         }
 
