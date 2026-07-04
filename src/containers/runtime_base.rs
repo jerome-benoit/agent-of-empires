@@ -1,5 +1,5 @@
 use super::container_interface::{docker_env_args, ContainerConfig};
-use super::error::{DockerError, Result};
+use super::error::{sanitize_stderr, DockerError, Result};
 use std::io::Read;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -216,7 +216,7 @@ impl RuntimeBase {
         if stderr.to_lowercase().contains("permission denied") {
             return Err(DockerError::PermissionDenied);
         }
-        Err(DockerError::InspectFailed(stderr.to_string()))
+        Err(DockerError::InspectFailed(sanitize_stderr(stderr)))
     }
 
     pub fn command(&self) -> Command {
@@ -448,7 +448,7 @@ impl RuntimeBase {
             if stderr.contains("No such image") || stderr.contains("Unable to find image") {
                 return Err(DockerError::ImageNotFound(image.to_string()));
             }
-            return Err(DockerError::CreateFailed(stderr.to_string()));
+            return Err(DockerError::CreateFailed(sanitize_stderr(&stderr)));
         }
 
         let container_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -461,7 +461,7 @@ impl RuntimeBase {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(DockerError::StartFailed(stderr.to_string()));
+            return Err(DockerError::StartFailed(sanitize_stderr(&stderr)));
         }
 
         Ok(())
@@ -476,7 +476,7 @@ impl RuntimeBase {
             if self.is_not_found(&stderr) {
                 return Err(DockerError::ContainerNotFound(name.to_string()));
             }
-            return Err(DockerError::StopFailed(stderr.to_string()));
+            return Err(DockerError::StopFailed(sanitize_stderr(&stderr)));
         }
 
         Ok(())
@@ -502,7 +502,7 @@ impl RuntimeBase {
             if self.is_not_found(&stderr) {
                 return Err(DockerError::ContainerNotFound(name.to_string()));
             }
-            return Err(DockerError::RemoveFailed(stderr.to_string()));
+            return Err(DockerError::RemoveFailed(sanitize_stderr(&stderr)));
         }
 
         Ok(())

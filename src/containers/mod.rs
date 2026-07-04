@@ -240,9 +240,9 @@ impl DockerContainer {
     /// Used on the worktree-move discard path where the container is dropped
     /// to pick up a new bind mount and will be recreated immediately.
     ///
-    /// NOTE: same invariant as [`Self::teardown`]: callers must invoke this
-    /// unconditionally and act on the returned outcome; it must never be
-    /// gated behind a separate existence probe, whose transient failure
+    /// The same invariant as [`Self::teardown`] applies: callers must invoke
+    /// this unconditionally and act on the returned outcome; it must never
+    /// be gated behind a separate existence probe, whose transient failure
     /// would skip removal and orphan a live container (#2596).
     pub fn discard(&self) -> Teardown {
         classify_removal(self.remove(true))
