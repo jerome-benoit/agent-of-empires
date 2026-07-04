@@ -431,7 +431,7 @@ pub fn cleanup_sandbox_worktree(instance: &Instance) -> bool {
             tracing::warn!(
                 target: "containers.runtime",
                 session = %instance.id,
-                error = %e,
+                error = %e.summary(),
                 "docker inspect failed while probing sandbox container for worktree cleanup; attempting container start (safe if already running)"
             );
             true

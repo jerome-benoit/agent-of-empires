@@ -94,6 +94,14 @@ pub(crate) struct RuntimeBase {
     /// "No such container", Apple Container "notFound … not found"), so the
     /// markers are per-runtime rather than a single shared string.
     pub not_found_markers: &'static [&'static str],
+    /// Case-sensitive stderr substrings that identify a "daemon is not
+    /// reachable" error for this runtime. Structural parallel to
+    /// `not_found_markers`: keeping this per-runtime prevents cross-runtime
+    /// substring bleed and lets `classify_inspect_failure` surface an
+    /// actionable [`DockerError::DaemonNotRunning`] at the fail-closed gate
+    /// sites (#2596 follow-up). Case sensitivity is intentional — every
+    /// runtime's daemon-down message has stable capitalization at the source.
+    pub daemon_down_markers: &'static [&'static str],
 }
 
 impl RuntimeBase {
@@ -108,6 +116,10 @@ impl RuntimeBase {
         supports_named_volumes: true,
         supports_selinux_relabel: true,
         not_found_markers: &["no such container"],
+        // moby/moby client/errors.go connectionFailed() is the single source
+        // of this message across every Docker OS variant (macOS Desktop, Linux
+        // CE, Windows Desktop).
+        daemon_down_markers: &["Cannot connect to the Docker daemon"],
     };
 
     pub const APPLE_CONTAINER: Self = Self {
@@ -128,6 +140,12 @@ impl RuntimeBase {
         // Match the container-specific prefix instead (lowercased to align with
         // is_not_found's case-fold).
         not_found_markers: &["container with id"],
+        // Placeholder — Apple's `container` CLI daemon-down wording is not
+        // captured in this repo. The fallback to InspectFailed still fails
+        // closed at gate sites, so an unmatched real message only degrades
+        // log actionability, not correctness. Replace with a captured
+        // fixture when available.
+        daemon_down_markers: &["connect to container daemon"],
     };
 
     pub const PODMAN: Self = Self {
@@ -144,7 +162,21 @@ impl RuntimeBase {
         supports_named_volumes: true,
         supports_selinux_relabel: true,
         not_found_markers: &["no such container"],
+        // Two distinct daemon-down wordings observed in real Podman output:
+        // - "connect to Podman socket" fires on Linux socket mode
+        //   (libpod service unavailable, "unable to connect to Podman
+        //   socket: Connection refused").
+        // - "Cannot connect to Podman." fires on Podman Desktop / machine
+        //   mode (macOS / Windows), when the VM is stopped.
+        daemon_down_markers: &["connect to Podman socket", "Cannot connect to Podman."],
     };
+
+    /// Whether `stderr` from a container inspect indicates the runtime's
+    /// daemon (or equivalent local engine) is unreachable. Case-sensitive,
+    /// per-runtime — see [`Self::daemon_down_markers`] rationale.
+    pub fn is_daemon_down(&self, stderr: &str) -> bool {
+        self.daemon_down_markers.iter().any(|m| stderr.contains(m))
+    }
 
     /// Whether `stderr` from a remove/stop indicates the container did not
     /// exist. Case-insensitive; matches this runtime's own not-found wording.
@@ -171,15 +203,11 @@ impl RuntimeBase {
         // Mirror run_create's daemon-down / permission-denied sniff so the
         // Probe::Unknown(e) warn logs at gate sites show the actionable
         // DaemonNotRunning / PermissionDenied Display messages rather than
-        // a raw stderr wrapped in InspectFailed. Kept inline (not per-runtime
-        // markers on Self) to avoid restructuring the base for a bugfix PR;
-        // a proper daemon_down_markers parallel to not_found_markers is
-        // queued as follow-up. Substrings cover Docker, Podman, and the
-        // Apple placeholder — see the daemon-down fixture tests below.
-        if stderr.contains("Cannot connect to the Docker daemon")
-            || stderr.contains("connect to Podman socket")
-            || stderr.contains("connect to container daemon")
-        {
+        // a raw stderr wrapped in InspectFailed. Daemon-down markers live
+        // per-runtime on Self (parallel to `not_found_markers`) so each
+        // runtime only matches its own wording and cross-runtime bleed is
+        // impossible by construction.
+        if self.is_daemon_down(stderr) {
             return Err(DockerError::DaemonNotRunning);
         }
         if stderr.to_lowercase().contains("permission denied") {
@@ -622,14 +650,11 @@ mod tests {
         // We route these to DaemonNotRunning (not the generic InspectFailed)
         // because the enum's Display for DaemonNotRunning carries the
         // actionable "Start Docker Desktop or run: sudo systemctl start docker"
-        // hint that warn logs at gate sites surface to operators. Mirrors
-        // run_create's stderr sniff at the create path.
+        // hint. Mirrors run_create's stderr sniff at the create path.
         //
-        // Docker and Podman fixtures are real-world captures. The Apple
-        // fixture is a placeholder — Apple's `container` CLI daemon-down
-        // wording is not documented in this repo. Any daemon-down stderr
-        // NOT containing "container with id" (the tightened Apple
-        // not_found_marker) will route to Err by construction.
+        // Markers now live in `daemon_down_markers` per-runtime (parallel to
+        // `not_found_markers`), so each runtime only matches its own
+        // wording — no cross-runtime bleed by construction.
         let docker_daemon_down =
             "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. \
              Is the docker daemon running?";
@@ -637,17 +662,49 @@ mod tests {
             RuntimeBase::DOCKER.classify_inspect_failure(docker_daemon_down),
             Err(DockerError::DaemonNotRunning)
         ));
-        let podman_daemon_down = "Error: unable to connect to Podman socket: Connection refused";
+
+        // Podman socket mode (Linux): libpod service unavailable.
+        let podman_socket_down = "Error: unable to connect to Podman socket: Connection refused";
         assert!(matches!(
-            RuntimeBase::PODMAN.classify_inspect_failure(podman_daemon_down),
+            RuntimeBase::PODMAN.classify_inspect_failure(podman_socket_down),
             Err(DockerError::DaemonNotRunning)
         ));
+
+        // Podman Desktop / machine mode (macOS / Windows): VM stopped.
+        let podman_desktop_down = "Cannot connect to Podman. \
+             Please verify your connection to the Linux system using \
+             `podman system connection list`, or try `podman machine init` \
+             and `podman machine start` to manage a new Linux VM";
+        assert!(matches!(
+            RuntimeBase::PODMAN.classify_inspect_failure(podman_desktop_down),
+            Err(DockerError::DaemonNotRunning)
+        ));
+
+        // Apple placeholder — real `container` CLI daemon-down wording is
+        // not captured in this repo; the marker match is by construction.
         let apple_daemon_down =
             "Error: internalError: \"failed to connect to container daemon\" (cause: \"transient\")";
         assert!(matches!(
             RuntimeBase::APPLE_CONTAINER.classify_inspect_failure(apple_daemon_down),
             Err(DockerError::DaemonNotRunning)
         ));
+    }
+
+    #[test]
+    fn is_daemon_down_is_cross_runtime_isolated() {
+        // Cross-runtime bleed regression guard: Docker's daemon-down stderr
+        // must NOT match Podman's or Apple's markers, and vice versa. This
+        // is what the daemon_down_markers-per-runtime refactor buys us over
+        // the earlier inline-substring implementation.
+        let docker_down = "Cannot connect to the Docker daemon at ...";
+        assert!(RuntimeBase::DOCKER.is_daemon_down(docker_down));
+        assert!(!RuntimeBase::PODMAN.is_daemon_down(docker_down));
+        assert!(!RuntimeBase::APPLE_CONTAINER.is_daemon_down(docker_down));
+
+        let podman_down = "Error: unable to connect to Podman socket: ...";
+        assert!(RuntimeBase::PODMAN.is_daemon_down(podman_down));
+        assert!(!RuntimeBase::DOCKER.is_daemon_down(podman_down));
+        assert!(!RuntimeBase::APPLE_CONTAINER.is_daemon_down(podman_down));
     }
 
     #[test]
