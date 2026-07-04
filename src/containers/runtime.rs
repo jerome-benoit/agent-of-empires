@@ -134,6 +134,11 @@ impl ContainerRuntime {
     pub fn is_container_running(&self, name: &str) -> Result<bool> {
         match self.kind {
             RuntimeKind::Docker | RuntimeKind::Podman => {
+                // `container inspect` (not the shorter `docker inspect`): the two
+                // subcommands emit different stderr for a missing container
+                // ("No such container" vs "No such object"), and DOCKER_MISSING
+                // in the runtime_base tests pins the former. Changing this argv
+                // silently breaks is_not_found classification. See #2596.
                 let output = self
                     .base
                     .command()
@@ -160,13 +165,22 @@ impl ContainerRuntime {
                     .map_err(|e| DockerError::InspectFailed(e.to_string()))?;
 
                 if let Some(status) = out_json.pointer("/0/status") {
-                    Ok(status == "running")
+                    // as_str() guard: if Apple ever changes /0/status from a
+                    // string to a nested object, `status == "running"` would
+                    // silently return false and route to Probe::NotRunning —
+                    // exact fail-open swallowing-existence-probe (#2596) one
+                    // JSON schema shift away. Surface schema drift as Err.
+                    match status.as_str() {
+                        Some(s) => Ok(s == "running"),
+                        None => Err(DockerError::InspectFailed(
+                            "apple container inspect: /0/status present but not a string".into(),
+                        )),
+                    }
                 } else {
-                    // Exit 0 with no /0/status: the inspect output schema
-                    // changed underneath us. Surface as Err (Probe::Unknown)
-                    // rather than silently collapsing to Ok(false), which
-                    // would let a gate site fail open on a genuinely running
-                    // container just because Apple renamed a JSON field.
+                    // Exit 0 with no /0/status: schema surprise. Same
+                    // reasoning as the as_str() None branch above — Err,
+                    // not Ok(false), so gates fail closed instead of fail
+                    // open on a genuinely running container.
                     Err(DockerError::InspectFailed(
                         "apple container inspect: exit 0 but no /0/status in output".into(),
                     ))

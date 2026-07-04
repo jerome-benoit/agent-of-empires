@@ -166,10 +166,26 @@ impl RuntimeBase {
     /// #2596. Mirrors the stderr-sniff pattern `remove()` already uses.
     pub fn classify_inspect_failure(&self, stderr: &str) -> Result<bool> {
         if self.is_not_found(stderr) {
-            Ok(false)
-        } else {
-            Err(DockerError::InspectFailed(stderr.to_string()))
+            return Ok(false);
         }
+        // Mirror run_create's daemon-down / permission-denied sniff so the
+        // Probe::Unknown(e) warn logs at gate sites show the actionable
+        // DaemonNotRunning / PermissionDenied Display messages rather than
+        // a raw stderr wrapped in InspectFailed. Kept inline (not per-runtime
+        // markers on Self) to avoid restructuring the base for a bugfix PR;
+        // a proper daemon_down_markers parallel to not_found_markers is
+        // queued as follow-up. Substrings cover Docker, Podman, and the
+        // Apple placeholder — see the daemon-down fixture tests below.
+        if stderr.contains("Cannot connect to the Docker daemon")
+            || stderr.contains("connect to Podman socket")
+            || stderr.contains("connect to container daemon")
+        {
+            return Err(DockerError::DaemonNotRunning);
+        }
+        if stderr.to_lowercase().contains("permission denied") {
+            return Err(DockerError::PermissionDenied);
+        }
+        Err(DockerError::InspectFailed(stderr.to_string()))
     }
 
     pub fn command(&self) -> Command {
@@ -597,37 +613,67 @@ mod tests {
     }
 
     #[test]
-    fn inspect_daemon_down_stderr_surfaces_as_err() {
+    fn inspect_daemon_down_stderr_maps_to_daemon_not_running() {
         // Daemon-unreachable stderr must NOT collapse to Ok(false): that is
         // the exact swallowing-existence-probe failure mode #2596 fixed on
         // the discard path. Surfacing as Err lets classify_running_probe
         // map it to Probe::Unknown so gates fail closed.
         //
-        // The three fixtures below share one property: none contain their
-        // respective runtime's not_found_marker substring, which is exactly
-        // what a real daemon-down stderr should look like. Docker and Podman
-        // strings are captured real-world CLI output; the Apple fixture is a
-        // placeholder — Apple's `container` CLI daemon-down wording is not
-        // documented in this repo. Because Apple's marker is now the specific
-        // "container with id", any daemon-down stderr NOT containing that
-        // substring correctly routes to Err regardless of exact wording.
+        // We route these to DaemonNotRunning (not the generic InspectFailed)
+        // because the enum's Display for DaemonNotRunning carries the
+        // actionable "Start Docker Desktop or run: sudo systemctl start docker"
+        // hint that warn logs at gate sites surface to operators. Mirrors
+        // run_create's stderr sniff at the create path.
+        //
+        // Docker and Podman fixtures are real-world captures. The Apple
+        // fixture is a placeholder — Apple's `container` CLI daemon-down
+        // wording is not documented in this repo. Any daemon-down stderr
+        // NOT containing "container with id" (the tightened Apple
+        // not_found_marker) will route to Err by construction.
         let docker_daemon_down =
             "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. \
              Is the docker daemon running?";
         assert!(matches!(
             RuntimeBase::DOCKER.classify_inspect_failure(docker_daemon_down),
-            Err(DockerError::InspectFailed(_))
+            Err(DockerError::DaemonNotRunning)
         ));
         let podman_daemon_down = "Error: unable to connect to Podman socket: Connection refused";
         assert!(matches!(
             RuntimeBase::PODMAN.classify_inspect_failure(podman_daemon_down),
-            Err(DockerError::InspectFailed(_))
+            Err(DockerError::DaemonNotRunning)
         ));
-        // Apple placeholder — see comment above.
         let apple_daemon_down =
             "Error: internalError: \"failed to connect to container daemon\" (cause: \"transient\")";
         assert!(matches!(
             RuntimeBase::APPLE_CONTAINER.classify_inspect_failure(apple_daemon_down),
+            Err(DockerError::DaemonNotRunning)
+        ));
+    }
+
+    #[test]
+    fn inspect_permission_denied_stderr_maps_to_permission_denied() {
+        // Docker's "Got permission denied while trying to connect to the
+        // Docker daemon socket" (typical on Linux without docker-group
+        // membership) surfaces the actionable PermissionDenied variant
+        // rather than opaque InspectFailed. Matches run_create's sniff.
+        let stderr = "Got permission denied while trying to connect to the Docker daemon socket \
+                      at unix:///var/run/docker.sock";
+        assert!(matches!(
+            RuntimeBase::DOCKER.classify_inspect_failure(stderr),
+            Err(DockerError::PermissionDenied)
+        ));
+    }
+
+    #[test]
+    fn inspect_generic_transient_maps_to_inspect_failed() {
+        // Any non-not-found, non-daemon-down, non-permission-denied stderr
+        // falls through to InspectFailed carrying the raw stderr. This is
+        // the generic Probe::Unknown route for "something else went wrong
+        // during inspect" — the operator sees the underlying runtime message
+        // via the warn's error field.
+        let stderr = "Error response from daemon: internal server error 500";
+        assert!(matches!(
+            RuntimeBase::DOCKER.classify_inspect_failure(stderr),
             Err(DockerError::InspectFailed(_))
         ));
     }

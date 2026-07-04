@@ -46,9 +46,6 @@ pub enum DockerError {
     #[error("Failed to inspect container: {0}")]
     InspectFailed(String),
 
-    #[error("Docker command failed: {0}")]
-    CommandFailed(String),
-
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 }
