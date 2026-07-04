@@ -2201,8 +2201,14 @@ mod tests {
             mount.skip_entries.contains(&"opencode.db"),
             "opencode.db must remain in skip_entries to block host schema drift",
         );
-        assert!(mount.skip_entries.contains(&"opencode.db-wal"));
-        assert!(mount.skip_entries.contains(&"opencode.db-shm"));
+        assert!(
+            mount.skip_entries.contains(&"opencode.db-wal"),
+            "opencode.db-wal must remain in skip_entries to block host schema drift",
+        );
+        assert!(
+            mount.skip_entries.contains(&"opencode.db-shm"),
+            "opencode.db-shm must remain in skip_entries to block host schema drift",
+        );
     }
 
     #[test]
