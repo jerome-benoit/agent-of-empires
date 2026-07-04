@@ -67,10 +67,8 @@ pub enum Teardown {
 /// A `ContainerNotFound` error means there was nothing to remove and maps to
 /// `AlreadyGone`; every other error is a genuine `Failed`. Keeping this
 /// classification separate from I/O lets it be reasoned about and tested
-/// without a live runtime. Used by [`DockerContainer::teardown`] and by the
-/// worktree-move discard path in `session::worktree_edit`, which needs the
-/// same idempotent classification without sweeping named ignore volumes.
-pub(crate) fn classify_removal(result: Result<()>) -> Teardown {
+/// without a live runtime.
+fn classify_removal(result: Result<()>) -> Teardown {
     match result {
         Ok(()) => Teardown::Removed,
         Err(error::DockerError::ContainerNotFound(_)) => Teardown::AlreadyGone,
@@ -199,6 +197,23 @@ impl DockerContainer {
         let outcome = classify_removal(self.remove(true));
         self.remove_named_ignore_volumes(session_id);
         outcome
+    }
+
+    /// Force-remove this container, preserving its named ignore volumes.
+    ///
+    /// Idempotent counterpart to [`Self::teardown`]: same removal and
+    /// classification, but the session-scoped named ignore volumes
+    /// (`aoe-vi-{session_id}-*`, e.g. `target/`, `node_modules/`) are left
+    /// intact so the recreated container re-attaches them on next start.
+    /// Used on the worktree-move discard path where the container is dropped
+    /// to pick up a new bind mount and will be recreated immediately.
+    ///
+    /// NOTE: same invariant as [`Self::teardown`] — callers must invoke this
+    /// unconditionally and act on the returned outcome; it must never be
+    /// gated behind a separate existence probe, whose transient failure
+    /// would skip removal and orphan a live container (#2596).
+    pub fn discard(&self) -> Teardown {
+        classify_removal(self.remove(true))
     }
 
     pub fn exec_command(&self, options: Option<&str>, cmd: &str) -> String {
