@@ -2,24 +2,13 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum DockerError {
-    #[error(
-        "Docker is not installed or not in PATH.\n\
-         Install Docker: https://docs.docker.com/get-docker/"
-    )]
+    #[error("Docker is not installed or not in PATH")]
     NotInstalled,
 
-    #[error(
-        "Docker daemon is not running.\n\
-         Start Docker Desktop or run: sudo systemctl start docker"
-    )]
+    #[error("Docker daemon is not running")]
     DaemonNotRunning,
 
-    #[error(
-        "Docker permission denied.\n\
-         On Linux, add your user to the docker group:\n\
-         sudo usermod -aG docker $USER\n\
-         Then log out and back in."
-    )]
+    #[error("Docker permission denied")]
     PermissionDenied,
 
     #[error("Container not found: {0}")]
@@ -51,23 +40,28 @@ pub enum DockerError {
 }
 
 impl DockerError {
-    /// Single-line Display for use in structured log fields.
+    /// Multi-line remediation hint suitable for user-facing error surfaces
+    /// (TUI dialogs, CLI stderr on final failure). Returns `None` for variants
+    /// whose `Display` is already self-explanatory or whose context is
+    /// variable (e.g. `InspectFailed` carries raw stderr; no fixed
+    /// remediation applies).
     ///
-    /// `DaemonNotRunning` and `PermissionDenied` carry multi-line
-    /// remediation prose in their `Display` (e.g. `"...\nOn Linux, add your
-    /// user to the docker group:\nsudo usermod -aG docker $USER..."`) which
-    /// is useful in terminal / TUI surfaces but splits a single `tracing`
-    /// event across multiple physical log lines when rendered by the
-    /// text-mode subscriber this project uses — `grep containers.runtime`
-    /// only correlates the first line and orphans the continuation lines.
-    /// Prefer this at gate-site warns (`error = %e.summary()`); keep the
-    /// full `Display` for user-facing surfaces.
-    pub fn summary(&self) -> String {
-        self.to_string()
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .to_string()
+    /// `Display` is deliberately single-line by default so `error = %e` at
+    /// `tracing::warn!` sites produces one physical log line. Call this
+    /// accessor where the surface can render multi-line prose.
+    pub fn remediation(&self) -> Option<&'static str> {
+        match self {
+            Self::NotInstalled => Some("Install Docker: https://docs.docker.com/get-docker/"),
+            Self::DaemonNotRunning => {
+                Some("Start Docker Desktop or run: sudo systemctl start docker")
+            }
+            Self::PermissionDenied => Some(
+                "On Linux, add your user to the docker group:\n\
+                 sudo usermod -aG docker $USER\n\
+                 Then log out and back in.",
+            ),
+            _ => None,
+        }
     }
 }
 

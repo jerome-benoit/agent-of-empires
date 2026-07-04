@@ -159,7 +159,7 @@ impl ContainerRuntime {
                 // is pinned in RuntimeBase::APPLE_CONTAINER.not_found_markers
                 // (`container with id`) and daemon_down_markers. Do not
                 // tighten this argv or those markers without capturing new
-                // fixtures — same silent-break risk as the Docker/Podman
+                // fixtures; same silent-break risk as the Docker/Podman
                 // comment above. See #2596.
                 let output = self.base.command().args(["inspect", name]).output()?;
 
@@ -174,7 +174,7 @@ impl ContainerRuntime {
                 if let Some(status) = out_json.pointer("/0/status") {
                     // as_str() guard: if Apple ever changes /0/status from a
                     // string to a nested object, `status == "running"` would
-                    // silently return false and route to Probe::NotRunning —
+                    // silently return false and route to Probe::NotRunning:
                     // exact fail-open swallowing-existence-probe (#2596) one
                     // JSON schema shift away. Surface schema drift as Err.
                     match status.as_str() {
@@ -185,7 +185,7 @@ impl ContainerRuntime {
                     }
                 } else {
                     // Exit 0 with no /0/status: schema surprise. Same
-                    // reasoning as the as_str() None branch above — Err,
+                    // reasoning as the as_str() None branch above: Err,
                     // not Ok(false), so gates fail closed instead of fail
                     // open on a genuinely running container.
                     Err(DockerError::InspectFailed(

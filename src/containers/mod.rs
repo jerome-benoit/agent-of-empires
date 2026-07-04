@@ -240,7 +240,7 @@ impl DockerContainer {
     /// Used on the worktree-move discard path where the container is dropped
     /// to pick up a new bind mount and will be recreated immediately.
     ///
-    /// NOTE: same invariant as [`Self::teardown`] — callers must invoke this
+    /// NOTE: same invariant as [`Self::teardown`]: callers must invoke this
     /// unconditionally and act on the returned outcome; it must never be
     /// gated behind a separate existence probe, whose transient failure
     /// would skip removal and orphan a live container (#2596).
@@ -255,7 +255,7 @@ impl DockerContainer {
     /// where the returned boolean gates a mutation on the container being
     /// stopped: `unwrap_or(false)` swallows a transient `docker inspect`
     /// failure into a false negative and lets the gate open against a
-    /// possibly-live container — the swallowing-existence-probe class of
+    /// possibly-live container: the swallowing-existence-probe class of
     /// bug fixed on the removal path in #2596.
     pub fn probe_running(&self) -> Probe {
         classify_running_probe(self.is_running())

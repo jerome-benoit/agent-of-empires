@@ -4011,14 +4011,14 @@ impl Instance {
                     tracing::warn!(
                         target: "containers.runtime",
                         session = %self.id,
-                        error = %e.summary(),
+                        error = %e,
                         "docker inspect failed while probing sandbox container before session stop; attempting stop anyway to avoid leaving a possibly-live container behind"
                     );
                     if let Err(stop_err) = container.stop() {
                         tracing::warn!(
                             target: "containers.runtime",
                             session = %self.id,
-                            error = %stop_err.summary(),
+                            error = %stop_err,
                             "sandbox container stop failed after probe failure; container may already be gone or docker is unreachable"
                         );
                     }

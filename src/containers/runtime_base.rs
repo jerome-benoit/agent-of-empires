@@ -99,7 +99,7 @@ pub(crate) struct RuntimeBase {
     /// `not_found_markers`: keeping this per-runtime prevents cross-runtime
     /// substring bleed and lets `classify_inspect_failure` surface an
     /// actionable [`DockerError::DaemonNotRunning`] at the fail-closed gate
-    /// sites (#2596 follow-up). Case sensitivity is intentional — every
+    /// sites (#2596 follow-up). Case sensitivity is intentional; every
     /// runtime's daemon-down message has stable capitalization at the source.
     pub daemon_down_markers: &'static [&'static str],
 }
@@ -134,13 +134,13 @@ impl RuntimeBase {
         supports_selinux_relabel: false,
         // Apple Container reports a missing container as
         // `notFound: "container with ID <id> not found"`. The bare "not found"
-        // substring would be dangerously broad — a plausible daemon-connectivity
+        // substring would be dangerously broad; a plausible daemon-connectivity
         // error containing "socket not found" or "endpoint not found" would
         // misclassify as absent and silently reintroduce #2596 on this runtime.
         // Match the container-specific prefix instead (lowercased to align with
         // is_not_found's case-fold).
         not_found_markers: &["container with id"],
-        // Placeholder — Apple's `container` CLI daemon-down wording is not
+        // Placeholder: Apple's `container` CLI daemon-down wording is not
         // captured in this repo. The fallback to InspectFailed still fails
         // closed at gate sites, so an unmatched real message only degrades
         // log actionability, not correctness. Replace with a captured
@@ -173,13 +173,16 @@ impl RuntimeBase {
 
     /// Whether `stderr` from a container inspect indicates the runtime's
     /// daemon (or equivalent local engine) is unreachable. Case-sensitive,
-    /// per-runtime — see [`Self::daemon_down_markers`] rationale.
+    /// per-runtime; see [`Self::daemon_down_markers`] rationale.
     pub fn is_daemon_down(&self, stderr: &str) -> bool {
         self.daemon_down_markers.iter().any(|m| stderr.contains(m))
     }
 
     /// Whether `stderr` from a remove/stop indicates the container did not
-    /// exist. Case-insensitive; matches this runtime's own not-found wording.
+    /// exist. Case-insensitive to tolerate wording drift across CLI versions
+    /// (e.g. capitalization changes between Docker releases). Contrast
+    /// [`Self::is_daemon_down`], which is case-sensitive because daemon-down
+    /// stderr wording is stable at each runtime's source.
     pub fn is_not_found(&self, stderr: &str) -> bool {
         let lower = stderr.to_lowercase();
         self.not_found_markers.iter().any(|m| lower.contains(m))
@@ -193,7 +196,7 @@ impl RuntimeBase {
     /// Without this split, `ContainerRuntime::is_container_running`
     /// collapses BOTH failure modes into `Ok(false)`, and every fail-closed
     /// probe site silently swallows the daemon-down signal as
-    /// `Probe::NotRunning` — the same swallowing-existence-probe class
+    /// `Probe::NotRunning`: the same swallowing-existence-probe class
     /// fixed on the removal path by #2576 and on the discard path by
     /// #2596. Mirrors the stderr-sniff pattern `remove()` already uses.
     pub fn classify_inspect_failure(&self, stderr: &str) -> Result<bool> {
@@ -654,7 +657,7 @@ mod tests {
         //
         // Markers now live in `daemon_down_markers` per-runtime (parallel to
         // `not_found_markers`), so each runtime only matches its own
-        // wording — no cross-runtime bleed by construction.
+        // wording; no cross-runtime bleed by construction.
         let docker_daemon_down =
             "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. \
              Is the docker daemon running?";
@@ -680,7 +683,7 @@ mod tests {
             Err(DockerError::DaemonNotRunning)
         ));
 
-        // Apple placeholder — real `container` CLI daemon-down wording is
+        // Apple placeholder: real `container` CLI daemon-down wording is
         // not captured in this repo; the marker match is by construction.
         let apple_daemon_down =
             "Error: internalError: \"failed to connect to container daemon\" (cause: \"transient\")";
@@ -705,6 +708,12 @@ mod tests {
         assert!(RuntimeBase::PODMAN.is_daemon_down(podman_down));
         assert!(!RuntimeBase::DOCKER.is_daemon_down(podman_down));
         assert!(!RuntimeBase::APPLE_CONTAINER.is_daemon_down(podman_down));
+
+        let apple_down =
+            "Error: internalError: \"failed to connect to container daemon\" (cause: \"transient\")";
+        assert!(RuntimeBase::APPLE_CONTAINER.is_daemon_down(apple_down));
+        assert!(!RuntimeBase::DOCKER.is_daemon_down(apple_down));
+        assert!(!RuntimeBase::PODMAN.is_daemon_down(apple_down));
     }
 
     #[test]
@@ -726,7 +735,7 @@ mod tests {
         // Any non-not-found, non-daemon-down, non-permission-denied stderr
         // falls through to InspectFailed carrying the raw stderr. This is
         // the generic Probe::Unknown route for "something else went wrong
-        // during inspect" — the operator sees the underlying runtime message
+        // during inspect": the operator sees the underlying runtime message
         // via the warn's error field.
         let stderr = "Error response from daemon: internal server error 500";
         assert!(matches!(
