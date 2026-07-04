@@ -3988,12 +3988,12 @@ impl Instance {
     /// (if sandboxed). The container is stopped but not removed, so it can be
     /// restarted on re-attach.
     ///
-    /// On a docker inspect failure ([`containers::Probe::Unknown`]) the stop
-    /// is attempted anyway with a `warn!` log, so a possibly-live container
-    /// is not silently abandoned. A second `warn!` is emitted if the stop
-    /// itself also fails (e.g. docker daemon is down); the overall `stop()`
-    /// return still succeeds in that case, preserving the pre-#2596
-    /// best-effort semantics.
+    /// On a docker inspect failure ([`crate::containers::Probe::Unknown`])
+    /// the stop is attempted anyway with a `warn!` log, so a possibly-live
+    /// container is not silently abandoned. A second `warn!` is emitted if
+    /// the stop itself also fails (e.g. docker daemon is down); the overall
+    /// `stop()` return still succeeds in that case (best-effort: the session
+    /// record is marked Stopped regardless).
     pub fn stop(&self) -> Result<()> {
         self.kill()?;
 

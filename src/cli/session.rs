@@ -640,10 +640,8 @@ fn bail_if_acp(_inst: &crate::session::Instance, _verb: &str) -> Result<()> {
 /// Treats a docker inspect failure ([`crate::containers::Probe::Unknown`])
 /// as "possibly running" so the session stop proceeds rather than printing
 /// "Session is not running" against a container whose state cannot be
-/// confirmed. The Unknown warn itself is emitted inside
-/// [`crate::session::worktree_edit::sandbox_container_holds_worktree`]
-/// (called transitively by `inst.stop()`), so this call site does not
-/// re-warn.
+/// confirmed. The `warn!` for the Unknown case is emitted inside
+/// [`crate::session::Instance::stop`], so this call site does not re-warn.
 async fn stop_session(profile: &str, args: SessionIdArgs) -> Result<()> {
     let storage = Storage::new_unwatched(profile)?;
 
