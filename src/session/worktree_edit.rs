@@ -22,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::containers::{DockerContainer, Teardown};
+use crate::containers::{DockerContainer, Probe, Teardown};
 use crate::git::error::GitError;
 use crate::git::template::sanitize_branch_name;
 use crate::git::GitWorktree;
@@ -55,11 +55,31 @@ pub fn worktree_leaf_from_title(title: &str) -> String {
 /// and have the user stop the session first, which tears the container down
 /// and releases the mount. `is_sandboxed` is taken so non-sandbox sessions
 /// skip the `docker inspect` subprocess entirely. See #1927 follow-up.
+///
+/// Fails closed on a transient `docker inspect` failure: a [`Probe::Unknown`]
+/// answer is treated as "possibly running" and blocks the rename, rather
+/// than swallowing the failure into a false negative (`unwrap_or(false)`)
+/// that would let the rename proceed against a live container and hit
+/// `EBUSY`. Same swallowing-existence-probe class as #2596, on the more
+/// consequential gate path (this function is *the* barrier that stops the
+/// `EBUSY`, not a best-effort post-move cleanup).
 pub fn sandbox_container_holds_worktree(session_id: &str, is_sandboxed: bool) -> bool {
-    is_sandboxed
-        && DockerContainer::from_session_id(session_id)
-            .is_running()
-            .unwrap_or(false)
+    if !is_sandboxed {
+        return false;
+    }
+    match DockerContainer::from_session_id(session_id).probe_running() {
+        Probe::Running => true,
+        Probe::NotRunning => false,
+        Probe::Unknown(e) => {
+            tracing::warn!(
+                target: "containers.runtime",
+                session = %session_id,
+                error = %e,
+                "docker inspect failed while probing sandbox container for the worktree rename gate; failing closed and reporting the worktree as held to prevent EBUSY against a possibly-live container"
+            );
+            true
+        }
+    }
 }
 
 /// Drop a sandbox session's container after its worktree directory has been
