@@ -1051,12 +1051,21 @@ pub async fn rename_session(
         // container probe is a subprocess, so it runs on the blocking pool
         // like the other process-spawning work in this file.
         let container_holds = {
-            let id = id.clone();
+            let probe_id = id.clone();
+            let log_id = id.clone();
             tokio::task::spawn_blocking(move || {
-                crate::session::worktree_edit::sandbox_container_holds_worktree(&id, is_sandboxed)
+                crate::session::worktree_edit::sandbox_container_holds_worktree(&probe_id, is_sandboxed)
             })
             .await
-            .unwrap_or(false)
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    target: "server.api.sessions",
+                    session = %log_id,
+                    error = %e,
+                    "sandbox container probe task failed at the async boundary; failing closed and reporting the worktree as held to prevent EBUSY against a possibly-live container"
+                );
+                true
+            })
         };
         if status.blocks_worktree_edit() || container_holds {
             return (
@@ -1349,12 +1358,21 @@ pub async fn set_worktree_name(
     // subprocess, so it runs on the blocking pool like the other
     // process-spawning work in this file.
     let container_holds = {
-        let id = id.clone();
+        let probe_id = id.clone();
+        let log_id = id.clone();
         tokio::task::spawn_blocking(move || {
-            crate::session::worktree_edit::sandbox_container_holds_worktree(&id, is_sandboxed)
+            crate::session::worktree_edit::sandbox_container_holds_worktree(&probe_id, is_sandboxed)
         })
         .await
-        .unwrap_or(false)
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                target: "server.api.sessions",
+                session = %log_id,
+                error = %e,
+                "sandbox container probe task failed at the async boundary; failing closed and reporting the worktree as held to prevent EBUSY against a possibly-live container"
+            );
+            true
+        })
     };
     if status.blocks_worktree_edit() || container_holds {
         return (

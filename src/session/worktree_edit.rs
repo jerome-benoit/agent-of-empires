@@ -75,7 +75,7 @@ pub fn sandbox_container_holds_worktree(session_id: &str, is_sandboxed: bool) ->
                 target: "containers.runtime",
                 session = %session_id,
                 error = %e,
-                "docker inspect failed while probing sandbox container for the worktree rename gate; failing closed and reporting the worktree as held to prevent EBUSY against a possibly-live container"
+                "docker inspect failed while probing sandbox container for the worktree rename gate; failing closed and reporting the worktree as held to prevent EBUSY against a possibly-live container. Check `docker system info` if this persists."
             );
             true
         }

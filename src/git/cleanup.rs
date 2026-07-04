@@ -419,7 +419,20 @@ pub fn cleanup_sandbox_worktree(instance: &Instance) -> bool {
     if !container.exists().unwrap_or(false) {
         return false;
     }
-    if !container.is_running().unwrap_or(false) && container.start().is_err() {
+    let needs_start = match container.probe_running() {
+        crate::containers::Probe::Running => false,
+        crate::containers::Probe::NotRunning => true,
+        crate::containers::Probe::Unknown(e) => {
+            tracing::warn!(
+                target: "containers.runtime",
+                session = %instance.id,
+                error = %e,
+                "docker inspect failed while probing sandbox container for worktree cleanup; attempting start (idempotent if already running)"
+            );
+            true
+        }
+    };
+    if needs_start && container.start().is_err() {
         return false;
     }
     match container.exec(&["find", ".", "-mindepth", "1", "-delete"]) {

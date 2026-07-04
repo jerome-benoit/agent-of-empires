@@ -3992,8 +3992,25 @@ impl Instance {
 
         if self.is_sandboxed() {
             let container = containers::DockerContainer::from_session_id(&self.id);
-            if container.is_running().unwrap_or(false) {
-                container.stop()?;
+            match container.probe_running() {
+                containers::Probe::Running => container.stop()?,
+                containers::Probe::NotRunning => {}
+                containers::Probe::Unknown(e) => {
+                    tracing::warn!(
+                        target: "containers.runtime",
+                        session = %self.id,
+                        error = %e,
+                        "docker inspect failed while probing sandbox container before session stop; attempting stop anyway to avoid leaving a possibly-live container behind"
+                    );
+                    if let Err(stop_err) = container.stop() {
+                        tracing::warn!(
+                            target: "containers.runtime",
+                            session = %self.id,
+                            error = %stop_err,
+                            "sandbox container stop failed after probe failure; container may already be gone or docker is unreachable"
+                        );
+                    }
+                }
             }
         }
 
