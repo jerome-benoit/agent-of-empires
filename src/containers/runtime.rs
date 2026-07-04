@@ -169,6 +169,9 @@ impl ContainerRuntime {
                 }
 
                 let out_json: Value = serde_json::from_slice(&output.stdout)
+                    // serde_json::Error::Display is single-line by construction
+                    // (format is "<code> at line N column M"); no sanitize_stderr
+                    // wrapping needed to preserve the single-line convention.
                     .map_err(|e| DockerError::InspectFailed(e.to_string()))?;
 
                 if let Some(status) = out_json.pointer("/0/status") {

@@ -60,7 +60,7 @@ pub enum DockerError {
 /// Docker / Podman / Apple stderr routinely contains `\n` between error
 /// summary lines. Without this, `tracing::warn!(error = %e)` on a gate
 /// site would split one logical event across physical log lines,
-/// re-introducing the exact grep-hostility Round 10's single-line
+/// re-introducing the grep-hostility the single-line `Display`
 /// convention fixed for the unit variants. Call at every construction
 /// site that wraps stderr into a `DockerError` variant.
 ///
@@ -163,5 +163,17 @@ mod tests {
         let once = sanitize_stderr("a\nb\nc");
         let twice = sanitize_stderr(&once);
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn sanitize_stderr_lone_cr_is_preserved_interior() {
+        // str::lines only treats \n and \r\n as terminators (per Rust
+        // spec), so a lone \r mid-string is NOT a line boundary and
+        // survives str::trim, which strips whitespace only at boundaries.
+        // Docker/Podman/Apple do not emit lone \r in stderr, so this test
+        // documents the known limitation rather than exercising a
+        // real-world path: if a lone \r ever surfaces, it will appear
+        // verbatim in the Display output.
+        assert_eq!(sanitize_stderr("a\rb"), "a\rb");
     }
 }

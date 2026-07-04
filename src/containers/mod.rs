@@ -223,9 +223,9 @@ impl DockerContainer {
     /// the container, so they are swept regardless of the removal outcome.
     ///
     /// This method must be invoked unconditionally by callers, which then
-    /// act on the returned outcome; it must never be gated behind a
-    /// outcome; it must never be gated behind a separate existence probe, whose
-    /// transient failure would skip removal and orphan a live container.
+    /// act on the returned outcome; it must never be gated behind a separate
+    /// existence probe, whose transient failure would skip removal and orphan
+    /// a live container.
     pub fn teardown(&self, session_id: &str) -> Teardown {
         let outcome = classify_removal(self.remove(true));
         self.remove_named_ignore_volumes(session_id);
