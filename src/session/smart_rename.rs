@@ -359,9 +359,8 @@ mod serve {
     /// other `Stopped` reasons like `user_stopped`, `rate_limited`,
     /// `agent_unresponsive`, `reattach_idle` are either not turn boundaries or
     /// states where auto-renaming would be intrusive), and short-circuits on
-    /// the two per-session gates so the listener drops the 99% of events that
-    /// need no action before touching the event store or spawning a task.
-    /// See #2348.
+    /// the two per-session gates so the listener drops non-matching events
+    /// before touching the event store or spawning a task. See #2348.
     pub fn should_trigger_smart_rename(
         event: &crate::acp::state::Event,
         session_id: &str,
@@ -386,13 +385,11 @@ mod serve {
     impl<'a> InflightGuard<'a> {
         fn acquire(set: &'a Mutex<HashSet<String>>, id: &str) -> Option<Self> {
             let mut guard = set.lock().expect("smart_rename_inflight poisoned");
-            if !guard.insert(id.to_string()) {
+            let id = id.to_string();
+            if !guard.insert(id.clone()) {
                 return None;
             }
-            Some(Self {
-                set,
-                id: id.to_string(),
-            })
+            Some(Self { set, id })
         }
     }
 
@@ -468,9 +465,8 @@ mod serve {
         // are already rejected by the InflightGuard, so this permit only gates
         // cross-session concurrency (#2348).
         let raw = {
-            let _permit = match state.smart_rename_semaphore.acquire().await {
-                Ok(p) => p,
-                Err(_) => return,
+            let Ok(_permit) = state.smart_rename_semaphore.acquire().await else {
+                return;
             };
             run_oneshot(&argv, &project_path).await
         };

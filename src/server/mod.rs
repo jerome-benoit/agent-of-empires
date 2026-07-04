@@ -3820,9 +3820,9 @@ async fn acp_event_listener(state: Arc<AppState>) {
 
         // Smart-rename defer: fire the one-shot only on a clean
         // `prompt_complete` `Event::Stopped`, so it never races the live worker
-        // for the same provider API. Two sync mutex `contains()` checks and
-        // the reason-allowlist drop the 99% of events that need no action
-        // before we touch the event store or spawn a task. See #2348.
+        // for the same provider API. The reason-allowlist plus the two sync
+        // mutex `contains()` checks drop non-matching events before we touch
+        // the event store or spawn a task. See #2348.
         let should_rename = {
             let attempted = state
                 .smart_rename_attempted
