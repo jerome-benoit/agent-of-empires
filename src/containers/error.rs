@@ -2,13 +2,17 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum DockerError {
-    #[error("Docker is not installed or not in PATH")]
+    #[error(
+        "Docker is not installed or not in PATH. Install: https://docs.docker.com/get-docker/"
+    )]
     NotInstalled,
 
-    #[error("Docker daemon is not running")]
+    #[error(
+        "Docker daemon is not running. Start Docker Desktop or run: sudo systemctl start docker"
+    )]
     DaemonNotRunning,
 
-    #[error("Docker permission denied")]
+    #[error("Docker permission denied. On Linux: add your user to the docker group (sudo usermod -aG docker $USER) and re-login")]
     PermissionDenied,
 
     #[error("Container not found: {0}")]
@@ -37,32 +41,6 @@ pub enum DockerError {
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-}
-
-impl DockerError {
-    /// Multi-line remediation hint suitable for user-facing error surfaces
-    /// (TUI dialogs, CLI stderr on final failure). Returns `None` for variants
-    /// whose `Display` is already self-explanatory or whose context is
-    /// variable (e.g. `InspectFailed` carries raw stderr; no fixed
-    /// remediation applies).
-    ///
-    /// `Display` is deliberately single-line by default so `error = %e` at
-    /// `tracing::warn!` sites produces one physical log line. Call this
-    /// accessor where the surface can render multi-line prose.
-    pub fn remediation(&self) -> Option<&'static str> {
-        match self {
-            Self::NotInstalled => Some("Install Docker: https://docs.docker.com/get-docker/"),
-            Self::DaemonNotRunning => {
-                Some("Start Docker Desktop or run: sudo systemctl start docker")
-            }
-            Self::PermissionDenied => Some(
-                "On Linux, add your user to the docker group:\n\
-                 sudo usermod -aG docker $USER\n\
-                 Then log out and back in.",
-            ),
-            _ => None,
-        }
-    }
 }
 
 pub type Result<T> = std::result::Result<T, DockerError>;
