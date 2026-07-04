@@ -20,7 +20,7 @@ use crate::harness::TuiTestHarness;
 #[serial]
 #[ignore = "requires Docker daemon"]
 fn sandboxed_opencode_db_survives_prepare_sandbox_cycle() {
-    let mut h = TuiTestHarness::new_in_tmp("opencode_sandbox_resume");
+    let mut h = TuiTestHarness::new("opencode_sandbox_resume");
     // Install an `opencode` PATH shim so `aoe add --cmd opencode` resolves
     // during tool discovery. The container has its own opencode binary; the
     // shim only needs to make `which opencode` succeed on the host.

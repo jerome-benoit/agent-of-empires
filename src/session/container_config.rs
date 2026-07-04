@@ -94,8 +94,8 @@ const AGENT_CONFIG_MOUNTS: &[AgentConfigMount] = &[
         container_suffix: ".local/share/opencode",
         // `skip_entries` prevents copying the host DB into the sandbox; a
         // schema-drifted host DB would trigger drizzle migration failures
-        // against the sandboxed opencode. The sandbox creates its own DB
-        // in-container on first launch, which is always schema-consistent
+        // against the sandboxed opencode. The sandboxed opencode creates its
+        // own DB in-container on first launch, which is always schema-consistent
         // with that opencode. Do NOT wipe it on subsequent launches: it
         // holds `ses_*` session identity and is the resume source of truth.
         // See #2605.
