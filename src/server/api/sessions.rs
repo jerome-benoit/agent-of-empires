@@ -972,13 +972,45 @@ async fn quiesce_structured_worker_for_worktree_move(
     }
 }
 
+/// Probe whether a sandboxed session's container is still holding its
+/// worktree mount, on the blocking pool.
+///
+/// A sandbox container runs `sleep infinity` for the life of the session
+/// and keeps the worktree dir bind-mounted even while the agent is Idle,
+/// so a `git worktree move` would fail with `EBUSY`. Callers gate the
+/// rename/workdir-edit endpoints on this probe.
+///
+/// Fails closed at the async boundary: a `spawn_blocking` panic or
+/// cancellation reports the worktree as held (with a `warn!` log), so
+/// the caller rejects the mutating request with `409 CONFLICT` rather
+/// than risk `EBUSY` against a possibly-live container mount. Sharing
+/// this helper between `rename_session` and `set_worktree_name` keeps
+/// the fail-closed policy synchronized across the two endpoints (#2596).
+async fn probe_container_holds_worktree(id: &str, is_sandboxed: bool) -> bool {
+    let probe_id = id.to_string();
+    let log_id = id.to_string();
+    tokio::task::spawn_blocking(move || {
+        crate::session::worktree_edit::sandbox_container_holds_worktree(&probe_id, is_sandboxed)
+    })
+    .await
+    .unwrap_or_else(|e| {
+        tracing::warn!(
+            target: "server.api.sessions",
+            session = %log_id,
+            error = %e,
+            "sandbox container probe task failed at the async boundary; failing closed and reporting the worktree as held to prevent EBUSY against a possibly-live container"
+        );
+        true
+    })
+}
+
 /// Rename a session's title (and, when tied, its worktree directory).
 ///
-/// The sandbox container probe runs on the blocking pool. If the
-/// `spawn_blocking` task panics or is cancelled, the handler fails closed:
-/// `container_holds` is treated as `true` (with a `warn!` log) so the
-/// rename is rejected with `409 CONFLICT` rather than proceeding against a
-/// possibly-live container mount and hitting `EBUSY`.
+/// The sandbox container probe runs on the blocking pool via
+/// [`probe_container_holds_worktree`], which fails closed on a
+/// `spawn_blocking` panic or cancellation so the rename is rejected
+/// with `409 CONFLICT` rather than proceeding against a possibly-live
+/// container mount and hitting `EBUSY`.
 pub async fn rename_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1054,26 +1086,8 @@ pub async fn rename_session(
         // first; the setting is the escape hatch for free-form relabeling.
         // A sandbox session's container keeps the worktree dir mounted even
         // while the agent is Idle, so the move would fail with EBUSY; stopping
-        // the session tears the container down and releases the mount. The
-        // container probe is a subprocess, so it runs on the blocking pool
-        // like the other process-spawning work in this file.
-        let container_holds = {
-            let probe_id = id.clone();
-            let log_id = id.clone();
-            tokio::task::spawn_blocking(move || {
-                crate::session::worktree_edit::sandbox_container_holds_worktree(&probe_id, is_sandboxed)
-            })
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(
-                    target: "server.api.sessions",
-                    session = %log_id,
-                    error = %e,
-                    "sandbox container probe task failed at the async boundary; failing closed and reporting the worktree as held to prevent EBUSY against a possibly-live container"
-                );
-                true
-            })
-        };
+        // the session tears the container down and releases the mount.
+        let container_holds = probe_container_holds_worktree(&id, is_sandboxed).await;
         if status.blocks_worktree_edit() || container_holds {
             return (
                 StatusCode::CONFLICT,
@@ -1283,11 +1297,11 @@ fn worktree_edit_error_response(
 /// Edit a managed worktree session's workdir directory name (and optionally
 /// its git branch).
 ///
-/// The sandbox container probe runs on the blocking pool. If the
-/// `spawn_blocking` task panics or is cancelled, the handler fails closed:
-/// `container_holds` is treated as `true` (with a `warn!` log) so the edit
-/// is rejected with `409 CONFLICT` rather than proceeding against a
-/// possibly-live container mount and hitting `EBUSY`.
+/// The sandbox container probe runs on the blocking pool via
+/// [`probe_container_holds_worktree`], which fails closed on a
+/// `spawn_blocking` panic or cancellation so the edit is rejected with
+/// `409 CONFLICT` rather than proceeding against a possibly-live container
+/// mount and hitting `EBUSY`.
 pub async fn set_worktree_name(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1369,26 +1383,8 @@ pub async fn set_worktree_name(
     }
     // A sandbox container keeps the worktree dir mounted even while the agent
     // is Idle, so the move would fail with EBUSY; stopping the session releases
-    // the mount, same as the active-status case. The container probe is a
-    // subprocess, so it runs on the blocking pool like the other
-    // process-spawning work in this file.
-    let container_holds = {
-        let probe_id = id.clone();
-        let log_id = id.clone();
-        tokio::task::spawn_blocking(move || {
-            crate::session::worktree_edit::sandbox_container_holds_worktree(&probe_id, is_sandboxed)
-        })
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                target: "server.api.sessions",
-                session = %log_id,
-                error = %e,
-                "sandbox container probe task failed at the async boundary; failing closed and reporting the worktree as held to prevent EBUSY against a possibly-live container"
-            );
-            true
-        })
-    };
+    // the mount, same as the active-status case.
+    let container_holds = probe_container_holds_worktree(&id, is_sandboxed).await;
     if status.blocks_worktree_edit() || container_holds {
         return (
             StatusCode::CONFLICT,
