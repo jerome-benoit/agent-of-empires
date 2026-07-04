@@ -148,6 +148,25 @@ impl RuntimeBase {
         self.not_found_markers.iter().any(|m| lower.contains(m))
     }
 
+    /// Classify a non-success `container inspect` stderr into either a
+    /// definitive "not running" (container absent, matches `is_not_found`)
+    /// or a genuine runtime failure (daemon down / 500 / any other
+    /// transient) that must surface to the caller.
+    ///
+    /// Without this split, `ContainerRuntime::is_container_running`
+    /// collapses BOTH failure modes into `Ok(false)`, and every fail-closed
+    /// probe site silently swallows the daemon-down signal as
+    /// `Probe::NotRunning` — the same swallowing-existence-probe class
+    /// fixed on the removal path by #2576 and on the discard path by
+    /// #2596. Mirrors the stderr-sniff pattern `remove()` already uses.
+    pub fn classify_inspect_failure(&self, stderr: &str) -> Result<bool> {
+        if self.is_not_found(stderr) {
+            Ok(false)
+        } else {
+            Err(DockerError::CommandFailed(stderr.to_string()))
+        }
+    }
+
     pub fn command(&self) -> Command {
         Command::new(self.binary)
     }
@@ -548,6 +567,53 @@ mod tests {
         assert!(!RuntimeBase::DOCKER.is_not_found(busy));
         assert!(!RuntimeBase::APPLE_CONTAINER.is_not_found(
             "Error: internalError: \"failed to delete container\" (cause: \"resource busy\")"
+        ));
+    }
+
+    #[test]
+    fn inspect_not_found_stderr_collapses_to_ok_false() {
+        // Absent-container stderr from `<runtime> inspect <missing>` must map
+        // to Ok(false), so Probe::NotRunning fires and callers can proceed.
+        // The three fixture strings are the same as remove/stop uses; sharing
+        // the classifier keeps the not-running vs absent collapse consistent
+        // across all state-probe paths.
+        assert!(matches!(
+            RuntimeBase::DOCKER.classify_inspect_failure(DOCKER_MISSING),
+            Ok(false)
+        ));
+        assert!(matches!(
+            RuntimeBase::APPLE_CONTAINER.classify_inspect_failure(APPLE_MISSING),
+            Ok(false)
+        ));
+        assert!(matches!(
+            RuntimeBase::PODMAN.classify_inspect_failure(PODMAN_MISSING),
+            Ok(false)
+        ));
+    }
+
+    #[test]
+    fn inspect_daemon_down_stderr_surfaces_as_err() {
+        // Daemon-unreachable stderr must NOT collapse to Ok(false): that is
+        // the exact swallowing-existence-probe failure mode #2596 fixed on
+        // the discard path. Surfacing as Err lets classify_running_probe
+        // map it to Probe::Unknown so gates fail closed.
+        let docker_daemon_down =
+            "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. \
+             Is the docker daemon running?";
+        assert!(matches!(
+            RuntimeBase::DOCKER.classify_inspect_failure(docker_daemon_down),
+            Err(DockerError::CommandFailed(_))
+        ));
+        let podman_daemon_down = "Error: unable to connect to Podman socket: Connection refused";
+        assert!(matches!(
+            RuntimeBase::PODMAN.classify_inspect_failure(podman_daemon_down),
+            Err(DockerError::CommandFailed(_))
+        ));
+        let apple_daemon_down =
+            "Error: internalError: \"failed to connect to container daemon\" (cause: \"transient\")";
+        assert!(matches!(
+            RuntimeBase::APPLE_CONTAINER.classify_inspect_failure(apple_daemon_down),
+            Err(DockerError::CommandFailed(_))
         ));
     }
 

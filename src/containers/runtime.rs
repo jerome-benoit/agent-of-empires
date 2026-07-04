@@ -141,7 +141,8 @@ impl ContainerRuntime {
                     .output()?;
 
                 if !output.status.success() {
-                    return Ok(false);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return self.base.classify_inspect_failure(&stderr);
                 }
 
                 let stdout = String::from_utf8_lossy(&output.stdout);
@@ -151,7 +152,8 @@ impl ContainerRuntime {
                 let output = self.base.command().args(["inspect", name]).output()?;
 
                 if !output.status.success() {
-                    return Ok(false);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return self.base.classify_inspect_failure(&stderr);
                 }
 
                 let out_json: Value = serde_json::from_slice(&output.stdout)
