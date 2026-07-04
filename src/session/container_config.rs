@@ -54,8 +54,10 @@ struct AgentConfigMount {
     /// authentication from being overwritten by stale host copies.
     preserve_files: &'static [&'static str],
     /// Files to delete from the sandbox dir before each launch. Prevents stale state
-    /// (e.g. SQLite databases from a previous opencode version) from causing failures
-    /// when the container image is updated.
+    /// (e.g. leftover lock/cache files) from causing failures when the container image
+    /// is updated. Do NOT use this for sandbox-owned session state (e.g. opencode's
+    /// SQLite DB, see #2605): that must survive relaunches, so it is kept out of
+    /// `clean_files` and instead protected from host drift via `skip_entries`.
     clean_files: &'static [&'static str],
 }
 
