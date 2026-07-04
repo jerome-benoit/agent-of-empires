@@ -1107,14 +1107,11 @@ pub async fn acp_prompt(
         .acp_supervisor
         .publish_user_prompt_with_attachments(&id, req.text.clone(), &attachments)
         .await;
-    // Best-effort: auto-rename a still-default-named session from this first
-    // message via AoE's one-shot mode. Detached so it never blocks or fails the
-    // prompt; all gating lives inside. See session::smart_rename.
-    tokio::spawn(crate::session::smart_rename::try_smart_rename(
-        state.clone(),
-        id.clone(),
-        req.text.clone(),
-    ));
+    // Smart-rename now fires from `acp_event_listener` on the first clean
+    // `prompt_complete` `Event::Stopped` for this session, so the one-shot
+    // never races this handler's live worker for the same provider API.
+    // The event-store lookup of the first prompt happens in the listener.
+    // See `session::smart_rename` and #2348.
     match state
         .acp_supervisor
         .send_prompt(&id, &req.text, &attachments)

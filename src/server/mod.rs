@@ -306,6 +306,11 @@ pub struct AppState {
     /// respawn a one-shot agent; one attempt per session bounds that cost and
     /// clears the `pending` sidebar chip once an attempt has run.
     pub smart_rename_attempted: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// Global cap on concurrent smart-rename one-shots so a burst of new
+    /// sessions cannot fan out into N host processes each holding a slot for
+    /// up to `ONESHOT_TIMEOUT`. Held only across the child spawn + wait. See
+    /// `session::smart_rename` and #2348.
+    pub smart_rename_semaphore: tokio::sync::Semaphore,
     /// Suppression set for the startup-recovery cascade. While an entry is
     /// present and younger than `recovery::RECENTLY_RESTARTED_TTL`, the
     /// `status_poll_loop` skips `update_status_with_metadata` for that
@@ -993,6 +998,9 @@ pub async fn start_server(config: ServerConfig<'_>) -> anyhow::Result<()> {
         instance_locks: RwLock::new(std::collections::HashMap::new()),
         smart_rename_inflight: std::sync::Mutex::new(std::collections::HashSet::new()),
         smart_rename_attempted: std::sync::Mutex::new(std::collections::HashSet::new()),
+        smart_rename_semaphore: tokio::sync::Semaphore::new(
+            crate::session::smart_rename::MAX_CONCURRENT,
+        ),
         recently_restarted: crate::session::recovery::new_recently_restarted(),
         recovery_pending: crate::session::recovery::new_recovery_pending(),
         cleanup_defaults_cache: RwLock::new(CleanupDefaultsCache {
@@ -3810,6 +3818,43 @@ async fn acp_event_listener(state: Arc<AppState>) {
             }
         }
 
+        // Smart-rename defer: fire the one-shot only on a clean
+        // `prompt_complete` `Event::Stopped`, so it never races the live worker
+        // for the same provider API. Two sync mutex `contains()` checks and
+        // the reason-allowlist drop the 99% of events that need no action
+        // before we touch the event store or spawn a task. See #2348.
+        let should_rename = {
+            let attempted = state
+                .smart_rename_attempted
+                .lock()
+                .expect("smart_rename_attempted poisoned");
+            let inflight = state
+                .smart_rename_inflight
+                .lock()
+                .expect("smart_rename_inflight poisoned");
+            crate::session::smart_rename::should_trigger_smart_rename(
+                frame.event.as_ref(),
+                &frame.session_id,
+                &attempted,
+                &inflight,
+            )
+        };
+        if should_rename {
+            if let Some(first_message) = state.acp_event_store.first_user_prompt(&frame.session_id)
+            {
+                let state_for_rename = state.clone();
+                let session_id = frame.session_id.clone();
+                tokio::spawn(async move {
+                    crate::session::smart_rename::try_smart_rename(
+                        state_for_rename,
+                        session_id,
+                        first_message,
+                    )
+                    .await;
+                });
+            }
+        }
+
         let status_intent = derive_acp_status(frame.event.as_ref());
         let acp_change = derive_acp_session_change(frame.event.as_ref());
         if status_intent.is_none() && acp_change.is_none() {
@@ -4198,6 +4243,9 @@ pub mod test_support {
             instance_locks: RwLock::new(HashMap::new()),
             smart_rename_inflight: std::sync::Mutex::new(std::collections::HashSet::new()),
             smart_rename_attempted: std::sync::Mutex::new(std::collections::HashSet::new()),
+            smart_rename_semaphore: tokio::sync::Semaphore::new(
+                crate::session::smart_rename::MAX_CONCURRENT,
+            ),
             recently_restarted: crate::session::recovery::new_recently_restarted(),
             recovery_pending: crate::session::recovery::new_recovery_pending(),
             cleanup_defaults_cache: RwLock::new(CleanupDefaultsCache {
