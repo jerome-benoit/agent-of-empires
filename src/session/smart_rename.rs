@@ -771,7 +771,7 @@ mod serve {
             // `force_smart_rename` at sessions.rs:2582-2587 clears the
             // attempted gate before spawning `try_smart_rename`, and does NOT
             // wait for an `Event::Stopped`: the manual retry path stays
-            // reactive. The bounding is delegated to the shared semaphore
+            // on-demand. The bounding is delegated to the shared semaphore
             // acquired inside `try_smart_rename`. This test emulates the
             // clear step and asserts the predicate would fire again for the
             // same session (which the listener uses; force_smart_rename itself
