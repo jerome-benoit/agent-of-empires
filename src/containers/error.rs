@@ -63,8 +63,17 @@ pub enum DockerError {
 /// re-introducing the exact grep-hostility Round 10's single-line
 /// convention fixed for the unit variants. Call at every construction
 /// site that wraps stderr into a `DockerError` variant.
+///
+/// Handles Unix (`\n`) and Windows (`\r\n`) line terminators via
+/// [`str::lines`], and skips whitespace-only lines so blank interior
+/// separators do not become empty ` | ` segments.
 pub(crate) fn sanitize_stderr(stderr: &str) -> String {
-    stderr.trim().replace('\n', " | ")
+    stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 pub type Result<T> = std::result::Result<T, DockerError>;
@@ -116,5 +125,43 @@ mod tests {
         assert_eq!(sanitize_stderr("some error\n"), "some error");
         assert_eq!(sanitize_stderr("  padded  \n"), "padded");
         assert_eq!(sanitize_stderr("a\nb\nc"), "a | b | c");
+    }
+
+    #[test]
+    fn sanitize_stderr_handles_empty_and_whitespace_inputs() {
+        assert_eq!(sanitize_stderr(""), "");
+        assert_eq!(sanitize_stderr("   "), "");
+        assert_eq!(sanitize_stderr("\n\n\n"), "");
+    }
+
+    #[test]
+    fn sanitize_stderr_handles_crlf_line_endings() {
+        // `str::lines` splits on `\n` and `\r\n`, so Windows-style
+        // stderr does not leave a bare `\r` mid-string that would
+        // corrupt the terminal render.
+        assert_eq!(sanitize_stderr("a\r\nb"), "a | b");
+        assert_eq!(
+            sanitize_stderr("first\r\nsecond\r\nthird"),
+            "first | second | third"
+        );
+    }
+
+    #[test]
+    fn sanitize_stderr_skips_blank_interior_lines() {
+        // Docker's error responses occasionally include blank lines
+        // between summary and detail. Filtering them out keeps the
+        // rendered string readable without empty ` | ` segments.
+        assert_eq!(sanitize_stderr("line1\n\nline2"), "line1 | line2");
+        assert_eq!(sanitize_stderr("a\n  \nb"), "a | b");
+    }
+
+    #[test]
+    fn sanitize_stderr_is_idempotent() {
+        // Applying sanitize_stderr twice must produce the same result
+        // as applying it once. Protects against a future helper that
+        // accidentally double-sanitizes and produces ` |  | ` sequences.
+        let once = sanitize_stderr("a\nb\nc");
+        let twice = sanitize_stderr(&once);
+        assert_eq!(once, twice);
     }
 }

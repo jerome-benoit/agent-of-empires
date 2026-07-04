@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use super::container_interface::ContainerConfig;
-use super::error::{sanitize_stderr, DockerError, Result};
+use super::error::{DockerError, Result};
 use super::runtime_base::RuntimeBase;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,7 +169,7 @@ impl ContainerRuntime {
                 }
 
                 let out_json: Value = serde_json::from_slice(&output.stdout)
-                    .map_err(|e| DockerError::InspectFailed(sanitize_stderr(&e.to_string())))?;
+                    .map_err(|e| DockerError::InspectFailed(e.to_string()))?;
 
                 if let Some(status) = out_json.pointer("/0/status") {
                     // as_str() guard: if Apple ever changes /0/status from a

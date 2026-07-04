@@ -222,7 +222,8 @@ impl DockerContainer {
     /// [`Teardown::AlreadyGone`], not a failure. Named ignore volumes outlive
     /// the container, so they are swept regardless of the removal outcome.
     ///
-    /// NOTE: callers must invoke this unconditionally and act on the returned
+    /// This method must be invoked unconditionally by callers, which then
+    /// act on the returned outcome; it must never be gated behind a
     /// outcome; it must never be gated behind a separate existence probe, whose
     /// transient failure would skip removal and orphan a live container.
     pub fn teardown(&self, session_id: &str) -> Teardown {
