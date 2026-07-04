@@ -972,6 +972,13 @@ async fn quiesce_structured_worker_for_worktree_move(
     }
 }
 
+/// Rename a session's title (and, when tied, its worktree directory).
+///
+/// The sandbox container probe runs on the blocking pool. If the
+/// `spawn_blocking` task panics or is cancelled, the handler fails closed:
+/// `container_holds` is treated as `true` (with a `warn!` log) so the
+/// rename is rejected with `409 CONFLICT` rather than proceeding against a
+/// possibly-live container mount and hitting `EBUSY`.
 pub async fn rename_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1273,6 +1280,14 @@ fn worktree_edit_error_response(
     }
 }
 
+/// Edit a managed worktree session's workdir directory name (and optionally
+/// its git branch).
+///
+/// The sandbox container probe runs on the blocking pool. If the
+/// `spawn_blocking` task panics or is cancelled, the handler fails closed:
+/// `container_holds` is treated as `true` (with a `warn!` log) so the edit
+/// is rejected with `409 CONFLICT` rather than proceeding against a
+/// possibly-live container mount and hitting `EBUSY`.
 pub async fn set_worktree_name(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,

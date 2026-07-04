@@ -84,6 +84,8 @@ fn classify_removal(result: Result<()>) -> Teardown {
 /// as "possibly running"). Collapsing the underlying `is_running() -> Result<bool>`
 /// to a plain `bool` via `unwrap_or(false)` re-introduces the swallowing-
 /// existence-probe class of bug fixed in #2596.
+///
+/// See also: [`DockerContainer::probe_running`].
 #[derive(Debug)]
 pub enum Probe {
     /// The container is running.
