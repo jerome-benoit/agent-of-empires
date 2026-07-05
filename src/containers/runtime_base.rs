@@ -105,11 +105,15 @@ pub(crate) struct RuntimeBase {
     /// Case-insensitive stderr substrings that identify a "permission
     /// denied" error (typically Linux docker/podman socket without
     /// docker-group membership). Structural parallel to `not_found_markers`
-    /// and `daemon_down_markers` (#2656 follow-up to #2596), so each runtime
-    /// only matches its own wording and cross-runtime bleed is impossible
-    /// by construction. Case sensitivity mirrors [`Self::is_not_found`]:
-    /// OS-emitted "permission denied" strings vary in capitalization across
-    /// kernel versions and locales, so case-fold matching is safest.
+    /// and `daemon_down_markers` (#2656 follow-up to #2596). Isolation is
+    /// intentionally asymmetric: Docker's marker is tightly scoped to the
+    /// canonical "docker daemon socket" wording, so cross-runtime bleed is
+    /// prevented by construction there; Podman and Apple use the broad
+    /// "permission denied" placeholder pending real-fixture capture, which
+    /// does bleed across runtimes but preserves pre-#2656 behavior. Case
+    /// handling mirrors [`Self::is_not_found`]: OS-emitted "permission
+    /// denied" strings vary in capitalization across kernel versions and
+    /// locales, so case-fold matching is safest.
     pub permission_denied_markers: &'static [&'static str],
 }
 
@@ -790,6 +794,9 @@ mod tests {
 
         // Apple placeholder: no captured wording, but the broad marker still
         // routes generic Linux socket permission errors to PermissionDenied.
+        // TODO: replace with captured Apple `container` CLI permission
+        // stderr once a real macOS 26 fixture is available (cf. #2655 for
+        // the parallel Apple daemon-down fixture follow-up).
         let apple_stderr = "Error: permission denied accessing container socket";
         assert!(matches!(
             RuntimeBase::APPLE_CONTAINER.classify_inspect_failure(apple_stderr),
@@ -798,14 +805,14 @@ mod tests {
     }
 
     #[test]
-    fn is_permission_denied_is_cross_runtime_isolated() {
-        // Regression guard parallel to is_daemon_down_is_cross_runtime_isolated:
-        // Docker's specific "permission denied while trying to connect to the
-        // docker daemon socket" MUST NOT match Podman or Apple runtimes, which
-        // use the broader "permission denied" placeholder marker. The
-        // asymmetry is intentional: Docker's marker is tightened as far as
-        // its canonical wording allows, Podman/Apple stay permissive until
-        // real fixtures land.
+    fn is_permission_denied_cross_runtime_isolation_is_asymmetric() {
+        // Companion to is_daemon_down_is_cross_runtime_isolated, but the
+        // invariant tested here is asymmetric by design: Docker's marker is
+        // tightened to the canonical "docker daemon socket" clause, so it
+        // isolates cleanly; Podman and Apple use the broad "permission
+        // denied" placeholder pending real-fixture capture and thus stay
+        // permissive. The asymmetric name flags that this test does NOT
+        // assert full three-way isolation like its daemon-down sibling.
         let docker_pd = "Got permission denied while trying to connect to the Docker daemon socket";
         assert!(RuntimeBase::DOCKER.is_permission_denied(docker_pd));
         // Podman and Apple ALSO match "permission denied" (their broader
@@ -818,6 +825,14 @@ mod tests {
         let podman_only = "Error: unable to connect to Podman socket: connect: permission denied";
         assert!(!RuntimeBase::DOCKER.is_permission_denied(podman_only));
         assert!(RuntimeBase::PODMAN.is_permission_denied(podman_only));
+
+        // Docker's tightening promise: unrelated "permission denied" errors
+        // (image policy, registry auth, volume mount) that a broad substring
+        // match would misclassify MUST be rejected. Locks the tightening
+        // against future regressions ("just one more case, it will be fine").
+        let policy_denied =
+            "docker: Error response from daemon: pull access denied: permission denied by policy";
+        assert!(!RuntimeBase::DOCKER.is_permission_denied(policy_denied));
     }
 
     #[test]
