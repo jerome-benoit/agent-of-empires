@@ -275,7 +275,7 @@ Git worktrees need the bare repo pattern so the container can reach the repo's g
 **Fix:** Delete the sandboxed OpenCode DB and restart the session. Only the sandboxed OpenCode chat history is lost; host OpenCode state (outside the `sandbox/` subdir) is untouched.
 
 ```bash
-rm -f ~/.local/share/opencode/sandbox/opencode.db{,-wal,-shm}
+rm -f ~/.local/share/opencode/sandbox/opencode.db*
 ```
 
-**Note:** This is a rare event tied to breaking schema changes in OpenCode releases; most upgrades migrate cleanly. If you hit it repeatedly on the same image bump, please file an issue upstream at `anomalyco/opencode` with the migration error output.
+**Note:** This is a rare event tied to breaking schema changes in OpenCode releases; most upgrades migrate cleanly. If you hit it repeatedly on the same image bump, please file an issue upstream at [anomalyco/opencode](https://github.com/anomalyco/opencode) with the migration error output.
