@@ -3820,10 +3820,16 @@ async fn acp_event_listener(state: Arc<AppState>) {
 
         // Smart-rename defer: fire the one-shot only on a clean
         // `prompt_complete` `Event::Stopped`, so it never races the live worker
-        // for the same provider API. The reason-allowlist plus the two sync
-        // mutex `contains()` checks drop non-matching events before we touch
-        // the event store or spawn a task. See #2348.
-        let should_rename = {
+        // for the same provider API. Fast-path on the event variant BEFORE
+        // touching the two sync mutexes so high-volume streaming-delta frames
+        // (`AgentMessageChunk`, `ToolCallStarted`, `ThinkingStarted`, ...) skip
+        // the locks entirely; the pure predicate then applies the reason
+        // allowlist + the two per-session `contains()` checks. See #2348 and
+        // the post-merge review nit on #2651.
+        let should_rename = matches!(
+            frame.event.as_ref(),
+            crate::acp::state::Event::Stopped { .. }
+        ) && {
             let attempted = state
                 .smart_rename_attempted
                 .lock()
