@@ -635,6 +635,13 @@ fn bail_if_acp(_inst: &crate::session::Instance, _verb: &str) -> Result<()> {
     Ok(())
 }
 
+/// CLI handler for `aoe session stop`.
+///
+/// Treats a docker inspect failure ([`crate::containers::Probe::Unknown`])
+/// as "possibly running" so the session stop proceeds rather than printing
+/// "Session is not running" against a container whose state cannot be
+/// confirmed. The `warn!` for the Unknown case is emitted inside
+/// [`crate::session::Instance::stop`], so this call site does not re-warn.
 async fn stop_session(profile: &str, args: SessionIdArgs) -> Result<()> {
     let storage = Storage::new_unwatched(profile)?;
 
@@ -648,9 +655,10 @@ async fn stop_session(profile: &str, args: SessionIdArgs) -> Result<()> {
     let tmux_session = crate::tmux::Session::new(&inst.id, &inst.title)?;
     let was_running = tmux_session.exists();
     let had_container = inst.is_sandboxed()
-        && crate::containers::DockerContainer::from_session_id(&inst.id)
-            .is_running()
-            .unwrap_or(false);
+        && match crate::containers::DockerContainer::from_session_id(&inst.id).probe_running() {
+            crate::containers::Probe::Running | crate::containers::Probe::Unknown(_) => true,
+            crate::containers::Probe::NotRunning => false,
+        };
 
     if !was_running && !had_container {
         println!("Session is not running: {}", title);
