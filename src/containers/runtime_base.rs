@@ -253,9 +253,10 @@ impl RuntimeBase {
         // Probe::Unknown(e) warn logs at gate sites show the actionable
         // DaemonNotRunning / PermissionDenied Display messages rather than
         // a raw stderr wrapped in InspectFailed. Markers live per-runtime on
-        // Self (parallel to `not_found_markers`) so each runtime only matches
-        // its own wording and cross-runtime bleed is impossible by
-        // construction.
+        // Self (parallel to `not_found_markers`): daemon-down is fully
+        // isolated across runtimes by construction, permission-denied is
+        // asymmetric because Podman and Apple placeholders intentionally
+        // bleed pending real-fixture capture (see field docs for details).
         //
         // Order matters: permission-denied is checked BEFORE daemon-down
         // because Podman's socket-permission stderr ("unable to connect to
