@@ -1072,7 +1072,7 @@ impl GitWorktree {
     /// --quiet` exit 1), `Err(_)` the check itself failed (spawn error,
     /// `git` missing on PATH, I/O error). Callers must fail closed on
     /// `Err` and refuse whatever mutation they were gating on the answer:
-    /// swallowing spawn failures as "absent" was the shape of #2653, and
+    /// swallowing check failures as "absent" was the shape of #2653, and
     /// the same class the container surface closed in #2596 / #2652 with
     /// `Probe::Unknown`.
     ///
@@ -1852,12 +1852,19 @@ mod tests {
     }
 
     /// Regression for #2653: a spawn / PATH / I/O failure inside
-    /// `run_git` used to be swallowed as `Ok(false)`, letting callers
-    /// apply mutations gated on a false negative. Locks the tri-state
-    /// contract (check-failed surfaces as `Err`) at both the direct
-    /// call and the `edit_worktree_workdir` gate. The seam is a
-    /// clobbered `PATH`: `Command::output()` fails at `execve` with
-    /// `ENOENT`, the same shape as a user without `git` on `PATH`.
+    /// `run_git` used to be swallowed as `false` (via the `Err(_) =>
+    /// false` arm this PR eliminated), letting callers apply mutations
+    /// gated on a false negative. Locks the check-failed branch of the
+    /// tri-state contract (surfaces as `Err`) at both the direct call
+    /// and the `edit_worktree_workdir` gate. The seam is a clobbered
+    /// `PATH`: `Command::output()` fails at `execve` with `ENOENT`, the
+    /// same shape as a user without `git` on `PATH`.
+    ///
+    /// The `Ok(true)` and `Ok(false)` branches are locked by the
+    /// integration tests in `tests/integration/worktree_integration.rs`
+    /// (`edit_workdir_moves_dir_and_optionally_renames_branch`,
+    /// `tied_rename_moves_dir_to_title_leaf_without_touching_branch`,
+    /// `edit_workdir_rejects_invalid_cases_without_partial_changes`).
     ///
     /// Any future test that mutates `PATH` MUST use this same
     /// `#[serial(path_env)]` slot; racing with another `set_var("PATH", ...)`
@@ -1869,6 +1876,26 @@ mod tests {
             edit_worktree_workdir, WorktreeEditError, WorktreeEditRequest,
         };
         use crate::session::WorktreeInfo;
+
+        // RAII guard: restores `PATH` on drop even if the test panics
+        // mid-way. `#[serial(path_env)]` covers cross-test races; this
+        // covers intra-test panic-safety so `PATH=""` cannot leak past
+        // the test body under any control flow.
+        struct PathGuard(Option<String>);
+        impl Drop for PathGuard {
+            fn drop(&mut self) {
+                // SAFETY: env mutation is unsafe in the 2024 edition;
+                // the `#[serial(path_env)]` slot serializes against
+                // other tests, and `Drop` runs deterministically on
+                // this single-threaded test body.
+                unsafe {
+                    match self.0.take() {
+                        Some(v) => std::env::set_var("PATH", v),
+                        None => std::env::remove_var("PATH"),
+                    }
+                }
+            }
+        }
 
         let (dir, _repo) = setup_test_repo();
         let current = dir.path().join("leaf");
@@ -1882,9 +1909,10 @@ mod tests {
             base_branch: None,
         };
 
-        let prev_path = std::env::var("PATH").ok();
+        let _guard = PathGuard(std::env::var("PATH").ok());
         // SAFETY: env mutation is unsafe in the 2024 edition; the
-        // `#[serial(path_env)]` slot serializes against other tests.
+        // `#[serial(path_env)]` slot serializes against other tests,
+        // and `_guard` restores `PATH` on drop even on panic.
         unsafe { std::env::set_var("PATH", "") };
 
         let direct = git_wt.branch_exists("any").unwrap_err();
@@ -1895,14 +1923,6 @@ mod tests {
             rename_branch: true,
         })
         .unwrap_err();
-
-        // SAFETY: same reasoning; restore PATH before other tests run.
-        unsafe {
-            match prev_path {
-                Some(v) => std::env::set_var("PATH", v),
-                None => std::env::remove_var("PATH"),
-            }
-        }
 
         // Variant match alone is sufficient specificity: the only
         // subprocess call in either flow is `branch_exists`'s `run_git`
