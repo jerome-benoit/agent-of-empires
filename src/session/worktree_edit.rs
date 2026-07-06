@@ -210,7 +210,13 @@ pub fn edit_worktree_workdir(
             req.current_path.to_path_buf(),
         ));
     }
-    if branch_changes && git.branch_exists(&new_branch) {
+    // Fail closed on a check failure: a spawn/PATH/I/O error from
+    // `branch_exists` used to collapse to `false`, which let the rename
+    // proceed and then explode inside `rename_branch` (or, worse, clobber
+    // a branch that did exist). Propagate the git error so the user sees
+    // it instead of a downstream mutation failure. Same class as #2596 /
+    // #2652 on the container surface; see #2653.
+    if branch_changes && git.branch_exists(&new_branch)? {
         return Err(WorktreeEditError::BranchExists(new_branch));
     }
     if path_changes && new_path.exists() {

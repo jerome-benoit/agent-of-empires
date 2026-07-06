@@ -1066,14 +1066,24 @@ impl GitWorktree {
     }
 
     /// Whether a local branch `refs/heads/<branch>` exists in this repo.
-    pub fn branch_exists(&self, branch: &str) -> bool {
+    ///
+    /// Tri-state result: `Ok(true)` present, `Ok(false)` absent (`show-ref
+    /// --quiet` exit 1), `Err(_)` the check itself failed (spawn error,
+    /// `git` missing on PATH, I/O error). Callers must fail closed on
+    /// `Err` and refuse whatever mutation they were gating on the answer:
+    /// swallowing spawn failures as "absent" was the shape of #2653, and
+    /// the same class the container surface closed in #2596 / #2652 with
+    /// `Probe::Unknown`.
+    pub fn branch_exists(&self, branch: &str) -> Result<bool> {
         let refname = format!("refs/heads/{branch}");
         match super::command::run_git(
             &self.repo_path,
             ["show-ref", "--verify", "--quiet", &refname],
         ) {
-            Ok(output) => output.status.success(),
-            Err(_) => false,
+            Ok(output) => Ok(output.status.success()),
+            Err(e) => Err(GitError::WorktreeCommandFailed(format!(
+                "branch_exists check failed for '{branch}': {e}"
+            ))),
         }
     }
 
@@ -1825,6 +1835,65 @@ mod tests {
         assert!(repo
             .find_branch("to-delete", git2::BranchType::Local)
             .is_err());
+    }
+
+    /// Regression for #2653: a spawn / PATH / I/O failure inside
+    /// `run_git` used to be swallowed as `Ok(false)`, letting callers
+    /// apply mutations gated on a false negative. Locks the tri-state
+    /// contract (check-failed surfaces as `Err`) at both the direct
+    /// call and the `edit_worktree_workdir` gate. The seam is a
+    /// clobbered `PATH`: `Command::output()` fails at `execve` with
+    /// `ENOENT`, the same shape as a user without `git` on `PATH`.
+    #[test]
+    #[serial(path_env)]
+    fn test_branch_exists_propagates_spawn_failure_and_caller_refuses() {
+        use crate::session::worktree_edit::{
+            edit_worktree_workdir, WorktreeEditError, WorktreeEditRequest,
+        };
+        use crate::session::WorktreeInfo;
+
+        let (dir, _repo) = setup_test_repo();
+        let current = dir.path().join("leaf");
+        std::fs::create_dir(&current).unwrap();
+        let git_wt = GitWorktree::new(dir.path().to_path_buf()).unwrap();
+        let info = WorktreeInfo {
+            branch: "original".to_string(),
+            main_repo_path: dir.path().to_string_lossy().to_string(),
+            managed_by_aoe: true,
+            created_at: chrono::Utc::now(),
+            base_branch: None,
+        };
+
+        let prev_path = std::env::var("PATH").ok();
+        // SAFETY: env mutation is unsafe in the 2024 edition; the
+        // `#[serial(path_env)]` slot serializes against other tests.
+        unsafe { std::env::set_var("PATH", "") };
+
+        let direct = git_wt.branch_exists("any").unwrap_err();
+        let caller = edit_worktree_workdir(WorktreeEditRequest {
+            worktree_info: &info,
+            current_path: &current,
+            new_name: "renamed",
+            rename_branch: true,
+        })
+        .unwrap_err();
+
+        // SAFETY: same reasoning; restore PATH before other tests run.
+        unsafe {
+            match prev_path {
+                Some(v) => std::env::set_var("PATH", v),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+
+        assert!(
+            matches!(direct, GitError::WorktreeCommandFailed(ref m) if m.contains("branch_exists check failed")),
+            "direct call: expected WorktreeCommandFailed, got {direct:?}"
+        );
+        assert!(
+            matches!(caller, WorktreeEditError::Git(GitError::WorktreeCommandFailed(ref m)) if m.contains("branch_exists check failed")),
+            "caller must refuse the rename and propagate, got {caller:?}"
+        );
     }
 
     #[test]
