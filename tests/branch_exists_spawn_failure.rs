@@ -6,7 +6,7 @@
 //! cannot race with concurrent git-spawning tests in the lib binary or
 //! the integration binary. Each `tests/*.rs` file at the top level of
 //! `tests/` gets its own process, so process-global env mutation here is
-//! isolated by construction. h/t CodeRabbit review round 4.
+//! isolated by construction.
 
 use agent_of_empires::git::error::GitError;
 use agent_of_empires::git::GitWorktree;
@@ -65,8 +65,9 @@ fn branch_exists_propagates_spawn_failure_and_caller_refuses() {
     impl Drop for PathGuard {
         fn drop(&mut self) {
             // SAFETY: env mutation is unsafe in the 2024 edition; the
-            // `#[serial(path_env)]` slot serializes intra-binary, and
-            // `Drop` runs deterministically on this test body.
+            // `#[serial(path_env)]` slot serializes against other tests
+            // in this binary, and `Drop` runs deterministically on this
+            // test body.
             unsafe {
                 match self.0.take() {
                     Some(v) => std::env::set_var("PATH", v),
@@ -90,8 +91,8 @@ fn branch_exists_propagates_spawn_failure_and_caller_refuses() {
 
     let _guard = PathGuard(std::env::var("PATH").ok());
     // SAFETY: env mutation is unsafe in the 2024 edition; the
-    // `#[serial(path_env)]` slot serializes against other tests, and
-    // `_guard` restores `PATH` on drop even on panic.
+    // `#[serial(path_env)]` slot serializes against other tests in this
+    // binary, and `_guard` restores `PATH` on drop even on panic.
     unsafe { std::env::set_var("PATH", "") };
 
     let direct = git_wt.branch_exists("any").unwrap_err();
