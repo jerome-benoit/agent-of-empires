@@ -1067,22 +1067,36 @@ impl GitWorktree {
 
     /// Whether a local branch `refs/heads/<branch>` exists in this repo.
     ///
-    /// Tri-state result: `Ok(true)` present, `Ok(false)` absent (`show-ref
+    /// Tri-state result mirroring [`std::path::Path::try_exists`]
+    /// semantics: `Ok(true)` present, `Ok(false)` absent (`show-ref
     /// --quiet` exit 1), `Err(_)` the check itself failed (spawn error,
     /// `git` missing on PATH, I/O error). Callers must fail closed on
     /// `Err` and refuse whatever mutation they were gating on the answer:
     /// swallowing spawn failures as "absent" was the shape of #2653, and
     /// the same class the container surface closed in #2596 / #2652 with
     /// `Probe::Unknown`.
+    ///
+    /// Unlike the container surface, no per-cause classification is done
+    /// here (no `DaemonNotRunning` / `PermissionDenied` split): `git`
+    /// subprocess I/O errors are narrow enough that the underlying
+    /// `io::Error` `Display` is passed through as-is, matching the
+    /// wording style of the sibling `WorktreeCommandFailed` sites
+    /// (`git branch -d`, `git branch -m`, `git worktree move`).
     pub fn branch_exists(&self, branch: &str) -> Result<bool> {
         let refname = format!("refs/heads/{branch}");
+        // Shells out via `run_git` rather than reusing the libgit2 handle
+        // opened in `GitWorktree::new`: matches the sibling helpers
+        // (`delete_branch`, `rename_branch`, `move_worktree`) which are
+        // all subprocess-driven for consistent stderr / exit-code
+        // semantics. The subprocess is why `Err(_)` is a real possibility
+        // here even though the repo is already open.
         match super::command::run_git(
             &self.repo_path,
             ["show-ref", "--verify", "--quiet", &refname],
         ) {
             Ok(output) => Ok(output.status.success()),
             Err(e) => Err(GitError::WorktreeCommandFailed(format!(
-                "branch_exists check failed for '{branch}': {e}"
+                "git show-ref --verify {refname}: {e}"
             ))),
         }
     }
@@ -1844,6 +1858,10 @@ mod tests {
     /// call and the `edit_worktree_workdir` gate. The seam is a
     /// clobbered `PATH`: `Command::output()` fails at `execve` with
     /// `ENOENT`, the same shape as a user without `git` on `PATH`.
+    ///
+    /// Any future test that mutates `PATH` MUST use this same
+    /// `#[serial(path_env)]` slot; racing with another `set_var("PATH", ...)`
+    /// would poison this test's seam or vice versa.
     #[test]
     #[serial(path_env)]
     fn test_branch_exists_propagates_spawn_failure_and_caller_refuses() {
@@ -1886,12 +1904,21 @@ mod tests {
             }
         }
 
+        // Variant match alone is sufficient specificity: the only
+        // subprocess call in either flow is `branch_exists`'s `run_git`
+        // (`GitWorktree::new` uses libgit2), and with `PATH=""` its only
+        // failure mode is `WorktreeCommandFailed`. Not asserting on the
+        // message substring keeps the test resilient to future wording
+        // harmonization.
         assert!(
-            matches!(direct, GitError::WorktreeCommandFailed(ref m) if m.contains("branch_exists check failed")),
+            matches!(direct, GitError::WorktreeCommandFailed(_)),
             "direct call: expected WorktreeCommandFailed, got {direct:?}"
         );
         assert!(
-            matches!(caller, WorktreeEditError::Git(GitError::WorktreeCommandFailed(ref m)) if m.contains("branch_exists check failed")),
+            matches!(
+                caller,
+                WorktreeEditError::Git(GitError::WorktreeCommandFailed(_))
+            ),
             "caller must refuse the rename and propagate, got {caller:?}"
         );
     }
