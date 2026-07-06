@@ -2433,7 +2433,7 @@ impl HomeView {
         let prev_selected_session = self.selected_session.clone();
         let prev_selected_group = self.selected_group.clone();
 
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
 
         // Try to restore cursor to the same session/group after rebuild
         let mut restored = false;
@@ -2988,7 +2988,7 @@ impl HomeView {
         let prev_selected_session = self.selected_session.clone();
         let prev_selected_group = self.selected_group.clone();
 
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
 
         let mut restored = false;
         if let Some(ref sid) = prev_selected_session {
@@ -3412,7 +3412,7 @@ impl HomeView {
             },
         );
         self.creating_stub_id = Some(stub_id.clone());
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
 
         // Move cursor to the new stub
         if let Some(pos) = self
@@ -3454,7 +3454,7 @@ impl HomeView {
             self.remove_instance(&stub_id);
             self.creating_hook_progress.remove(&stub_id);
             self.rebuild_group_trees();
-            self.flat_items = self.build_flat_items();
+            self.rebuild_flat_items();
             self.update_selected();
         }
         self.new_dialog = None;
@@ -3494,7 +3494,7 @@ impl HomeView {
                 builder::cleanup_instance(instance, worktree.as_ref(), &[]);
             }
             self.rebuild_group_trees();
-            self.flat_items = self.build_flat_items();
+            self.rebuild_flat_items();
             self.update_selected();
             return None;
         }
@@ -3589,7 +3589,7 @@ impl HomeView {
                 if let Some(id) = &stub_id {
                     self.remove_instance(id);
                     self.rebuild_group_trees();
-                    self.flat_items = self.build_flat_items();
+                    self.rebuild_flat_items();
                     self.update_selected();
                     // Hook failures carry multi-line output; size to fit so
                     // the actual error isn't clipped at the default 50x9.
@@ -4073,7 +4073,7 @@ impl HomeView {
 
     pub fn toggle_trashed_section(&mut self) {
         self.trashed_section_collapsed = !self.trashed_section_collapsed;
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         if !self.flat_items.is_empty() && self.cursor >= self.flat_items.len() {
             self.cursor = self.flat_items.len() - 1;
         }
@@ -4086,7 +4086,7 @@ impl HomeView {
         Self::persist_app_state("archived section", |s| {
             s.archived_section_collapsed = Some(collapsed)
         });
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         // Defensive cursor clamp + selection refresh. Today the only
         // call site routes through `toggle_group_collapsed` after the
         // cursor lands on the section header, and the header survives
@@ -4457,7 +4457,7 @@ impl HomeView {
                     "stamp_last_accessed: failed to persist auto-unsink"
                 );
             }
-            self.flat_items = self.build_flat_items();
+            self.rebuild_flat_items();
         } else {
             self.mutate_instance(id, |inst| inst.touch_last_accessed());
         }
@@ -4986,7 +4986,7 @@ impl HomeView {
             self.selected_session = None;
         }
         self.rebuild_group_trees();
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         if self.cursor >= self.flat_items.len() {
             self.cursor = self.flat_items.len().saturating_sub(1);
         }
@@ -5819,7 +5819,7 @@ impl HomeView {
                     }
                 }
             }
-            self.flat_items = self.build_flat_items();
+            self.rebuild_flat_items();
         }
         if let Some(pos) = self
             .flat_items

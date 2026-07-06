@@ -165,7 +165,7 @@ impl HomeView {
         }
 
         self.refresh_registered_projects();
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         self.update_selected();
     }
 
@@ -474,7 +474,7 @@ impl HomeView {
                 // Rebuild the visible row list too; otherwise the row still
                 // renders under the old profile until the next reload, and
                 // any follow-up keybind hits stale cursor state.
-                self.flat_items = self.build_flat_items();
+                self.rebuild_flat_items();
             }
         }
 
@@ -665,7 +665,7 @@ impl HomeView {
                 }
             }
             self.save()?;
-            self.flat_items = self.build_flat_items();
+            self.rebuild_flat_items();
         }
         Ok(())
     }
@@ -1239,7 +1239,7 @@ impl HomeView {
         };
         if is_snoozed {
             self.apply_user_action(&id, |inst| inst.unsnooze())?;
-            self.flat_items = self.build_flat_items();
+            self.rebuild_flat_items();
             return Ok(Some(format!("Woke: {}", title)));
         }
 
@@ -1264,7 +1264,7 @@ impl HomeView {
             .map(|i| i.title.clone())
             .unwrap_or_default();
         self.apply_user_action(id, |inst| inst.snooze(minutes))?;
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         if self.sort_order == crate::session::config::SortOrder::Attention {
             self.select_top_attention(None);
         }
@@ -1298,7 +1298,7 @@ impl HomeView {
         } else {
             self.apply_user_action(&id, |inst| inst.favorite())?;
         }
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         Ok(())
     }
 
@@ -1358,7 +1358,7 @@ impl HomeView {
         } else if self.manual_unread_hold.as_deref() == Some(id.as_str()) {
             self.manual_unread_hold = None;
         }
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         // In Attention sort, toggling unread changes the row's rank, so the
         // rebuild can move it; reseat the cursor by id so the next action
         // still targets this session.
@@ -1387,7 +1387,7 @@ impl HomeView {
         };
         if is_archived {
             self.apply_user_action(&id, |inst| inst.unarchive())?;
-            self.flat_items = self.build_flat_items();
+            self.rebuild_flat_items();
             // Re-seat the cursor on the just-unarchived session. After the
             // flat_items rebuild the row jumps from tier 99 to its real
             // tier, so without this the cursor stays at the old index and
@@ -1416,7 +1416,7 @@ impl HomeView {
             // cursor advances to the next item that needs attention. That path
             // already lands selection on a live row, so it never showed the
             // dead-pane/selection-swap jank the default sort did.
-            self.flat_items = self.build_flat_items();
+            self.rebuild_flat_items();
             self.select_top_attention(None);
             // select_top_attention is a no-op when no session row is visible
             // (the archived row sank into a collapsed Archived section and
@@ -1440,7 +1440,7 @@ impl HomeView {
             // motivated the old follow-the-row behavior (#2025). The
             // Archived section is not auto-revealed; its header already
             // shows the updated count as feedback.
-            self.flat_items = self.build_flat_items();
+            self.rebuild_flat_items();
             match successor {
                 Some(next) => self.select_session_by_id(&next),
                 None => {
@@ -1484,7 +1484,7 @@ impl HomeView {
             tracing::warn!(target: "tui.session", session = %id, "trash worktree relocation skipped: {reason}");
         }
         self.reveal_trashed_section();
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         self.cursor = self.cursor.min(self.flat_items.len().saturating_sub(1));
         self.update_selected();
     }
@@ -1525,7 +1525,7 @@ impl HomeView {
             ));
             return;
         }
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         self.select_session_by_id(&id);
     }
 
@@ -1605,7 +1605,7 @@ impl HomeView {
         });
         self.bulk_apply_user_action(&ids, |inst| inst.archive())?;
         self.reveal_archived_section();
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         // The project header vanishes once its last active member is archived
         // (project headers are seeded from live sessions only), so the cursor's
         // old index may now point past the list end; clamp and re-resolve.

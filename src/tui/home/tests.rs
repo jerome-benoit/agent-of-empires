@@ -1402,15 +1402,152 @@ fn test_search_mode_esc_exits_and_clears() {
 
 #[test]
 #[serial]
-fn test_search_mode_enter_exits_and_clears_state() {
-    let mut env = create_test_env_with_sessions(3);
+fn test_search_mode_enter_commits_without_clearing_matches() {
+    let mut env = create_test_env_with_sessions(5);
     env.view.handle_key(key(KeyCode::Char('/')), None);
     env.view.handle_key(key(KeyCode::Char('s')), None);
+    env.view.handle_key(key(KeyCode::Char('e')), None);
+    env.view.handle_key(key(KeyCode::Char('s')), None);
+    env.view.handle_key(key(KeyCode::Char('s')), None);
+    assert!(env.view.search_active);
+    let matches_before = env.view.search_matches.len();
+    assert!(
+        matches_before > 1,
+        "test needs multiple matches to be meaningful"
+    );
+
     env.view.handle_key(key(KeyCode::Enter), None);
+
     assert!(!env.view.search_active);
-    assert_eq!(env.view.search_query.value(), "");
-    assert!(env.view.search_matches.is_empty());
+    assert_eq!(
+        env.view.search_query.value(),
+        "sess",
+        "Enter must keep search_query so reloads re-score instead of wiping matches"
+    );
+    assert_eq!(
+        env.view.search_matches.len(),
+        matches_before,
+        "Enter must not clear matches"
+    );
     assert_eq!(env.view.search_match_index, 0);
+}
+
+#[test]
+#[serial]
+fn test_reload_after_enter_preserves_search_state() {
+    // Regression guard for #2676: `refresh_search_matches` wipes matches
+    // whenever the query is empty. If Enter cleared search_query, the very
+    // next storage/config reload would destroy the matches Enter promised
+    // to keep, silently breaking n/N cycling.
+    let mut env = create_test_env_with_sessions(5);
+    env.view.handle_key(key(KeyCode::Char('/')), None);
+    env.view.handle_key(key(KeyCode::Char('s')), None);
+    env.view.handle_key(key(KeyCode::Char('e')), None);
+    env.view.handle_key(key(KeyCode::Char('s')), None);
+    env.view.handle_key(key(KeyCode::Char('s')), None);
+    env.view.handle_key(key(KeyCode::Enter), None);
+    let matches_before = env.view.search_matches.len();
+    assert!(
+        matches_before >= 3,
+        "test needs matches for meaningful assertions"
+    );
+
+    env.view.reload().unwrap();
+
+    assert_eq!(
+        env.view.search_matches.len(),
+        matches_before,
+        "reload after Enter must not wipe search_matches"
+    );
+
+    env.view.handle_key(key(KeyCode::Char('n')), None);
+    assert_eq!(
+        env.view.search_match_index, 1,
+        "n still cycles after a reload lands between Enter and the first press"
+    );
+}
+
+#[test]
+#[serial]
+fn test_sort_order_change_after_enter_rescores_search_matches() {
+    // Regression guard for #2676: paths that rebuild `flat_items`
+    // (`apply_sort_order`, `apply_group_by`, `toggle_group_collapsed`)
+    // must re-score `search_matches` against the new indices, or `n`/`N`
+    // jumps to stale positions and row highlights land on wrong sessions.
+    // Query "session0" matches only session0. With Newest sort it sits at
+    // index 4; with Oldest at index 0. Without the fix the stale index 4
+    // would land on session4 after the sort change.
+    use crate::session::config::SortOrder;
+    let mut env = create_test_env_with_sessions(5);
+    env.view.handle_key(key(KeyCode::Char('/')), None);
+    for c in "session0".chars() {
+        env.view.handle_key(key(KeyCode::Char(c)), None);
+    }
+    env.view.handle_key(key(KeyCode::Enter), None);
+
+    assert_eq!(env.view.search_matches.len(), 1);
+    let matched_id_before = match &env.view.flat_items[env.view.search_matches[0]] {
+        Item::Session { id, .. } => id.clone(),
+        _ => panic!("initial match must be a Session"),
+    };
+
+    let new_order = if env.view.sort_order == SortOrder::Newest {
+        SortOrder::Oldest
+    } else {
+        SortOrder::Newest
+    };
+    env.view.apply_sort_order(new_order);
+
+    assert_eq!(
+        env.view.search_matches.len(),
+        1,
+        "same session still matches after sort"
+    );
+    let matched_id_after = match &env.view.flat_items[env.view.search_matches[0]] {
+        Item::Session { id, .. } => id.clone(),
+        _ => panic!("match must still be a Session, not a stale non-Session index"),
+    };
+    assert_eq!(
+        matched_id_after, matched_id_before,
+        "sort change must not orphan search_matches to a stale index pointing at the wrong session"
+    );
+}
+
+#[test]
+#[serial]
+fn test_search_mode_enter_keeps_matches_for_cycling() {
+    let mut env = create_test_env_with_sessions(5);
+    env.view.handle_key(key(KeyCode::Char('/')), None);
+    env.view.handle_key(key(KeyCode::Char('s')), None);
+    env.view.handle_key(key(KeyCode::Char('e')), None);
+    env.view.handle_key(key(KeyCode::Char('s')), None);
+    env.view.handle_key(key(KeyCode::Char('s')), None);
+    env.view.handle_key(key(KeyCode::Enter), None);
+
+    let n_matches = env.view.search_matches.len();
+    assert!(
+        n_matches >= 3,
+        "test needs at least 3 matches for wrap coverage"
+    );
+    assert_eq!(env.view.search_match_index, 0);
+
+    for expected in 1..n_matches {
+        env.view.handle_key(key(KeyCode::Char('n')), None);
+        assert_eq!(env.view.search_match_index, expected);
+    }
+
+    env.view.handle_key(key(KeyCode::Char('n')), None);
+    assert_eq!(env.view.search_match_index, 0, "n wraps to first");
+
+    env.view.handle_key(key(KeyCode::Char('N')), None);
+    assert_eq!(
+        env.view.search_match_index,
+        n_matches - 1,
+        "N wraps to last"
+    );
+
+    env.view.handle_key(key(KeyCode::Char('N')), None);
+    assert_eq!(env.view.search_match_index, n_matches - 2);
 }
 
 #[test]
@@ -1608,17 +1745,14 @@ fn test_esc_clears_search_matches() {
 
 #[test]
 #[serial]
-fn test_enter_clears_matches_so_n_opens_new_dialog() {
+fn test_esc_clears_matches_so_n_opens_new_dialog() {
     let mut env = create_test_env_with_sessions(5);
-    // Search, then Enter to exit search mode
     env.view.handle_key(key(KeyCode::Char('/')), None);
     env.view.handle_key(key(KeyCode::Char('s')), None);
-    env.view.handle_key(key(KeyCode::Enter), None);
+    env.view.handle_key(key(KeyCode::Esc), None);
     assert!(!env.view.search_active);
-    // Enter should have cleared matches
     assert!(env.view.search_matches.is_empty());
 
-    // n should now open new session dialog (not cycle matches)
     assert!(env.view.new_dialog.is_none());
     env.view.handle_key(key(KeyCode::Char('n')), None);
     assert!(env.view.new_dialog.is_some());
@@ -1946,7 +2080,8 @@ fn using_n_suppresses_the_earned_tip() {
 #[serial]
 fn test_reload_does_not_snap_cursor_after_enter() {
     let mut env = create_test_env_with_sessions(5);
-    // Search and exit with Enter
+    // Search and commit with Enter: matches stay non-empty so
+    // `refresh_search_matches` fires on reload; the cursor must not snap.
     env.view.handle_key(key(KeyCode::Char('/')), None);
     env.view.handle_key(key(KeyCode::Char('s')), None);
     env.view.handle_key(key(KeyCode::Enter), None);
@@ -1961,22 +2096,6 @@ fn test_reload_does_not_snap_cursor_after_enter() {
 
     // Cursor should stay where the user put it, not snap back to best match
     assert_eq!(env.view.cursor, 4);
-}
-
-#[test]
-#[serial]
-fn test_enter_clears_matches_and_resets_index() {
-    let mut env = create_test_env_with_sessions(5);
-    env.view.handle_key(key(KeyCode::Char('/')), None);
-    env.view.handle_key(key(KeyCode::Char('s')), None);
-    let match_count = env.view.search_matches.len();
-    assert!(match_count > 0);
-
-    env.view.handle_key(key(KeyCode::Enter), None);
-    assert!(!env.view.search_active);
-    // Enter should clear matches so normal keybindings work
-    assert!(env.view.search_matches.is_empty());
-    assert_eq!(env.view.search_match_index, 0);
 }
 
 #[test]

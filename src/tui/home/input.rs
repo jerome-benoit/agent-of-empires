@@ -2293,10 +2293,12 @@ impl HomeView {
                     self.search_match_index = 0;
                 }
                 KeyCode::Enter => {
+                    // vim-parity: Enter commits but keeps search_matches
+                    // and search_query so `n`/`N` cycle survives reloads
+                    // (`refresh_search_matches` re-scores against the same
+                    // query). Esc above remains the cancel-and-clear path.
+                    // See #2676.
                     self.search_active = false;
-                    self.search_query = Input::default();
-                    self.search_matches.clear();
-                    self.search_match_index = 0;
                 }
                 _ => {
                     self.search_query
@@ -2503,6 +2505,11 @@ impl HomeView {
             ActionId::SearchStart => {
                 self.search_active = true;
                 self.search_query = Input::default();
+                // Post-#2676: committed matches from a prior `/`-search
+                // persist across `Enter`; clear them here so `[i/N]` does
+                // not briefly render over an empty input on reopen.
+                self.search_matches.clear();
+                self.search_match_index = 0;
             }
             ActionId::SearchNext => {
                 if self.search_matches.is_empty() {
@@ -3195,13 +3202,15 @@ impl HomeView {
         match action {
             PaletteAction::Invoke(id) => {
                 // The palette's mental model is "run the named action," so clear
-                // any leftover search-cycle state first: otherwise picking "New
-                // session" while a search is active would route the dual-purpose
-                // `n`/`N` actions into a search-cycle instead.
-                if !self.search_matches.is_empty() {
-                    self.search_matches.clear();
-                    self.search_match_index = 0;
-                }
+                // any leftover search state first: otherwise picking "New
+                // session" while a search is committed would route the
+                // dual-purpose `n`/`N` actions into a search-cycle instead.
+                // Also clear `search_query` (post-#2676) so a subsequent
+                // rebuild path calling `refresh_search_matches` cannot
+                // resurrect phantom matches against the stale query.
+                self.search_matches.clear();
+                self.search_match_index = 0;
+                self.search_query = Input::default();
                 self.run_action(id, update_info)
             }
             PaletteAction::Activate => self.activate_selected_session(),
@@ -3517,12 +3526,13 @@ impl HomeView {
         self.update_selected();
     }
 
-    fn apply_sort_order(&mut self, new_order: SortOrder) {
+    pub(super) fn apply_sort_order(&mut self, new_order: SortOrder) {
         self.sort_order = new_order;
-        self.flat_items = self.build_flat_items();
         if self.search_active && !self.search_query.value().is_empty() {
+            self.flat_items = self.build_flat_items();
             self.update_search();
         } else {
+            self.rebuild_flat_items();
             self.reseat_cursor_after_rebuild();
         }
         if let Ok(mut config) = load_config().map(|c| c.unwrap_or_default()) {
@@ -3535,7 +3545,7 @@ impl HomeView {
 
     fn apply_group_by(&mut self, new_mode: GroupByMode) {
         self.group_by = new_mode;
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         self.reseat_cursor_after_rebuild();
         match load_config().map(|c| c.unwrap_or_default()) {
             Ok(mut config) => {
@@ -3571,7 +3581,7 @@ impl HomeView {
                 .unwrap_or(false);
             self.project_group_collapsed
                 .insert(path.to_string(), !collapsed);
-            self.flat_items = self.build_flat_items();
+            self.rebuild_flat_items();
             self.save_project_group_collapsed();
             return;
         }
@@ -3582,7 +3592,7 @@ impl HomeView {
                 tree.toggle_collapsed(path);
             }
         }
-        self.flat_items = self.build_flat_items();
+        self.rebuild_flat_items();
         if let Err(e) = self.save() {
             tracing::error!(target: "tui.input", "Failed to save group state: {}", e);
         }
@@ -5399,6 +5409,19 @@ impl HomeView {
     /// Re-score matches after a reload without moving the cursor.
     fn search_haystack_for(inst: &crate::session::Instance) -> String {
         format!("{} {}", inst.title, inst.project_path)
+    }
+
+    /// Rebuild `flat_items` and re-score any committed `search_matches`
+    /// against the new indices. Every mutation site that touches
+    /// `self.flat_items` must go through this helper or `search_matches`
+    /// retains stale indices into the old list, and `n`/`N` cycles jump
+    /// to wrong sessions (row highlights follow the stale indices too).
+    /// See #2676.
+    pub(super) fn rebuild_flat_items(&mut self) {
+        self.flat_items = self.build_flat_items();
+        if !self.search_matches.is_empty() {
+            self.refresh_search_matches();
+        }
     }
 
     pub(super) fn refresh_search_matches(&mut self) {
