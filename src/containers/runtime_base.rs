@@ -274,26 +274,17 @@ impl RuntimeBase {
     }
 
     /// Classify a non-success container-existence probe stderr, parallel to
-    /// [`Self::classify_inspect_failure`] but for the existence-probe surface
-    /// used by `does_container_exist`.
+    /// [`Self::classify_inspect_failure`]. Both arms of `does_container_exist`
+    /// (Docker/Podman `container inspect`, Apple `logs`) share the same
+    /// failure taxonomy and funnel through this classifier; the terminal
+    /// [`DockerError::InspectFailed`] variant is reused because the
+    /// classification rules and `Display` contract are identical.
     ///
-    /// The Docker/Podman existence probe uses `container inspect` and the
-    /// Apple probe uses `logs` (Apple's `inspect` returns success for missing
-    /// containers). Both surfaces share the same failure taxonomy (absent /
-    /// daemon down / permission denied / transient), so both funnel through
-    /// this classifier. The [`DockerError::InspectFailed`] terminal-else
-    /// variant is reused here rather than adding a parallel
-    /// `ExistenceCheckFailed`: the classification rules and their `Display`
-    /// contract are identical, and the operator-facing error field always
-    /// carries the runtime's raw stderr regardless of the argv that produced
-    /// it.
-    ///
-    /// Order-of-checks priority mirrors `classify_inspect_failure` and lives
-    /// there authoritatively; delegating rather than duplicating keeps the
-    /// permission-denied-before-daemon-down invariant in one place. Closes
-    /// the swallowing-existence-probe class of bug (#2596 / #2652 / #2654)
-    /// on the existence surface, following #2652 which closed it on the
-    /// running-state surface.
+    /// Delegating rather than duplicating keeps the order-of-checks
+    /// priority (permission-denied before daemon-down) authoritative in
+    /// one place. Closes the swallowing-existence-probe class of bug
+    /// (#2596 / #2652 / #2654) on the existence surface, following #2652
+    /// which closed it on the running-state surface.
     pub fn classify_exists_failure(&self, stderr: &str) -> Result<bool> {
         self.classify_inspect_failure(stderr)
     }
@@ -876,12 +867,15 @@ mod tests {
     }
 
     // classify_exists_failure test triples: parallel to the classify_inspect_failure
-    // triples above, verifying the existence-probe surface (used by
+    // triples above, verifying the existence surface (used by
     // `does_container_exist`) shares the same fixture-based classification.
     // Closes the swallowing-existence-probe class of bug (#2596) on the
     // existence surface, following #2652 which closed it on the running-state
-    // surface. Fixture bytes are shared with the classify_inspect_failure
-    // tests so any future stderr wording drift is caught by both suites.
+    // surface. Absent-container fixture bytes are shared with the
+    // classify_inspect_failure suite via the `_MISSING` module-scope
+    // constants; daemon-down and permission-denied fixture strings are
+    // byte-identical inlined copies (keep them in sync manually until a
+    // shared fixture module lands).
 
     #[test]
     fn exists_not_found_stderr_collapses_to_ok_false() {

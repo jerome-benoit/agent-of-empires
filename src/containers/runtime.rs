@@ -140,7 +140,8 @@ impl ContainerRuntime {
                 // daemon_down_markers / permission_denied_markers on
                 // RuntimeBase::APPLE_CONTAINER are calibrated to `logs`
                 // output, so switching to `inspect` here (or tightening the
-                // markers) needs new fixtures.
+                // markers) needs new fixtures. Same silent-break risk as
+                // the Docker/Podman pinning comment above. See #2596.
                 let output = self.base.command().args(["logs", name]).output()?;
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);

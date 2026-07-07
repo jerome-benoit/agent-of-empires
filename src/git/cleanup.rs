@@ -433,7 +433,7 @@ pub fn cleanup_sandbox_worktree(instance: &Instance) -> bool {
                 target: "containers.runtime",
                 session = %instance.id,
                 error = %e,
-                "docker inspect failed while probing sandbox container existence for worktree cleanup; skipping best-effort cleanup"
+                "container existence probe failed while probing sandbox container for worktree cleanup; skipping best-effort cleanup"
             );
             return false;
         }
