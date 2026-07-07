@@ -52,7 +52,7 @@ fn polling_tier(status: Status) -> u64 {
 /// Locked by [`apply_status_update_preserves_idle_entered_at_on_keep`]
 /// in `src/tui/home/tests.rs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum IdleField {
+pub enum IdleIntent {
     /// Producer has no observation; consumer preserves the current value.
     #[default]
     Keep,
@@ -69,7 +69,7 @@ pub enum IdleField {
 /// `Default` is derived so test fixtures can construct `StatusUpdate` with
 /// `..Default::default()` and only set the fields under test, instead of
 /// re-spelling every field at every call site. All field defaults resolve
-/// through the standard chain: `Status` defaults to `Idle`, `IdleField` to
+/// through the standard chain: `Status` defaults to `Idle`, `IdleIntent` to
 /// `Keep`, `Option::None`, `bool::false`, and `String::new`.
 #[derive(Debug, Clone, Default)]
 pub struct StatusUpdate {
@@ -77,10 +77,10 @@ pub struct StatusUpdate {
     pub status: Status,
     pub last_error: Option<String>,
     /// Producer's intent for the real `Instance`'s `idle_entered_at`.
-    /// See [`IdleField`] for the three-variant contract that replaces the
+    /// See [`IdleIntent`] for the three-variant contract that replaces the
     /// original `Option<DateTime<Utc>>` (which conflated "clear this on a
     /// transition out of Idle" with "I have no observation, preserve").
-    pub idle_entered_at: IdleField,
+    pub idle_entered_at: IdleIntent,
     /// Pulled from tmux `#{session_activity}` via
     /// `update_status_with_metadata`. Carried back so the main thread can
     /// persist it to the real Instance; the poller mutates a clone, so any
@@ -189,7 +189,7 @@ pub(super) fn poll_statuses_once(
                                 id: inst.id,
                                 status: Status::Error,
                                 last_error: Some("Container is not running".to_string()),
-                                idle_entered_at: IdleField::Clear,
+                                idle_entered_at: IdleIntent::Clear,
                                 last_accessed_at: inst.last_accessed_at,
                                 // Sandboxed sessions don't have a tmux pane in the
                                 // usual sense; the Error tier itself sinks the row.
@@ -212,9 +212,18 @@ pub(super) fn poll_statuses_once(
                 id: inst.id,
                 status: inst.status,
                 last_error: inst.last_error,
+                // Main-thread poller always ran `update_status_with_metadata`
+                // just above, so it is authoritative on `idle_entered_at`
+                // and emits `Set(ts)` or `Clear` unconditionally.
+                // `IdleIntent::Keep` is never emitted here;
+                // `attached_status_hooks::snapshot` is the sole
+                // `Keep`-emitter (see its docstring). This asymmetry is
+                // load-bearing: a future consolidation that adds `Keep`
+                // to this producer would erase the baseline seed that
+                // `update_status_with_metadata` just wrote.
                 idle_entered_at: match inst.idle_entered_at {
-                    Some(ts) => IdleField::Set(ts),
-                    None => IdleField::Clear,
+                    Some(ts) => IdleIntent::Set(ts),
+                    None => IdleIntent::Clear,
                 },
                 last_accessed_at: inst.last_accessed_at,
                 pane_dead,
@@ -297,12 +306,34 @@ mod tests {
             id: "abc".into(),
             status: Status::Idle,
             last_error: None,
-            idle_entered_at: IdleField::Set(ts),
+            idle_entered_at: IdleIntent::Set(ts),
             last_accessed_at: None,
             pane_dead: false,
             live_status_baseline: None,
         };
-        assert_eq!(update.idle_entered_at, IdleField::Set(ts));
+        assert_eq!(update.idle_entered_at, IdleIntent::Set(ts));
+    }
+
+    /// #2690 follow-up. `StatusUpdate::default()` must be a semantic
+    /// no-op so test fixtures can use `..Default::default()` and only
+    /// override the fields under test. A future field with a non-trivial
+    /// default (e.g. an id defaulting to empty string that a consumer
+    /// treats as "match all") would silently corrupt fixture-based
+    /// tests. This lock catches such a field addition at review time.
+    #[test]
+    fn test_status_update_default_is_no_op() {
+        let default = StatusUpdate::default();
+        assert_eq!(default.id, String::new(), "id defaults to empty string");
+        assert_eq!(default.status, Status::Idle, "status defaults to Idle");
+        assert_eq!(default.last_error, None);
+        assert_eq!(
+            default.idle_entered_at,
+            IdleIntent::Keep,
+            "idle_entered_at defaults to Keep (no observation)"
+        );
+        assert_eq!(default.last_accessed_at, None);
+        assert!(!default.pane_dead);
+        assert_eq!(default.live_status_baseline, None);
     }
 
     #[test]

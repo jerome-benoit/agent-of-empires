@@ -2695,7 +2695,7 @@ impl HomeView {
         let new_pane_dead = update.pane_dead;
 
         if should_update {
-            use crate::tui::status_poller::IdleField;
+            use crate::tui::status_poller::IdleIntent;
 
             let new_status = update.status;
             let new_error = update.last_error;
@@ -2705,15 +2705,15 @@ impl HomeView {
                 inst.status = new_status;
                 inst.last_error = new_error;
                 // Match on the producer's stated intent for `idle_entered_at`
-                // instead of overloading `None`. See `IdleField` in
+                // instead of overloading `None`. See `IdleIntent` in
                 // `status_poller` for the three-variant contract that
                 // replaces the pre-fix `Option<DateTime<Utc>>` (which
                 // conflated "producer observed a transition out of Idle" with
                 // "producer has no observation"). See #2690.
                 match new_idle_entered_at {
-                    IdleField::Set(ts) => inst.idle_entered_at = Some(ts),
-                    IdleField::Clear => inst.idle_entered_at = None,
-                    IdleField::Keep => {}
+                    IdleIntent::Set(ts) => inst.idle_entered_at = Some(ts),
+                    IdleIntent::Clear => inst.idle_entered_at = None,
+                    IdleIntent::Keep => {}
                 }
                 if new_last_accessed.is_some() {
                     inst.last_accessed_at = new_last_accessed;

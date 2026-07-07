@@ -3228,7 +3228,7 @@ fn decide_passive_transition(
 /// `status_poll_loop` tick. `patches` is keyed by instance id so the
 /// persistence closure resolves each row in O(1); `unread_ids` stays a
 /// small `Vec` because per-tick cardinality is low and `Vec::contains`
-/// beats `HashSet` on that shape.
+/// beats `HashSet` at that N.
 ///
 /// # Persistence divergence between daemon and TUI (#2690 follow-up)
 ///
@@ -3236,19 +3236,23 @@ fn decide_passive_transition(
 /// per tick, via `persist_session_update`). The TUI's
 /// [`crate::tui::home::HomeView::persist_passive_status_transition`]
 /// writes one transition at a time. Both funnel through
-/// [`crate::session::Instance::merge_passive_status_patch`], which is
-/// order-independent on the three fields it touches (`status`,
-/// `idle_entered_at`, `last_accessed_at`). Interleaving the two paths is
-/// safe today for that reason.
+/// [`crate::session::Instance::merge_passive_status_patch`], whose field
+/// semantics are: `last_accessed_at` is monotone non-decreasing (guarded
+/// by `>=`, so an older-or-equal incoming value is dropped);
+/// `status` and `idle_entered_at` are unconditional writes
+/// (last-writer-wins). The two paths are safe to interleave today because
+/// the poller is the sole authority on those two fields and both writers
+/// read the same live source within one tick, so they converge on the
+/// next tick even when their observations disagree.
 ///
 /// A future field added to [`crate::session::PassiveStatusPatch`] that is
-/// NOT order-independent (a counter, a list-append, a version tag) would
-/// diverge silently between the daemon's batched replay and the TUI's
-/// per-transition writes. Any such addition must either unify the two
-/// paths first, or explicitly document why order-independence still
-/// holds.
+/// neither monotone (like `last_accessed_at`) nor single-authority (like
+/// the current `status`/`idle_entered_at`) would diverge silently
+/// between the daemon's batched replay and the TUI's per-transition
+/// writes. Any such addition must either unify the two paths first, or
+/// explicitly document why the two-writer shape stays safe.
 #[derive(Default)]
-struct ProfileWriteBundle {
+struct PassiveTransitionWrites {
     patches: std::collections::HashMap<String, crate::session::PassiveStatusPatch>,
     unread_ids: Vec<String>,
 }
@@ -3338,7 +3342,7 @@ async fn status_poll_loop(state: Arc<AppState>) {
             // reload (this loop's next tick, or a TUI relaunch) from
             // comparing against a stale snapshot and restamping again. See
             // #2690.
-            let mut bundles: std::collections::HashMap<String, ProfileWriteBundle> =
+            let mut bundles: std::collections::HashMap<String, PassiveTransitionWrites> =
                 std::collections::HashMap::new();
             for inst in &mut instances {
                 let Some(old) = prev.get(&inst.id) else {
@@ -3369,7 +3373,7 @@ async fn status_poll_loop(state: Arc<AppState>) {
             }
             for (
                 profile,
-                ProfileWriteBundle {
+                PassiveTransitionWrites {
                     patches,
                     unread_ids,
                 },
@@ -4674,7 +4678,7 @@ mod tests {
 
     #[test]
     fn decide_passive_transition_skips_patch_for_structured_session() {
-        // #2697: a status_poll_loop CI regression. Structured/ACP sessions
+        // Locks the CI regression from #2697: structured/ACP sessions
         // have no tmux pane for the poller to probe; their `status` is not
         // poller-authoritative (the ACP overlay is), so a disk/detected
         // mismatch must not be persisted as a passive status patch.

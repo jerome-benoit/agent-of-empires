@@ -1010,28 +1010,6 @@ fn publish_session_to_tmux_env(tmux_session_name: &str, instance_id: &str, sessi
     }
 }
 
-// Terminology (poller vocabulary, #2690 follow-up)
-// ------------------------------------------------
-//
-// `passive status`: a status transition detected by a background poller
-//   from tmux pane state or ACP overlay, not by an explicit user action.
-// `passive status patch`: a minimal [`PassiveStatusPatch`] carrying the
-//   fields a passive-status writer touches (`status`,
-//   `idle_entered_at`, `last_accessed_at`), applied on disk via
-//   [`Instance::merge_passive_status_patch`].
-// `live status baseline`: the last `Status` a caller has actually
-//   observed live for an in-memory `Instance`. Held on
-//   `Instance::live_status_baseline` (`#[serde(skip)]`). `None` means no
-//   live observation exists yet, so
-//   [`Instance::update_status_with_metadata`] seeds it on the first call
-//   without restamping.
-// `detected status`: the `Status` a poller reads from tmux / ACP /
-//   sandbox liveness on a single call. Distinct from the disk-loaded
-//   `Instance::status`, which can be stale by up to one tick.
-// `poller-authoritative status`: for plain-tmux sessions, the poller
-//   owns `Instance::status`. For structured/ACP sessions,
-//   `apply_acp_overlay_inplace` is the authority; see its docstring.
-
 /// A passively-detected status transition, queued for a batched disk write.
 /// Produced by the TUI's and daemon's background pollers when a genuine
 /// live status change is observed (see [`Instance::update_status_with_metadata`]
@@ -1039,7 +1017,29 @@ fn publish_session_to_tmux_env(tmux_session_name: &str, instance_id: &str, sessi
 /// [`Instance::merge_passive_status_patch`]. `pub(crate)`: this is an
 /// internal wire format between the pollers and `merge_passive_status_patch`,
 /// not a stable type for out-of-tree consumers.
-#[derive(Debug, Clone)]
+///
+/// # Poller vocabulary (#2690 follow-up)
+///
+/// - **passive status**: a status transition detected by a background
+///   poller from tmux pane state or ACP overlay, not by an explicit user
+///   action.
+/// - **passive status patch**: a minimal `PassiveStatusPatch` carrying
+///   the fields a passive-status writer touches (`status`,
+///   `idle_entered_at`, `last_accessed_at`), applied on disk via
+///   [`Instance::merge_passive_status_patch`].
+/// - **live status baseline**: the last `Status` a caller has actually
+///   observed live for an in-memory `Instance`. Held on
+///   `Instance::live_status_baseline` (`#[serde(skip)]`). `None` means
+///   no live observation exists yet, so
+///   [`Instance::update_status_with_metadata`] seeds it on the first
+///   call without restamping.
+/// - **detected status**: the `Status` a poller reads from tmux / ACP /
+///   sandbox liveness on a single call. Distinct from the disk-loaded
+///   `Instance::status`, which can be stale by up to one tick.
+/// - **poller-authoritative status**: for plain-tmux sessions, the poller
+///   owns `Instance::status`. For structured/ACP sessions,
+///   `apply_acp_overlay_inplace` is the authority; see its docstring.
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PassiveStatusPatch {
     pub id: String,
     pub status: Status,
@@ -5669,7 +5669,7 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_passive_status_patch_last_accessed_at_boundary_equal_is_dropped() {
+    fn test_merge_passive_status_patch_last_accessed_at_boundary_equal_is_a_noop() {
         let mut disk = Instance::new("session", "/tmp/test");
         let ts = Utc::now();
         disk.last_accessed_at = Some(ts);
@@ -5960,6 +5960,15 @@ mod tests {
         // Under the fix (`Instance::new` seeds `None`), the first poll
         // seeds baseline from the detected status and does NOT restamp;
         // `last_accessed_at` stays `None` for a truly untouched session.
+        //
+        // The assertion is guard-only: whatever `update_status_with_metadata_inner`
+        // resolves `status` to (`Error` in the no-tmux path, could be a
+        // different value if `_inner` grows a new branch), the wrapper's
+        // `baseline.is_some_and(...)` guard at
+        // [`Self::update_status_with_metadata`] short-circuits on
+        // `baseline == None`, so no restamp path runs. A future refactor
+        // of `_inner` cannot silently weaken the lock; only a change to
+        // the wrapper's guard shape can.
         let mut inst = Instance::new("test", "/tmp/test");
         assert_eq!(inst.last_accessed_at, None, "fixture invariant");
         // Simulate any post-construction status writer, `finalize_launch`
