@@ -413,16 +413,30 @@ pub fn is_permission_error(error: &str) -> bool {
 /// `find . -mindepth 1 -delete` to remove all contents (including
 /// root-owned files that the host user cannot delete directly).
 ///
-/// If the running-state probe fails ([`crate::containers::Probe::Unknown`]),
-/// a `warn!` is emitted and a container start is attempted anyway
-/// (idempotent if the container is already running), preserving best-effort
-/// behavior while surfacing the failure in logs.
+/// Both container probes (existence and running-state) are fail-open with
+/// a `warn!`: on a transient runtime failure (daemon down, permission
+/// denied, or any other non-success stderr classified by
+/// [`crate::containers::runtime_base::RuntimeBase::classify_exists_failure`]
+/// or `classify_inspect_failure`) the cleanup is skipped and the failure
+/// surfaces in logs. Collapsing the existence probe to `unwrap_or(false)`
+/// re-introduces the swallowing-existence-probe class of bug (#2596 /
+/// #2652 / #2654).
 ///
 /// Returns true if the container successfully deleted the contents.
 pub fn cleanup_sandbox_worktree(instance: &Instance) -> bool {
     let container = DockerContainer::from_session_id(&instance.id);
-    if !container.exists().unwrap_or(false) {
-        return false;
+    match container.exists() {
+        Ok(true) => {}
+        Ok(false) => return false,
+        Err(e) => {
+            tracing::warn!(
+                target: "containers.runtime",
+                session = %instance.id,
+                error = %e,
+                "docker inspect failed while probing sandbox container existence for worktree cleanup; skipping best-effort cleanup"
+            );
+            return false;
+        }
     }
     let needs_start = match container.probe_running() {
         crate::containers::Probe::Running => false,

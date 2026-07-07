@@ -114,19 +114,39 @@ impl ContainerRuntime {
     pub fn does_container_exist(&self, name: &str) -> Result<bool> {
         match self.kind {
             RuntimeKind::Docker | RuntimeKind::Podman => {
+                // `container inspect` (not `docker inspect`): pins the stderr
+                // wording DOCKER_MISSING captures in the runtime_base tests,
+                // so is_not_found classifies "absent" cleanly. Changing this
+                // argv or the per-runtime not_found / daemon_down /
+                // permission_denied markers without new fixtures silently
+                // breaks the classifier. See is_container_running above and
+                // the pinning comment at #2596 / #2652.
                 let output = self
                     .base
                     .command()
                     .args(["container", "inspect", name])
                     .output()?;
-                Ok(output.status.success())
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return self.base.classify_exists_failure(&stderr);
+                }
+                Ok(true)
             }
             RuntimeKind::AppleContainer => {
-                // Apple Container's `inspect` returns success(0) for non-existent
-                // containers, so we use `logs` which properly fails for missing
-                // containers.
+                // Apple Container's `inspect` returns success(0) for
+                // non-existent containers, so we use `logs` which properly
+                // fails for missing containers. APPLE_MISSING pins the
+                // absent-container stderr from `logs`; not_found_markers /
+                // daemon_down_markers / permission_denied_markers on
+                // RuntimeBase::APPLE_CONTAINER are calibrated to `logs`
+                // output, so switching to `inspect` here (or tightening the
+                // markers) needs new fixtures.
                 let output = self.base.command().args(["logs", name]).output()?;
-                Ok(output.status.success())
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return self.base.classify_exists_failure(&stderr);
+                }
+                Ok(true)
             }
         }
     }
