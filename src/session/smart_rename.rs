@@ -160,12 +160,14 @@ pub fn check_eligible_resolved(
 
 /// Config fields the smart-rename indicator and runtime gate both consume.
 /// Named fields (rather than a tuple) prevent the sidebar overlay and
-/// `try_smart_rename` from drifting on positional order.
-#[derive(Debug, Clone)]
-pub struct SmartRenameConfig {
+/// `try_smart_rename` from drifting on positional order. Fields borrow from
+/// the caller-owned [`SessionConfig`] so the sidebar's per-row projection is
+/// allocation-free on the 3s poll hot path.
+#[derive(Debug, Clone, Copy)]
+pub struct SmartRenameConfig<'a> {
     pub setting_on: bool,
-    pub rename_agent: String,
-    pub overrides: HashMap<String, String>,
+    pub rename_agent: &'a str,
+    pub overrides: &'a HashMap<String, String>,
 }
 
 /// Project a resolved [`SessionConfig`] into the three fields the smart-rename
@@ -174,12 +176,13 @@ pub struct SmartRenameConfig {
 /// call sites cannot drift on which fields count: each site fetches the
 /// resolved config via
 /// [`crate::session::repo_config::resolve_config_with_repo_or_warn`] and
-/// passes `.session` through this function.
-pub fn resolve_smart_rename_config(session: &SessionConfig) -> SmartRenameConfig {
+/// passes `.session` through this function. Returns borrowed refs so the
+/// sidebar's per-row call does not allocate. See #2603.
+pub fn resolve_smart_rename_config(session: &SessionConfig) -> SmartRenameConfig<'_> {
     SmartRenameConfig {
         setting_on: session.smart_rename,
-        rename_agent: session.smart_rename_agent.clone(),
-        overrides: session.agent_command_override.clone(),
+        rename_agent: &session.smart_rename_agent,
+        overrides: &session.agent_command_override,
     }
 }
 
@@ -439,10 +442,10 @@ mod serve {
             cfg.setting_on,
             &title,
             &tool,
-            &cfg.rename_agent,
+            cfg.rename_agent,
             sandboxed,
             &command,
-            &cfg.overrides,
+            cfg.overrides,
         ) {
             Ok(agent) => agent,
             Err(reason) => {
@@ -1140,10 +1143,10 @@ claude = "my-wrapper"
             cfg.setting_on,
             "Vikings",
             "claude",
-            &cfg.rename_agent,
+            cfg.rename_agent,
             false,
             "",
-            &cfg.overrides,
+            cfg.overrides,
         )
         .expect("eligible");
         assert_eq!(agent.binary, "opencode");

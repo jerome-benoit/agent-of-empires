@@ -523,7 +523,9 @@ fn resolve_session_cfg<'a>(
 /// Test seam for the shared per-request cache invariant (#2603): bumped
 /// exactly once per unique `(profile, project_path)` that resolves through
 /// [`resolve_session_cfg`]. Mirrors the module-static test seam pattern used
-/// by `FAIL_NEXT_LIST_PROFILES` at `src/session/mod.rs`.
+/// by [`crate::session::FAIL_NEXT_LIST_PROFILES`]. Readers must hold
+/// `#[serial_test::serial]`: a concurrent `list_sessions` call between reset
+/// and load would leak bumps into the assertion.
 #[cfg(test)]
 pub(crate) static LIST_SESSIONS_RESOLVER_MISSES: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
@@ -722,10 +724,10 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<SessionsE
                 cfg.setting_on,
                 &inst.title,
                 &inst.tool,
-                &cfg.rename_agent,
+                cfg.rename_agent,
                 inst.is_sandboxed(),
                 &inst.command,
-                &cfg.overrides,
+                cfg.overrides,
             )
             .is_ok();
             if eligible {
