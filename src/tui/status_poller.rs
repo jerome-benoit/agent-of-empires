@@ -36,18 +36,51 @@ fn polling_tier(status: Status) -> u64 {
     }
 }
 
-/// Result of a status check for a single session
-#[derive(Debug, Clone)]
+/// A producer's report of what to do with an `Instance`'s
+/// `idle_entered_at` field. Encodes three distinct intents that
+/// `Option<DateTime<Utc>>` conflates:
+///
+/// * `Set(ts)`: producer observed a transition into `Idle` at `ts`.
+/// * `Clear`: producer observed a transition out of `Idle`; the disk
+///   value must be reset to `None`.
+/// * `Keep`: producer did not observe a transition (e.g. an
+///   `attached_status_hooks` snapshot from a watcher clone that never
+///   polled its own session); the disk value must not be touched, or a
+///   real transition observed on a different path can be silently
+///   clobbered by an unseeded snapshot.
+///
+/// Locked by [`apply_status_update_preserves_idle_entered_at_on_keep`]
+/// in `src/tui/home/tests.rs`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IdleField {
+    /// Producer has no observation; consumer preserves the current value.
+    #[default]
+    Keep,
+    /// Producer observed a non-`Idle` status; consumer sets the field to
+    /// `None`.
+    Clear,
+    /// Producer observed `Idle` at the carried timestamp; consumer sets
+    /// the field to `Some(ts)`.
+    Set(DateTime<Utc>),
+}
+
+/// Result of a status check for a single session.
+///
+/// `Default` is derived so test fixtures can construct `StatusUpdate` with
+/// `..Default::default()` and only set the fields under test, instead of
+/// re-spelling every field at every call site. All field defaults resolve
+/// through the standard chain: `Status` defaults to `Idle`, `IdleField` to
+/// `Keep`, `Option::None`, `bool::false`, and `String::new`.
+#[derive(Debug, Clone, Default)]
 pub struct StatusUpdate {
     pub id: String,
     pub status: Status,
     pub last_error: Option<String>,
-    /// Snapshot of the polled clone's `idle_entered_at` after
-    /// `update_status_with_metadata` ran. Propagating this field is what
-    /// keeps the freshness signal working in the TUI: without it, the
-    /// wrapper's timestamp write lives only on the polling clone and is
-    /// lost when we project the result back into a `StatusUpdate`.
-    pub idle_entered_at: Option<DateTime<Utc>>,
+    /// Producer's intent for the real `Instance`'s `idle_entered_at`.
+    /// See [`IdleField`] for the three-variant contract that replaces the
+    /// original `Option<DateTime<Utc>>` (which conflated "clear this on a
+    /// transition out of Idle" with "I have no observation, preserve").
+    pub idle_entered_at: IdleField,
     /// Pulled from tmux `#{session_activity}` via
     /// `update_status_with_metadata`. Carried back so the main thread can
     /// persist it to the real Instance; the poller mutates a clone, so any
@@ -59,15 +92,11 @@ pub struct StatusUpdate {
     /// tmux per sort.
     pub pane_dead: bool,
     /// Snapshot of the polled clone's `live_status_baseline` after
-    /// `update_status_with_metadata` ran. Same reasoning as
-    /// `idle_entered_at`: the wrapper's baseline write lives only on the
-    /// polling clone and would be lost when projected into a `StatusUpdate`,
-    /// which would make the real `Instance` in `self.instances` compare
-    /// against `None` on every poll forever, silently disabling restamping
-    /// for the standalone TUI (#2690 follow-up). `None` from a producer
-    /// that never establishes a baseline (e.g. `attached_status_hooks`'s
-    /// snapshot) must NOT clear an already-established baseline, so the
-    /// consumer applies this conditionally, mirroring `last_accessed_at`.
+    /// `update_status_with_metadata` ran. `None` from a producer that has
+    /// no baseline yet (e.g. an `attached_status_hooks` snapshot whose
+    /// watcher clone never polled) must not clear an already-established
+    /// baseline, so the consumer applies this conditionally. `Some(_)` is
+    /// unambiguous: apply it. See #2690.
     pub live_status_baseline: Option<Status>,
 }
 
@@ -160,7 +189,7 @@ pub(super) fn poll_statuses_once(
                                 id: inst.id,
                                 status: Status::Error,
                                 last_error: Some("Container is not running".to_string()),
-                                idle_entered_at: None,
+                                idle_entered_at: IdleField::Clear,
                                 last_accessed_at: inst.last_accessed_at,
                                 // Sandboxed sessions don't have a tmux pane in the
                                 // usual sense; the Error tier itself sinks the row.
@@ -183,7 +212,10 @@ pub(super) fn poll_statuses_once(
                 id: inst.id,
                 status: inst.status,
                 last_error: inst.last_error,
-                idle_entered_at: inst.idle_entered_at,
+                idle_entered_at: match inst.idle_entered_at {
+                    Some(ts) => IdleField::Set(ts),
+                    None => IdleField::Clear,
+                },
                 last_accessed_at: inst.last_accessed_at,
                 pane_dead,
                 live_status_baseline: inst.live_status_baseline,
@@ -265,12 +297,12 @@ mod tests {
             id: "abc".into(),
             status: Status::Idle,
             last_error: None,
-            idle_entered_at: Some(ts),
+            idle_entered_at: IdleField::Set(ts),
             last_accessed_at: None,
             pane_dead: false,
             live_status_baseline: None,
         };
-        assert_eq!(update.idle_entered_at, Some(ts));
+        assert_eq!(update.idle_entered_at, IdleField::Set(ts));
     }
 
     #[test]

@@ -7,7 +7,7 @@ use std::time::Duration;
 use crate::session::{Instance, Status};
 use crate::status_hooks::StatusHookConfig;
 
-use super::status_poller::{poll_statuses_once, StatusPollState, StatusUpdate};
+use super::status_poller::{poll_statuses_once, IdleField, StatusPollState, StatusUpdate};
 
 const REFRESH_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -123,7 +123,14 @@ fn apply_updates(
 
         session.instance.status = update.status;
         session.instance.last_error = update.last_error;
-        session.instance.idle_entered_at = update.idle_entered_at;
+        match update.idle_entered_at {
+            IdleField::Set(ts) => session.instance.idle_entered_at = Some(ts),
+            IdleField::Clear => session.instance.idle_entered_at = None,
+            IdleField::Keep => {}
+        }
+        if let Some(baseline) = update.live_status_baseline {
+            session.instance.live_status_baseline = Some(baseline);
+        }
 
         if run_hooks && old != update.status {
             crate::status_hooks::run_for_transition(
@@ -143,7 +150,23 @@ fn snapshot(sessions: &[AttachedStatusHookSession]) -> Vec<StatusUpdate> {
             id: session.instance.id.clone(),
             status: session.instance.status,
             last_error: session.instance.last_error.clone(),
-            idle_entered_at: session.instance.idle_entered_at,
+            // Watcher never observed a poll of its own => baseline is None
+            // and idle_entered_at is whatever the parent clone carried at
+            // attach-time. Emitting `Keep` here honors "producer has no
+            // observation" and prevents the snapshot from clobbering a
+            // real value the main-thread poller already wrote onto the
+            // real Instance during attach. Once the watcher has polled at
+            // least once, baseline is Some and idle_entered_at was written
+            // by `apply_updates` above, so `Set(ts)` / `Clear` reflect the
+            // real observation.
+            idle_entered_at: match (
+                session.instance.live_status_baseline,
+                session.instance.idle_entered_at,
+            ) {
+                (None, _) => IdleField::Keep,
+                (Some(_), Some(ts)) => IdleField::Set(ts),
+                (Some(_), None) => IdleField::Clear,
+            },
             last_accessed_at: session.instance.last_accessed_at,
             pane_dead: session.instance.pane_dead_observed,
             live_status_baseline: session.instance.live_status_baseline,
@@ -179,7 +202,7 @@ mod tests {
                 id: id.clone(),
                 status: Status::Waiting,
                 last_error: None,
-                idle_entered_at: None,
+                idle_entered_at: IdleField::Keep,
                 last_accessed_at: None,
                 pane_dead: false,
                 live_status_baseline: None,

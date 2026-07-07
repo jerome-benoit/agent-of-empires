@@ -685,15 +685,15 @@ pub struct Instance {
     pub last_error_check: Option<std::time::Instant>,
     #[serde(skip)]
     pub last_start_time: Option<std::time::Instant>,
-    /// Last status a caller has actually observed live (as opposed to
-    /// whatever `status` happens to hold after a fresh disk load). `None`
-    /// means no live observation has happened yet for this in-memory
-    /// object, so `update_status_with_metadata` must not treat a mismatch
-    /// against a possibly-stale disk-loaded `status` as a real transition.
-    /// See #2690: comparing against disk `status` directly caused every
-    /// restart (TUI relaunch, daemon reload) to misdetect "disk hasn't
-    /// caught up yet" as "just transitioned now", clobbering
-    /// `idle_entered_at`/`last_accessed_at`.
+    /// Last status a caller has actually observed live, as distinct from
+    /// the disk-loaded `status` field. `None` means no live observation
+    /// exists yet for this in-memory object, so
+    /// [`Self::update_status_with_metadata`] seeds the baseline on its
+    /// first call without restamping. Every fresh disk load (TUI
+    /// relaunch, daemon tick) starts with `None` because of
+    /// `#[serde(skip)]`, and [`Instance::new`] also starts with `None` so
+    /// in-memory and disk-loaded paths have the same first-check
+    /// semantics. See #2690.
     #[serde(skip)]
     pub live_status_baseline: Option<Status>,
     #[serde(skip)]
@@ -1033,9 +1033,8 @@ pub(crate) struct PassiveStatusPatch {
 
 impl PassiveStatusPatch {
     /// Build a patch from the current state of `inst`, as observed by a
-    /// background poller. Single construction site for both the TUI and
-    /// daemon pollers, so the `last_accessed_at` None-preservation policy
-    /// lives in one place.
+    /// background poller. The `last_accessed_at` None-preservation
+    /// contract is on [`Self::last_accessed_at`].
     pub(crate) fn from_instance(inst: &Instance) -> Self {
         Self {
             id: inst.id.clone(),
@@ -1095,12 +1094,7 @@ impl Instance {
             fork_pending: None,
             last_error_check: None,
             last_start_time: None,
-            // A freshly constructed (not deserialized) Instance has a
-            // known-good live status right now: itself. Seeding the
-            // baseline here means the first real transition after
-            // creation restamps normally instead of being swallowed as
-            // a "no live history yet" seed.
-            live_status_baseline: Some(Status::Idle),
+            live_status_baseline: None,
             last_error: None,
             session_id_poller: None,
             retroactive_capture_excludes: HashSet::new(),
@@ -1362,7 +1356,7 @@ impl Instance {
     /// sole authority on detected agent status, and gating them on the
     /// `last_accessed_at` comparison would let an unrelated peer touch
     /// strand a real status transition on disk until the next one. See
-    /// #2690, #2697.
+    /// #2690.
     pub(crate) fn merge_passive_status_patch(&mut self, patch: &PassiveStatusPatch) {
         self.status = patch.status;
         self.idle_entered_at = patch.idle_entered_at;
@@ -4106,28 +4100,22 @@ impl Instance {
     /// subprocess spawns. Falls back to subprocess calls if metadata is missing.
     ///
     /// Restamps `idle_entered_at`/`last_accessed_at` only when the detected
-    /// status differs from `live_status_baseline`, the last status this
-    /// in-memory object actually observed live, NOT `self.status` as loaded.
-    /// `self.status` can be a stale disk snapshot right after a fresh load
-    /// (TUI relaunch, or every tick of the daemon's `status_poll_loop`,
-    /// which reloads instances from disk every cycle); comparing against it
-    /// misreads "disk hasn't caught up yet" as "just transitioned now" and
-    /// clobbers the timestamps every time disk and live detection disagree.
-    /// `live_status_baseline == None` means no live observation exists yet,
-    /// so the first check seeds the baseline without restamping. See #2690.
+    /// status differs from [`Self::live_status_baseline`]. The baseline
+    /// invariant lives on the field itself; this method's job is the
+    /// guard shape (baseline vs. newly detected). Every call re-seeds the
+    /// baseline at exit, so the next call compares against a value this
+    /// method itself wrote.
     pub fn update_status_with_metadata(&mut self, metadata: Option<&tmux::PaneMetadata>) {
         let baseline = self.live_status_baseline;
         self.update_status_with_metadata_inner(metadata);
-        if let Some(prev_status) = baseline {
-            if self.status != prev_status {
-                let now = Utc::now();
-                self.last_accessed_at = Some(now);
-                self.idle_entered_at = if self.status == Status::Idle {
-                    Some(now)
-                } else {
-                    None
-                };
-            }
+        if baseline.is_some_and(|prev| prev != self.status) {
+            let now = Utc::now();
+            self.last_accessed_at = Some(now);
+            self.idle_entered_at = if self.status == Status::Idle {
+                Some(now)
+            } else {
+                None
+            };
         }
         self.live_status_baseline = Some(self.status);
     }
@@ -5918,6 +5906,50 @@ mod tests {
             "second restamp must not be older than the first"
         );
         assert_eq!(inst.live_status_baseline, Some(Status::Idle));
+    }
+
+    #[test]
+    fn test_instance_new_seeds_live_status_baseline_none() {
+        // #2690 follow-up. A freshly constructed Instance has no live
+        // observation yet. Seeding `Some(Status::Idle)` here was the root
+        // cause of the false restamp on the first poll after
+        // `finalize_launch`: the baseline claimed "I saw Idle" while
+        // `finalize_launch` (and other post-construction status writers)
+        // advanced `status` to Starting without touching baseline, so the
+        // wrapper's next call read `baseline=Some(Idle) != status=Starting`
+        // and stamped `last_accessed_at` on a session no user ever
+        // touched. Uniform `None` matches the disk-load path (which is
+        // `None` because of `#[serde(skip)]`) so both paths seed on the
+        // first poll rather than restamping.
+        let inst = Instance::new("test", "/tmp/test");
+        assert_eq!(inst.live_status_baseline, None);
+    }
+
+    #[test]
+    fn test_first_poll_after_status_write_does_not_fabricate_last_accessed_at() {
+        // #2690 follow-up regression lock. Reproduces the pre-fix bug:
+        // `Instance::new` used to seed `live_status_baseline: Some(Idle)`,
+        // then a post-construction status writer (like `finalize_launch`)
+        // advanced `status` to Starting WITHOUT touching baseline. The
+        // very first poll then read a stale baseline, treated the
+        // detected-status mismatch as a "genuine transition", and stamped
+        // `last_accessed_at` for a session the user never touched.
+        //
+        // Under the fix (`Instance::new` seeds `None`), the first poll
+        // seeds baseline from the detected status and does NOT restamp;
+        // `last_accessed_at` stays `None` for a truly untouched session.
+        let mut inst = Instance::new("test", "/tmp/test");
+        assert_eq!(inst.last_accessed_at, None, "fixture invariant");
+        // Simulate any post-construction status writer, `finalize_launch`
+        // being the canonical one (`src/session/instance.rs`).
+        inst.status = Status::Starting;
+
+        inst.update_status_with_metadata(None);
+
+        assert_eq!(
+            inst.last_accessed_at, None,
+            "first poll must not fabricate a `last_accessed_at` on an untouched session"
+        );
     }
 
     #[test]

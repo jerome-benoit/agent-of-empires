@@ -3190,7 +3190,8 @@ struct PassiveTransitionDecision {
     /// `update_status_with_metadata_inner`, and `apply_acp_overlay_inplace`,
     /// which is the sole authority for their status/timestamps). Persisting
     /// a patch here would write a bogus tmux-derived status to disk for a
-    /// session the poller never actually controls. Regression: #2697.
+    /// session the poller never actually controls. Locked by
+    /// [`decide_passive_transition_skips_patch_for_structured_session`].
     patch: Option<crate::session::PassiveStatusPatch>,
     mark_unread: bool,
 }
@@ -3207,6 +3208,17 @@ fn decide_passive_transition(
         && inst.status == Status::Idle
         && !inst.unread;
     PassiveTransitionDecision { patch, mark_unread }
+}
+
+/// Per-profile bundle of passive-status writes accumulated in one
+/// `status_poll_loop` tick. `patches` is keyed by instance id so the
+/// persistence closure resolves each row in O(1); `unread_ids` stays a
+/// small `Vec` because per-tick cardinality is low and `Vec::contains`
+/// beats `HashSet` on that shape.
+#[derive(Default)]
+struct ProfileWriteBundle {
+    patches: std::collections::HashMap<String, crate::session::PassiveStatusPatch>,
+    unread_ids: Vec<String>,
 }
 
 /// Background task that periodically refreshes session statuses. On each
@@ -3287,23 +3299,14 @@ async fn status_poll_loop(state: Arc<AppState>) {
             // overlay applied by the helper.
             let now = chrono::Utc::now();
             let unread_enabled = crate::session::unread_enabled();
-            // Passive status transitions observed this tick, persisted
-            // promptly so the next reload (including the next tick, since
-            // this loop reloads from disk every cycle) finds disk already
-            // in sync with live reality instead of restamping again. See
-            // #2690. Batched per profile: one `Storage::update` per profile
-            // per tick, not one per transitioned session.
-            let mut patches_by_profile: std::collections::HashMap<
-                String,
-                Vec<crate::session::PassiveStatusPatch>,
-            > = std::collections::HashMap::new();
-            // Auto-mark unread on a finished turn (Running -> Idle), the same
-            // transition the TUI marks on. This is what lets a web-only user
-            // (no TUI process polling) accrue the indicator. There's no
-            // server-side "is being viewed" exemption: the client suppresses
-            // the chip on the session it is actively viewing and clears the
-            // auto marker on open.
-            let mut newly_idle_by_profile: std::collections::HashMap<String, Vec<String>> =
+            // Passive status transitions observed this tick, batched per
+            // profile so one `Storage::update` flock covers every
+            // transitioned session on that profile (plus its unread mark
+            // when applicable). Persisting promptly is what keeps the next
+            // reload (this loop's next tick, or a TUI relaunch) from
+            // comparing against a stale snapshot and restamping again. See
+            // #2690.
+            let mut bundles: std::collections::HashMap<String, ProfileWriteBundle> =
                 std::collections::HashMap::new();
             for inst in &mut instances {
                 let Some(old) = prev.get(&inst.id) else {
@@ -3320,35 +3323,33 @@ async fn status_poll_loop(state: Arc<AppState>) {
                     at: now,
                 });
                 let decision = decide_passive_transition(inst, *old, unread_enabled);
+                if decision.patch.is_none() && !decision.mark_unread {
+                    continue;
+                }
+                let bundle = bundles.entry(inst.source_profile.clone()).or_default();
                 if let Some(patch) = decision.patch {
-                    patches_by_profile
-                        .entry(inst.source_profile.clone())
-                        .or_default()
-                        .push(patch);
+                    bundle.patches.insert(patch.id.clone(), patch);
                 }
                 if decision.mark_unread {
                     inst.mark_unread();
-                    newly_idle_by_profile
-                        .entry(inst.source_profile.clone())
-                        .or_default()
-                        .push(inst.id.clone());
+                    bundle.unread_ids.push(inst.id.clone());
                 }
             }
-            let profiles: std::collections::HashSet<String> = patches_by_profile
-                .keys()
-                .chain(newly_idle_by_profile.keys())
-                .cloned()
-                .collect();
-            for profile in profiles {
-                let patches = patches_by_profile.remove(&profile).unwrap_or_default();
-                let unread_ids = newly_idle_by_profile.remove(&profile).unwrap_or_default();
+            for (
+                profile,
+                ProfileWriteBundle {
+                    patches,
+                    unread_ids,
+                },
+            ) in bundles
+            {
                 let _ = api::persist_session_update(
                     profile,
                     "passive-status",
                     state.file_watch.clone(),
                     move |insts| {
                         for inst in insts.iter_mut() {
-                            if let Some(patch) = patches.iter().find(|p| p.id == inst.id) {
+                            if let Some(patch) = patches.get(&inst.id) {
                                 inst.merge_passive_status_patch(patch);
                             }
                             if unread_ids.contains(&inst.id) {

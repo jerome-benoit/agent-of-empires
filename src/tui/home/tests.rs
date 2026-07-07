@@ -6209,7 +6209,7 @@ fn wants_text_selection_tracks_copy_friendly_surfaces() {
 #[serial]
 fn apply_status_update_propagates_idle_entered_at_into_live_instance() {
     use crate::session::Status;
-    use crate::tui::status_poller::StatusUpdate;
+    use crate::tui::status_poller::{IdleField, StatusUpdate};
 
     let mut env = create_test_env_with_sessions(1);
     let id = match env.view.flat_items.first() {
@@ -6229,7 +6229,7 @@ fn apply_status_update_propagates_idle_entered_at_into_live_instance() {
         id: id.clone(),
         status: Status::Idle,
         last_error: None,
-        idle_entered_at: Some(now),
+        idle_entered_at: IdleField::Set(now),
         last_accessed_at: None,
         pane_dead: false,
         live_status_baseline: None,
@@ -6240,12 +6240,9 @@ fn apply_status_update_propagates_idle_entered_at_into_live_instance() {
     assert_eq!(inst.idle_entered_at, Some(now));
 }
 
-// #2690: a passively-detected status transition must land on disk
-// immediately, not just in memory, so the next reload (TUI relaunch, or
-// a peer like `aoe serve`) finds disk already caught up instead of
-// CodeRabbit follow-up to #2690: `update_status_with_metadata` compares
-// against `live_status_baseline`, but the background poller only ever
-// mutates a *clone* of the real `Instance` (see `status_poller.rs`). If
+// #2690: `update_status_with_metadata` compares against
+// `live_status_baseline`, but the background poller only ever mutates a
+// *clone* of the real `Instance` (see `status_poller.rs`). If
 // `StatusUpdate` doesn't carry the clone's freshly-seeded baseline back,
 // the real `Instance` in `self.instances` keeps `live_status_baseline ==
 // None` forever, so every poll looks like "no baseline yet" and no real
@@ -6288,11 +6285,59 @@ fn apply_status_update_propagates_live_status_baseline_from_poller() {
     );
 }
 
+// #2690: `IdleField::Keep` means the producer has no observation for
+// `idle_entered_at`. The consumer must not touch the field, or an
+// unseeded `attached_status_hooks` snapshot on attach exit would clobber
+// a real value the main-thread poller wrote during attach. The other two
+// variants (`Set(ts)`, `Clear`) are unambiguous and always apply.
+#[test]
+#[serial]
+fn apply_status_update_preserves_idle_entered_at_on_keep() {
+    use crate::session::Status;
+    use crate::tui::status_poller::{IdleField, StatusUpdate};
+
+    let mut env = create_test_env_with_sessions(1);
+    let id = match env.view.flat_items.first() {
+        Some(Item::Session { id, .. }) => id.clone(),
+        _ => panic!("expected the fixture to seed a single Session item"),
+    };
+
+    // Seed a real `idle_entered_at` on the live instance, as if the
+    // main-thread poller had already observed an Idle transition.
+    let seeded = chrono::Utc::now() - chrono::Duration::minutes(30);
+    env.view.mutate_instance(&id, |inst| {
+        inst.idle_entered_at = Some(seeded);
+    });
+
+    // Then apply a `Keep` update, mirroring an `attached_status_hooks`
+    // snapshot from a watcher clone that never polled.
+    env.view.apply_one_status_update(StatusUpdate {
+        id: id.clone(),
+        status: Status::Idle,
+        last_error: None,
+        idle_entered_at: IdleField::Keep,
+        last_accessed_at: None,
+        pane_dead: false,
+        live_status_baseline: None,
+    });
+
+    assert_eq!(
+        env.view.get_instance(&id).unwrap().idle_entered_at,
+        Some(seeded),
+        "`Keep` must not clobber an already-established `idle_entered_at`"
+    );
+}
+
+// #2690: a passively-detected status transition must land on disk
+// immediately, not just in memory, so the next reload (TUI relaunch, or
+// a peer like `aoe serve`) finds disk already caught up instead of
+// comparing against a stale snapshot and misreading it as a fresh
+// transition.
 #[test]
 #[serial]
 fn apply_status_update_persists_genuine_transition_to_disk() {
     use crate::session::{Status, Storage};
-    use crate::tui::status_poller::StatusUpdate;
+    use crate::tui::status_poller::{IdleField, StatusUpdate};
 
     let mut env = create_test_env_with_sessions(1);
     let id = match env.view.flat_items.first() {
@@ -6306,7 +6351,7 @@ fn apply_status_update_persists_genuine_transition_to_disk() {
         id: id.clone(),
         status: Status::Running,
         last_error: None,
-        idle_entered_at: None,
+        idle_entered_at: IdleField::Clear,
         last_accessed_at: Some(now),
         pane_dead: false,
         live_status_baseline: None,
@@ -6326,7 +6371,7 @@ fn apply_status_update_persists_genuine_transition_to_disk() {
 #[serial]
 fn apply_status_update_clears_idle_entered_at_on_idle_to_running() {
     use crate::session::Status;
-    use crate::tui::status_poller::StatusUpdate;
+    use crate::tui::status_poller::{IdleField, StatusUpdate};
 
     let mut env = create_test_env_with_sessions(1);
     let id = match env.view.flat_items.first() {
@@ -6340,7 +6385,7 @@ fn apply_status_update_clears_idle_entered_at_on_idle_to_running() {
         id: id.clone(),
         status: Status::Idle,
         last_error: None,
-        idle_entered_at: Some(stop_time),
+        idle_entered_at: IdleField::Set(stop_time),
         last_accessed_at: None,
         pane_dead: false,
         live_status_baseline: None,
@@ -6358,7 +6403,7 @@ fn apply_status_update_clears_idle_entered_at_on_idle_to_running() {
         id: id.clone(),
         status: Status::Running,
         last_error: None,
-        idle_entered_at: None,
+        idle_entered_at: IdleField::Clear,
         last_accessed_at: None,
         pane_dead: false,
         live_status_baseline: None,
@@ -6438,7 +6483,7 @@ fn archived_running_session_renders_stopped_icon_not_spinner() {
 #[serial]
 fn apply_status_update_skips_terminal_states() {
     use crate::session::Status;
-    use crate::tui::status_poller::StatusUpdate;
+    use crate::tui::status_poller::{IdleField, StatusUpdate};
 
     let mut env = create_test_env_with_sessions(1);
     let id = match env.view.flat_items.first() {
@@ -6456,7 +6501,7 @@ fn apply_status_update_skips_terminal_states() {
         id: id.clone(),
         status: Status::Idle,
         last_error: None,
-        idle_entered_at: Some(stale_ts),
+        idle_entered_at: IdleField::Set(stale_ts),
         last_accessed_at: None,
         pane_dead: false,
         live_status_baseline: None,
@@ -6512,7 +6557,7 @@ fn apply_stop_results_transitions_instance_to_stopped() {
 fn apply_status_update_runs_status_hook_on_transition() {
     use crate::session::Status;
     use crate::status_hooks::{take_recorded_launches, StatusHookConfig};
-    use crate::tui::status_poller::StatusUpdate;
+    use crate::tui::status_poller::{IdleField, StatusUpdate};
 
     let mut env = create_test_env_with_sessions(1);
     let id = match env.view.flat_items.first() {
@@ -6532,7 +6577,7 @@ fn apply_status_update_runs_status_hook_on_transition() {
         id: id.clone(),
         status: Status::Waiting,
         last_error: None,
-        idle_entered_at: None,
+        idle_entered_at: IdleField::Clear,
         last_accessed_at: None,
         pane_dead: false,
         live_status_baseline: None,
@@ -6579,7 +6624,7 @@ fn all_profiles_status_hook_lookup_uses_cache() {
 fn apply_status_update_does_not_run_status_hook_for_same_status() {
     use crate::session::Status;
     use crate::status_hooks::{take_recorded_launches, StatusHookConfig};
-    use crate::tui::status_poller::StatusUpdate;
+    use crate::tui::status_poller::{IdleField, StatusUpdate};
 
     let mut env = create_test_env_with_sessions(1);
     let id = match env.view.flat_items.first() {
@@ -6598,7 +6643,7 @@ fn apply_status_update_does_not_run_status_hook_for_same_status() {
         id,
         status: Status::Idle,
         last_error: None,
-        idle_entered_at: None,
+        idle_entered_at: IdleField::Keep,
         last_accessed_at: None,
         pane_dead: false,
         live_status_baseline: None,
@@ -6612,7 +6657,7 @@ fn apply_status_update_does_not_run_status_hook_for_same_status() {
 fn apply_status_updates_without_hooks_does_not_run_status_hook() {
     use crate::session::Status;
     use crate::status_hooks::{take_recorded_launches, StatusHookConfig};
-    use crate::tui::status_poller::StatusUpdate;
+    use crate::tui::status_poller::{IdleField, StatusUpdate};
 
     let mut env = create_test_env_with_sessions(1);
     let id = match env.view.flat_items.first() {
@@ -6632,7 +6677,7 @@ fn apply_status_updates_without_hooks_does_not_run_status_hook() {
             id: id.clone(),
             status: Status::Waiting,
             last_error: None,
-            idle_entered_at: None,
+            idle_entered_at: IdleField::Clear,
             last_accessed_at: None,
             pane_dead: false,
             live_status_baseline: None,
