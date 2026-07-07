@@ -2356,6 +2356,20 @@ pub(crate) async fn reload_state_instances_from_disk(
 /// `inst.is_structured()` per the invariant above; filtering on
 /// the lazy session id would silently drop overlay coverage for
 /// pre-handshake rows.
+///
+/// # Durability contract (#2690 follow-up)
+///
+/// Structured rows accept a soft reset of `status` / `last_accessed_at` /
+/// `idle_entered_at` on daemon restart, by contract. The values written
+/// here come from `prior_by_id`, an in-memory snapshot that the daemon
+/// rebuilds each tick from live worker state, and never flow through
+/// [`crate::session::PassiveStatusPatch`] (`decide_passive_transition`
+/// returns `patch: None` for `is_structured()` rows). After a daemon
+/// restart, disk-loaded structured rows read whatever was durably
+/// persisted last (initial creation, or an explicit user action). ACP
+/// event handlers are responsible for any post-restart re-emission that
+/// updates these fields for structured sessions; the passive-status
+/// writer at `status_poll_loop` deliberately does not.
 #[cfg(feature = "serve")]
 fn apply_acp_overlay_inplace(prior_by_id: &PriorById, merged: &mut [Instance]) {
     for inst in merged.iter_mut() {
@@ -3215,6 +3229,24 @@ fn decide_passive_transition(
 /// persistence closure resolves each row in O(1); `unread_ids` stays a
 /// small `Vec` because per-tick cardinality is low and `Vec::contains`
 /// beats `HashSet` on that shape.
+///
+/// # Persistence divergence between daemon and TUI (#2690 follow-up)
+///
+/// The daemon batches transitions here (one `Storage::update` per profile
+/// per tick, via `persist_session_update`). The TUI's
+/// [`crate::tui::home::HomeView::persist_passive_status_transition`]
+/// writes one transition at a time. Both funnel through
+/// [`crate::session::Instance::merge_passive_status_patch`], which is
+/// order-independent on the three fields it touches (`status`,
+/// `idle_entered_at`, `last_accessed_at`). Interleaving the two paths is
+/// safe today for that reason.
+///
+/// A future field added to [`crate::session::PassiveStatusPatch`] that is
+/// NOT order-independent (a counter, a list-append, a version tag) would
+/// diverge silently between the daemon's batched replay and the TUI's
+/// per-transition writes. Any such addition must either unify the two
+/// paths first, or explicitly document why order-independence still
+/// holds.
 #[derive(Default)]
 struct ProfileWriteBundle {
     patches: std::collections::HashMap<String, crate::session::PassiveStatusPatch>,

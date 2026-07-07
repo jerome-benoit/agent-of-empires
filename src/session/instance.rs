@@ -1010,6 +1010,28 @@ fn publish_session_to_tmux_env(tmux_session_name: &str, instance_id: &str, sessi
     }
 }
 
+// Terminology (poller vocabulary, #2690 follow-up)
+// ------------------------------------------------
+//
+// `passive status`: a status transition detected by a background poller
+//   from tmux pane state or ACP overlay, not by an explicit user action.
+// `passive status patch`: a minimal [`PassiveStatusPatch`] carrying the
+//   fields a passive-status writer touches (`status`,
+//   `idle_entered_at`, `last_accessed_at`), applied on disk via
+//   [`Instance::merge_passive_status_patch`].
+// `live status baseline`: the last `Status` a caller has actually
+//   observed live for an in-memory `Instance`. Held on
+//   `Instance::live_status_baseline` (`#[serde(skip)]`). `None` means no
+//   live observation exists yet, so
+//   [`Instance::update_status_with_metadata`] seeds it on the first call
+//   without restamping.
+// `detected status`: the `Status` a poller reads from tmux / ACP /
+//   sandbox liveness on a single call. Distinct from the disk-loaded
+//   `Instance::status`, which can be stale by up to one tick.
+// `poller-authoritative status`: for plain-tmux sessions, the poller
+//   owns `Instance::status`. For structured/ACP sessions,
+//   `apply_acp_overlay_inplace` is the authority; see its docstring.
+
 /// A passively-detected status transition, queued for a batched disk write.
 /// Produced by the TUI's and daemon's background pollers when a genuine
 /// live status change is observed (see [`Instance::update_status_with_metadata`]
@@ -1363,13 +1385,13 @@ impl Instance {
         let Some(incoming) = patch.last_accessed_at else {
             return;
         };
-        if self.last_accessed_at.is_some_and(|disk| disk > incoming) {
+        if self.last_accessed_at.is_some_and(|disk| disk >= incoming) {
             tracing::debug!(
                 target: "session.store",
                 session_id = %patch.id,
                 disk_ts = ?self.last_accessed_at,
                 patch_ts = ?patch.last_accessed_at,
-                "dropped stale passive status patch's last_accessed_at (status/idle_entered_at still applied)"
+                "dropped stale-or-equal passive status patch's last_accessed_at (status/idle_entered_at still applied)"
             );
             return;
         }
@@ -5647,7 +5669,7 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_passive_status_patch_last_accessed_at_boundary_equal_applies() {
+    fn test_merge_passive_status_patch_last_accessed_at_boundary_equal_is_dropped() {
         let mut disk = Instance::new("session", "/tmp/test");
         let ts = Utc::now();
         disk.last_accessed_at = Some(ts);
@@ -5660,11 +5682,11 @@ mod tests {
         };
         disk.merge_passive_status_patch(&patch);
 
-        assert_eq!(
-            disk.last_accessed_at,
-            Some(ts),
-            "equal timestamps must apply (guard is strict >, not >=)"
-        );
+        // Guard is `>=`: equal timestamps are not a real advance, so the
+        // patch's last_accessed_at is dropped. The observable value stays
+        // equal to `ts` either way (disk == incoming), so the assertion
+        // does not change; the point of the guard is skipping the write.
+        assert_eq!(disk.last_accessed_at, Some(ts));
     }
 
     #[test]
