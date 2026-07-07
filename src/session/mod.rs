@@ -33,6 +33,8 @@ pub mod smart_rename;
 pub mod stop;
 mod storage;
 pub(crate) mod sync;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod trash;
 pub mod worktree_edit;
 
@@ -716,21 +718,14 @@ pub fn is_tui_active(threshold: Duration) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::test_support::isolate_app_dir;
     use super::*;
 
-    fn isolate_app_dir() -> tempfile::TempDir {
-        let temp_home = tempfile::TempDir::new().unwrap();
-        std::env::set_var("HOME", temp_home.path());
+    fn app_dir(root: &Path) -> PathBuf {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        std::env::set_var("XDG_CONFIG_HOME", temp_home.path().join(".config"));
-        temp_home
-    }
-
-    fn app_dir(temp_home: &tempfile::TempDir) -> PathBuf {
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let dir = temp_home.path().join(".config").join(APP_DIR_NAME_XDG);
+        let dir = root.join(".config").join(APP_DIR_NAME_XDG);
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        let dir = temp_home.path().join(APP_DIR_NAME_OTHER);
+        let dir = root.join(APP_DIR_NAME_OTHER);
         fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -824,7 +819,7 @@ mod tests {
     #[serial_test::serial]
     fn test_tui_presence_counts_and_sweeps() {
         let temp = isolate_app_dir();
-        let pdir = app_dir(&temp).join(TUI_PRESENCE_DIR);
+        let pdir = app_dir(temp.path()).join(TUI_PRESENCE_DIR);
 
         // Our own heartbeat counts as one live TUI.
         write_tui_heartbeat();
@@ -860,7 +855,7 @@ mod tests {
     #[serial_test::serial]
     fn test_collect_startup_config_warnings_bad_global() {
         let temp = isolate_app_dir();
-        let dir = app_dir(&temp);
+        let dir = app_dir(temp.path());
         fs::write(
             dir.join("config.toml"),
             "[sandbox]\nenabled_by_default = \"not-a-bool\"\n",
@@ -876,7 +871,7 @@ mod tests {
     #[serial_test::serial]
     fn test_collect_startup_config_warnings_bad_profile() {
         let temp = isolate_app_dir();
-        let dir = app_dir(&temp);
+        let dir = app_dir(temp.path());
         let profile_dir = dir.join("profiles").join("default");
         fs::create_dir_all(&profile_dir).unwrap();
         fs::write(
@@ -889,11 +884,11 @@ mod tests {
         assert!(warning.contains("Failed to load profile config 'default'"));
     }
 
-    fn release_dir_in(temp: &tempfile::TempDir) -> PathBuf {
+    fn release_dir_in(root: &Path) -> PathBuf {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let d = temp.path().join(".config").join("agent-of-empires");
+        let d = root.join(".config").join("agent-of-empires");
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        let d = temp.path().join(".agent-of-empires");
+        let d = root.join(".agent-of-empires");
         d
     }
 
@@ -909,7 +904,7 @@ mod tests {
     #[serial_test::serial]
     fn test_drift_none_when_release_empty() {
         let temp = isolate_app_dir();
-        let release = release_dir_in(&temp);
+        let release = release_dir_in(temp.path());
         fs::create_dir_all(&release).unwrap();
         // Release dir exists but has no content — user has no prior state
         // to lose visibility of, so don't nag them.
@@ -920,7 +915,7 @@ mod tests {
     #[serial_test::serial]
     fn test_drift_fires_when_release_populated_and_dev_absent() {
         let temp = isolate_app_dir();
-        let release = release_dir_in(&temp);
+        let release = release_dir_in(temp.path());
         fs::create_dir_all(release.join("profiles")).unwrap();
 
         let drift = debug_namespace_drift();
@@ -939,11 +934,11 @@ mod tests {
     #[serial_test::serial]
     fn test_drift_silent_once_dev_dir_exists() {
         let temp = isolate_app_dir();
-        let release = release_dir_in(&temp);
+        let release = release_dir_in(temp.path());
         fs::create_dir_all(release.join("profiles")).unwrap();
         // Simulate "user has already run aoe once after the namespace
         // change" by creating the dev dir.
-        let _dev = app_dir(&temp);
+        let _dev = app_dir(temp.path());
         assert!(debug_namespace_drift().is_none());
     }
 
@@ -977,7 +972,7 @@ mod tests {
         // An install that already has profiles/default/ keeps it; "default"
         // is now an ordinary profile, resolved like any other first entry.
         let temp = isolate_app_dir();
-        let dir = app_dir(&temp);
+        let dir = app_dir(temp.path());
         fs::create_dir_all(dir.join("profiles").join("default")).unwrap();
 
         let resolved = config::resolve_default_profile();
@@ -994,7 +989,7 @@ mod tests {
         // An empty profile argument resolves through resolve_default_profile,
         // landing on the first existing profile rather than a "default" name.
         let temp = isolate_app_dir();
-        let dir = app_dir(&temp);
+        let dir = app_dir(temp.path());
         fs::create_dir_all(dir.join("profiles").join("alpha")).unwrap();
         fs::create_dir_all(dir.join("profiles").join("beta")).unwrap();
 
@@ -1008,7 +1003,7 @@ mod tests {
         // The invariant is a count, not a name: deleting the only profile is
         // refused so AoE always has somewhere to file sessions.
         let temp = isolate_app_dir();
-        let dir = app_dir(&temp);
+        let dir = app_dir(temp.path());
         fs::create_dir_all(dir.join("profiles").join("solo")).unwrap();
 
         let err = delete_profile("solo").expect_err("deleting the last profile must fail");
@@ -1022,7 +1017,7 @@ mod tests {
         // A profile literally named "default" carries no protection once
         // other profiles exist; only the count invariant applies.
         let temp = isolate_app_dir();
-        let dir = app_dir(&temp);
+        let dir = app_dir(temp.path());
         fs::create_dir_all(dir.join("profiles").join("default")).unwrap();
         fs::create_dir_all(dir.join("profiles").join("work")).unwrap();
 
@@ -1038,7 +1033,7 @@ mod tests {
         // to <app_dir>/profiles/../foo and remove an arbitrary sibling
         // directory. The validator must catch this before any FS work.
         let temp = isolate_app_dir();
-        let dir = app_dir(&temp);
+        let dir = app_dir(temp.path());
         fs::create_dir_all(dir.join("profiles").join("real")).unwrap();
         // A directory that must NOT be touched by the call below.
         let bystander = dir.join("bystander");
@@ -1091,7 +1086,7 @@ mod tests {
         // in subsequent GET /api/profiles responses. The read must stay
         // pure.
         let temp = isolate_app_dir();
-        let dir = app_dir(&temp);
+        let dir = app_dir(temp.path());
         fs::create_dir_all(dir.join("profiles").join("real")).unwrap();
         let unknown_dir = dir.join("profiles").join("does-not-exist");
         assert!(!unknown_dir.exists());
