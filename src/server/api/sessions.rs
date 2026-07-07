@@ -1,5 +1,6 @@
 //! Session CRUD, ensure-* lifecycle endpoints, and per-file diff handlers.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{
@@ -11,6 +12,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::git::error::GitError;
+use crate::session::config::SessionConfig;
 use crate::session::{EnsureReadyError, EnsureReadyOutcome, Instance, Status, Storage};
 
 use super::validate_display_label;
@@ -496,23 +498,20 @@ fn custom_agent_acp_capable(
         .is_some_and(|cmd| crate::acp::AgentSpec::from_acp_cmd(tool, cmd).is_ok())
 }
 
-/// Resolve the `.session` sub-struct for `(profile, project_path)` through the
-/// caller-owned per-request cache, resolving from disk on first miss only. See
-/// the `session_cfg_cache` declaration in `list_sessions` for the sharing
-/// rationale (#2603).
-fn resolve_session_cfg_cached<'a>(
-    cache: &'a mut std::collections::HashMap<
-        (String, String),
-        crate::session::config::SessionConfig,
-    >,
+/// Resolve the [`SessionConfig`] for `(profile, project_path)` through the
+/// caller-owned per-request cache, resolving from disk on first miss only.
+/// See the `session_cfg_cache` declaration in `list_sessions` for the
+/// sharing rationale. See #2603.
+fn resolve_session_cfg<'a>(
+    cache: &'a mut HashMap<(String, String), SessionConfig>,
     profile: &str,
     project_path: &str,
-) -> &'a crate::session::config::SessionConfig {
+) -> &'a SessionConfig {
     cache
         .entry((profile.to_string(), project_path.to_string()))
         .or_insert_with(|| {
             #[cfg(test)]
-            tests::LIST_SESSIONS_RESOLVER_MISSES.with(|c| c.set(c.get() + 1));
+            LIST_SESSIONS_RESOLVER_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             crate::session::repo_config::resolve_config_with_repo_or_warn(
                 profile,
                 std::path::Path::new(project_path),
@@ -520,6 +519,14 @@ fn resolve_session_cfg_cached<'a>(
             .session
         })
 }
+
+/// Test seam for the shared per-request cache invariant (#2603): bumped
+/// exactly once per unique `(profile, project_path)` that resolves through
+/// [`resolve_session_cfg`]. Mirrors the module-static test seam pattern used
+/// by `FAIL_NEXT_LIST_PROFILES` at `src/session/mod.rs`.
+#[cfg(test)]
+pub(crate) static LIST_SESSIONS_RESOLVER_MISSES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 #[derive(serde::Serialize)]
 pub struct RecentProjectsResponse {
@@ -596,18 +603,12 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<SessionsE
         })
         .collect();
 
-    // Shared per-request cache of the resolved `.session` sub-struct, keyed by
+    // Shared per-request cache of the resolved `SessionConfig` keyed by
     // (profile, project_path). Both the ACP-capability overlay (serve-only)
-    // and the smart-rename indicator overlay below derive their inputs from
-    // this one lookup, halving the disk reads the 3s sidebar poll does when
-    // the same `(profile, project_path)` pair appears in more than one row.
-    // The four fields consumed downstream (`agent_acp_cmd`, `smart_rename`,
-    // `smart_rename_agent`, `agent_command_override`) all live on
-    // `SessionConfig` at `src/session/config.rs`. See #2603.
-    let mut session_cfg_cache: std::collections::HashMap<
-        (String, String),
-        crate::session::config::SessionConfig,
-    > = std::collections::HashMap::new();
+    // and the smart-rename indicator overlay below fetch through this one
+    // cache, halving the disk reads the 3s sidebar poll does when the same
+    // pair appears in more than one row. See #2603.
+    let mut session_cfg_cache: HashMap<(String, String), SessionConfig> = HashMap::new();
 
     // Overlay custom-agent ACP capability (built-ins were resolved in the
     // constructor). Distinct `(profile, project_path)` pairs each resolve
@@ -618,7 +619,7 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<SessionsE
             if resp.acp_capable {
                 continue;
             }
-            let cfg = resolve_session_cfg_cached(
+            let cfg = resolve_session_cfg(
                 &mut session_cfg_cache,
                 &inst.source_profile,
                 &inst.project_path,
@@ -710,7 +711,7 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<SessionsE
             if attempted.contains(&inst.id) {
                 continue;
             }
-            let session_cfg = resolve_session_cfg_cached(
+            let session_cfg = resolve_session_cfg(
                 &mut session_cfg_cache,
                 &inst.source_profile,
                 &inst.project_path,
@@ -6124,19 +6125,6 @@ pub async fn serve_session_artifact(Path((id, path)): Path<(String, String)>) ->
 mod tests {
     use super::*;
 
-    // Per-request cache-miss counter for the shared `session_cfg_cache` in
-    // `list_sessions`. Bumped exactly once per unique `(profile, project_path)`
-    // pair that resolves through the helper, so tests can assert that the two
-    // overlays (ACP capability + smart-rename indicator) share the cache
-    // instead of double-reading `.agent-of-empires/config.toml` per row. See
-    // #2603. The `thread_local!` shape assumes a current-thread tokio runtime
-    // (the default for `#[tokio::test]`); a `multi_thread` flavor would let
-    // the task migrate across worker threads and under-count.
-    thread_local! {
-        pub(super) static LIST_SESSIONS_RESOLVER_MISSES: std::cell::Cell<usize> =
-            const { std::cell::Cell::new(0) };
-    }
-
     // #2587: the artifact route serves only canonicalized files confined to
     // the session's artifact dir, sets nosniff, and never serves HTML inline.
     mod artifact_route {
@@ -6249,7 +6237,7 @@ mod tests {
 
     // Regression witness for #2603: the ACP-capability overlay and the
     // smart-rename indicator overlay share ONE per-request cache of the
-    // resolved SessionConfig keyed by (profile, project_path). Three
+    // resolved `SessionConfig` keyed by (profile, project_path). Three
     // instances covering two unique pairs must trigger exactly two calls
     // into `resolve_config_with_repo_or_warn`, not three (per row) and not
     // four (two independent per-overlay caches, the pre-#2603 state).
@@ -6261,6 +6249,8 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn list_sessions_shares_config_resolution_across_overlays() {
+        use std::sync::atomic::Ordering;
+
         let tmp_home = tempfile::tempdir().expect("tempdir HOME");
         // SAFETY: serialized by `#[serial]`, matches other HOME-swapping tests.
         unsafe {
@@ -6280,9 +6270,9 @@ mod tests {
 
         let state = crate::server::test_support::build_test_app_state(vec![a, a2, b]);
 
-        LIST_SESSIONS_RESOLVER_MISSES.with(|c| c.set(0));
+        LIST_SESSIONS_RESOLVER_MISSES.store(0, Ordering::Relaxed);
         let _envelope = list_sessions(axum::extract::State(state.clone())).await;
-        let misses = LIST_SESSIONS_RESOLVER_MISSES.with(std::cell::Cell::get);
+        let misses = LIST_SESSIONS_RESOLVER_MISSES.load(Ordering::Relaxed);
 
         assert_eq!(
             misses, 2,
