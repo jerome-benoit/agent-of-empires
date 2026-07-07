@@ -496,6 +496,31 @@ fn custom_agent_acp_capable(
         .is_some_and(|cmd| crate::acp::AgentSpec::from_acp_cmd(tool, cmd).is_ok())
 }
 
+/// Resolve the `.session` sub-struct for `(profile, project_path)` through the
+/// caller-owned per-request cache, resolving from disk on first miss only. See
+/// the `session_cfg_cache` declaration in `list_sessions` for the sharing
+/// rationale (#2603).
+fn resolve_session_cfg_cached<'a>(
+    cache: &'a mut std::collections::HashMap<
+        (String, String),
+        crate::session::config::SessionConfig,
+    >,
+    profile: &str,
+    project_path: &str,
+) -> &'a crate::session::config::SessionConfig {
+    cache
+        .entry((profile.to_string(), project_path.to_string()))
+        .or_insert_with(|| {
+            #[cfg(test)]
+            tests::LIST_SESSIONS_RESOLVER_MISSES.with(|c| c.set(c.get() + 1));
+            crate::session::repo_config::resolve_config_with_repo_or_warn(
+                profile,
+                std::path::Path::new(project_path),
+            )
+            .session
+        })
+}
+
 #[derive(serde::Serialize)]
 pub struct RecentProjectsResponse {
     pub projects: Vec<crate::session::RecentProjectEntry>,
@@ -571,28 +596,34 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<SessionsE
         })
         .collect();
 
+    // Shared per-request cache of the resolved `.session` sub-struct, keyed by
+    // (profile, project_path). Both the ACP-capability overlay (serve-only)
+    // and the smart-rename indicator overlay below derive their inputs from
+    // this one lookup, halving the disk reads the 3s sidebar poll does when
+    // the same `(profile, project_path)` pair appears in more than one row.
+    // The four fields consumed downstream (`agent_acp_cmd`, `smart_rename`,
+    // `smart_rename_agent`, `agent_command_override`) all live on
+    // `SessionConfig` at `src/session/config.rs`. See #2603.
+    let mut session_cfg_cache: std::collections::HashMap<
+        (String, String),
+        crate::session::config::SessionConfig,
+    > = std::collections::HashMap::new();
+
     // Overlay custom-agent ACP capability (built-ins were resolved in the
-    // constructor). Cache by (profile, project_path) since repo-local
-    // config can override agent_acp_cmd, so each distinct pair is
-    // resolved at most once.
+    // constructor). Distinct `(profile, project_path)` pairs each resolve
+    // once via the shared cache above.
     #[cfg(feature = "serve")]
     {
-        use std::collections::HashMap;
-        let mut acp_cmd_cache: HashMap<(String, String), HashMap<String, String>> = HashMap::new();
         for (resp, inst) in sessions.iter_mut().zip(instances.iter()) {
             if resp.acp_capable {
                 continue;
             }
-            let key = (inst.source_profile.clone(), inst.project_path.clone());
-            let map = acp_cmd_cache.entry(key).or_insert_with(|| {
-                crate::session::repo_config::resolve_config_with_repo_or_warn(
-                    &inst.source_profile,
-                    std::path::Path::new(&inst.project_path),
-                )
-                .session
-                .agent_acp_cmd
-            });
-            resp.acp_capable = custom_agent_acp_capable(map, &inst.tool);
+            let cfg = resolve_session_cfg_cached(
+                &mut session_cfg_cache,
+                &inst.source_profile,
+                &inst.project_path,
+            );
+            resp.acp_capable = custom_agent_acp_capable(&cfg.agent_acp_cmd, &inst.tool);
         }
     }
 
@@ -650,15 +681,14 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<SessionsE
 
     // Overlay the smart-rename indicator. `Running` comes from the live
     // in-flight set; `Pending` from the shared eligibility predicate, so the
-    // indicator cannot drift from the runtime gate. Config resolved once per
-    // (profile, project_path) so repo-local overrides are honored.
+    // indicator cannot drift from the runtime gate. Config is projected from
+    // the shared `session_cfg_cache` above so a repo-local override resolves
+    // once per unique `(profile, project_path)` across both overlays.
     {
         use crate::session::smart_rename::{
-            check_eligible_resolved, resolve_smart_rename_config, SmartRenameConfig,
-            SmartRenameState,
+            check_eligible_resolved, resolve_smart_rename_config, SmartRenameState,
         };
-        use std::collections::{HashMap, HashSet};
-        use std::path::Path;
+        use std::collections::HashSet;
         let inflight: HashSet<String> = state
             .smart_rename_inflight
             .lock()
@@ -669,7 +699,6 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<SessionsE
             .lock()
             .map(|g| g.clone())
             .unwrap_or_default();
-        let mut cfg_cache: HashMap<(String, String), SmartRenameConfig> = HashMap::new();
         for (resp, inst) in sessions.iter_mut().zip(instances.iter()) {
             resp.default_name = crate::session::civilizations::is_default_civ_name(&inst.title);
             if inflight.contains(&inst.id) {
@@ -681,10 +710,12 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<SessionsE
             if attempted.contains(&inst.id) {
                 continue;
             }
-            let key = (inst.source_profile.clone(), inst.project_path.clone());
-            let cfg = cfg_cache.entry(key).or_insert_with(|| {
-                resolve_smart_rename_config(&inst.source_profile, Path::new(&inst.project_path))
-            });
+            let session_cfg = resolve_session_cfg_cached(
+                &mut session_cfg_cache,
+                &inst.source_profile,
+                &inst.project_path,
+            );
+            let cfg = resolve_smart_rename_config(session_cfg);
             let eligible = check_eligible_resolved(
                 inst.is_structured(),
                 cfg.setting_on,
@@ -6093,6 +6124,19 @@ pub async fn serve_session_artifact(Path((id, path)): Path<(String, String)>) ->
 mod tests {
     use super::*;
 
+    // Per-request cache-miss counter for the shared `session_cfg_cache` in
+    // `list_sessions`. Bumped exactly once per unique `(profile, project_path)`
+    // pair that resolves through the helper, so tests can assert that the two
+    // overlays (ACP capability + smart-rename indicator) share the cache
+    // instead of double-reading `.agent-of-empires/config.toml` per row. See
+    // #2603. The `thread_local!` shape assumes a current-thread tokio runtime
+    // (the default for `#[tokio::test]`); a `multi_thread` flavor would let
+    // the task migrate across worker threads and under-count.
+    thread_local! {
+        pub(super) static LIST_SESSIONS_RESOLVER_MISSES: std::cell::Cell<usize> =
+            const { std::cell::Cell::new(0) };
+    }
+
     // #2587: the artifact route serves only canonicalized files confined to
     // the session's artifact dir, sets nosniff, and never serves HTML inline.
     mod artifact_route {
@@ -6201,6 +6245,49 @@ mod tests {
         inst.status = Status::Running;
         inst.group_path = "work/projects".to_string();
         inst
+    }
+
+    // Regression witness for #2603: the ACP-capability overlay and the
+    // smart-rename indicator overlay share ONE per-request cache of the
+    // resolved SessionConfig keyed by (profile, project_path). Three
+    // instances covering two unique pairs must trigger exactly two calls
+    // into `resolve_config_with_repo_or_warn`, not three (per row) and not
+    // four (two independent per-overlay caches, the pre-#2603 state).
+    // A non-built-in tool is used so the ACP overlay does not short-circuit
+    // on the built-in registry (`SessionResponse` sets `acp_capable=true`
+    // in the constructor for built-ins, which would skip the resolver
+    // lookup and hide any regression in the ACP overlay).
+    #[cfg(feature = "serve")]
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn list_sessions_shares_config_resolution_across_overlays() {
+        let tmp_home = tempfile::tempdir().expect("tempdir HOME");
+        // SAFETY: serialized by `#[serial]`, matches other HOME-swapping tests.
+        unsafe {
+            std::env::set_var("HOME", tmp_home.path());
+            std::env::set_var("XDG_CONFIG_HOME", tmp_home.path().join(".config"));
+        }
+
+        let mk = |profile: &str, project_path: &str| {
+            let mut inst = Instance::new("test-session", project_path);
+            inst.tool = "custom-tool-2603".to_string();
+            inst.source_profile = profile.to_string();
+            inst
+        };
+        let a = mk("default", "/tmp/repo-a-2603");
+        let a2 = mk("default", "/tmp/repo-a-2603");
+        let b = mk("default", "/tmp/repo-b-2603");
+
+        let state = crate::server::test_support::build_test_app_state(vec![a, a2, b]);
+
+        LIST_SESSIONS_RESOLVER_MISSES.with(|c| c.set(0));
+        let _envelope = list_sessions(axum::extract::State(state.clone())).await;
+        let misses = LIST_SESSIONS_RESOLVER_MISSES.with(std::cell::Cell::get);
+
+        assert_eq!(
+            misses, 2,
+            "shared cache must resolve exactly once per unique (profile, project_path) across both overlays; got {misses}",
+        );
     }
 
     #[test]
