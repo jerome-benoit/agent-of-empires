@@ -135,13 +135,17 @@ impl ContainerRuntime {
             RuntimeKind::AppleContainer => {
                 // Apple Container's `inspect` returns success(0) for
                 // non-existent containers, so we use `logs` which properly
-                // fails for missing containers. APPLE_MISSING pins the
-                // absent-container stderr from `logs`; not_found_markers /
-                // daemon_down_markers / permission_denied_markers on
-                // RuntimeBase::APPLE_CONTAINER are calibrated to `logs`
-                // output, so switching to `inspect` here (or tightening the
-                // markers) needs new fixtures. Same silent-break risk as
-                // the Docker/Podman pinning comment above. See #2596.
+                // fails for missing containers.
+                // TODO(#2730): `container logs` on a stopped-but-existing
+                // container is unverified; a non-matching stderr would
+                // misclassify it as InspectFailed.
+                // APPLE_MISSING pins the absent-container stderr from `logs`;
+                // not_found_markers / daemon_down_markers /
+                // permission_denied_markers on RuntimeBase::APPLE_CONTAINER
+                // are calibrated to `logs` output, so switching to `inspect`
+                // here (or tightening the markers) needs new fixtures. Same
+                // silent-break risk as the Docker/Podman pinning comment
+                // above. See #2596.
                 let output = self.base.command().args(["logs", name]).output()?;
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);

@@ -273,11 +273,10 @@ impl RuntimeBase {
         Err(DockerError::InspectFailed(sanitize_stderr(stderr)))
     }
 
-    /// Classify a non-success container-existence probe stderr, parallel to
-    /// [`Self::classify_inspect_failure`]. Both arms of `does_container_exist`
-    /// (Docker/Podman `container inspect`, Apple `logs`) share the same
-    /// failure taxonomy and funnel through this classifier; the terminal
-    /// [`DockerError::InspectFailed`] variant is reused because the
+    /// Classify a non-success stderr from the existence surface (`container inspect`
+    /// on Docker/Podman, `logs` on Apple), parallel to
+    /// [`Self::classify_inspect_failure`]. Both arms funnel through this classifier;
+    /// the terminal [`DockerError::InspectFailed`] variant is reused because the
     /// classification rules and `Display` contract are identical.
     ///
     /// Delegating rather than duplicating keeps the order-of-checks
@@ -900,7 +899,7 @@ mod tests {
 
     #[test]
     fn exists_daemon_down_stderr_maps_to_daemon_not_running() {
-        // Daemon-unreachable stderr on the existence-probe surface must NOT
+        // Daemon-unreachable stderr on the existence surface must NOT
         // collapse to Ok(false): that is the exact swallowing-existence-probe
         // failure mode this fix closes. Surfacing as Err lets the
         // create-path and future fail-closed gates route the daemon-down
