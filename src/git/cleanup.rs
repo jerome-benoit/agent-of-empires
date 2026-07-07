@@ -413,14 +413,15 @@ pub fn is_permission_error(error: &str) -> bool {
 /// `find . -mindepth 1 -delete` to remove all contents (including
 /// root-owned files that the host user cannot delete directly).
 ///
-/// Both container probes (existence and running-state) are fail-open with
-/// a `warn!`: on a transient runtime failure (daemon down, permission
-/// denied, or any other non-success stderr classified by
-/// [`crate::containers::runtime_base::RuntimeBase::classify_exists_failure`]
-/// or `classify_inspect_failure`) the cleanup is skipped and the failure
-/// surfaces in logs. Collapsing the existence probe to `unwrap_or(false)`
-/// re-introduces the swallowing-existence-probe class of bug (#2596 /
-/// #2652 / #2654).
+/// The existence probe is fail-open with a `warn!`: on a transient runtime
+/// failure (daemon down, permission denied, or any other non-success stderr
+/// classified by `RuntimeBase::classify_exists_failure`) the cleanup is
+/// skipped and the failure surfaces in logs. The running-state probe warns
+/// on failure via `classify_inspect_failure` and attempts `container.start()`
+/// (idempotent when running); cleanup only skips if the start itself fails.
+///
+/// Collapsing the existence probe to `unwrap_or(false)` re-introduces the
+/// swallowing-existence-probe class of bug (#2596 / #2652 / #2654).
 ///
 /// Returns true if the container successfully deleted the contents.
 pub fn cleanup_sandbox_worktree(instance: &Instance) -> bool {
