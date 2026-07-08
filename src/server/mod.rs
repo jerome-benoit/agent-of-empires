@@ -2357,7 +2357,7 @@ pub(crate) async fn reload_state_instances_from_disk(
 /// the lazy session id would silently drop overlay coverage for
 /// pre-handshake rows.
 ///
-/// # Durability contract (#2690 follow-up)
+/// ## Durability contract (#2690 follow-up)
 ///
 /// Structured rows accept a soft reset of `status` / `last_accessed_at` /
 /// `idle_entered_at` on daemon restart, by contract. The values written
@@ -3205,7 +3205,10 @@ struct PassiveTransitionDecision {
     /// which is the sole authority for their status/timestamps). Persisting
     /// a patch here would write a bogus tmux-derived status to disk for a
     /// session the poller never actually controls. Locked by
-    /// [`decide_passive_transition_skips_patch_for_structured_session`].
+    /// `decide_passive_transition_skips_patch_for_structured_session`
+    /// (a `#[cfg(test)]` item; kept as a code-span rather than an
+    /// intra-doc link that would degrade to literal text under
+    /// `cargo doc`).
     patch: Option<crate::session::PassiveStatusPatch>,
     mark_unread: bool,
 }
@@ -3230,7 +3233,7 @@ fn decide_passive_transition(
 /// small `Vec` because per-tick cardinality is low and `Vec::contains`
 /// beats `HashSet` at that N.
 ///
-/// # Persistence divergence between daemon and TUI (#2690 follow-up)
+/// ## Persistence divergence between daemon and TUI (#2690 follow-up)
 ///
 /// The daemon batches transitions here (one `Storage::update` per profile
 /// per tick, via `persist_session_update`). The TUI's

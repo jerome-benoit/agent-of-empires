@@ -1024,7 +1024,7 @@ fn publish_session_to_tmux_env(tmux_session_name: &str, instance_id: &str, sessi
 /// internal wire format between the pollers and `merge_passive_status_patch`,
 /// not a stable type for out-of-tree consumers.
 ///
-/// # Poller vocabulary (#2690 follow-up)
+/// ## Poller vocabulary (#2690 follow-up)
 ///
 /// - **passive status**: a status transition detected by a background
 ///   poller from tmux pane state or ACP overlay, not by an explicit user
@@ -1045,7 +1045,7 @@ fn publish_session_to_tmux_env(tmux_session_name: &str, instance_id: &str, sessi
 /// - **poller-authoritative status**: for plain-tmux sessions, the poller
 ///   owns `Instance::status`. For structured/ACP sessions,
 ///   `apply_acp_overlay_inplace` is the authority; see its docstring.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PassiveStatusPatch {
     pub id: String,
     pub status: Status,
@@ -1392,6 +1392,12 @@ impl Instance {
     /// stamped after the rewind can compare less than a value stamped
     /// before it and be silently dropped. Best-effort monotone, not a hard
     /// guarantee; the next poll tick converges regardless.
+    ///
+    /// A `last_accessed_at` older-or-equal to disk is silently dropped
+    /// (the `>=` guard) with a `session.store` debug log at drop time,
+    /// while `status` and `idle_entered_at` still apply unconditionally.
+    /// Callers relying on the observable `last_accessed_at` change must
+    /// re-read the field after `merge_passive_status_patch` returns.
     pub(crate) fn merge_passive_status_patch(&mut self, patch: &PassiveStatusPatch) {
         self.status = patch.status;
         self.idle_entered_at = patch.idle_entered_at;

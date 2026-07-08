@@ -51,10 +51,12 @@ fn polling_tier(status: Status) -> u64 {
 ///   real transition observed on a different path can be silently
 ///   clobbered by an unseeded snapshot.
 ///
-/// Locked by [`apply_status_update_preserves_idle_entered_at_on_keep`]
-/// in `src/tui/home/tests.rs`.
+/// Locked by `apply_status_update_preserves_idle_entered_at_on_keep`
+/// in `src/tui/home/tests.rs` (a `#[cfg(test)]` item, so the reference
+/// is kept as a code-span rather than an intra-doc link that would
+/// silently degrade to literal text under `cargo doc`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum IdleIntent {
+pub(crate) enum IdleIntent {
     /// Producer observed `Idle` at the carried timestamp; consumer sets
     /// the field to `Some(ts)`.
     Set(DateTime<Utc>),
@@ -73,8 +75,8 @@ pub enum IdleIntent {
 /// re-spelling every field at every call site. All field defaults resolve
 /// through the standard chain: `Status` defaults to `Idle`, `IdleIntent` to
 /// `Keep`, `Option::None`, `bool::false`, and `String::new`.
-#[derive(Debug, Clone, Default)]
-pub struct StatusUpdate {
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct StatusUpdate {
     pub id: String,
     pub status: Status,
     pub last_error: Option<String>,
