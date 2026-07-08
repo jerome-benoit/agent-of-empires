@@ -186,6 +186,7 @@ fn snapshot(sessions: &[AttachedStatusHookSession]) -> Vec<StatusUpdate> {
 mod tests {
     use super::*;
     use crate::status_hooks::{take_recorded_launches, StatusHookConfig};
+    use chrono::Utc;
     use serial_test::serial;
 
     #[test]
@@ -224,5 +225,67 @@ mod tests {
         assert_eq!(launches[0].context.session_id, id);
         assert_eq!(launches[0].context.old_status, Status::Idle);
         assert_eq!(launches[0].context.new_status, Status::Waiting);
+    }
+
+    #[test]
+    #[serial]
+    fn apply_updates_maps_idle_intent_set_and_clear_arms() {
+        // Lock #2690 R5: the Set/Clear arm mapping in `apply_updates`
+        // (lines 126-130 above) is the attached-hooks copy of the same
+        // match that `HomeView::apply_status_update` performs in
+        // `src/tui/home/mod.rs`. The `home` copy is covered by
+        // `apply_status_update_clears_idle_entered_at_on_idle_to_running`
+        // in `src/tui/home/tests.rs`. This test locks the equivalent
+        // shape here so a Set<->Clear swap in either consumer is
+        // caught at review time; without it, a swap in this file
+        // compiles cleanly and passes the existing
+        // `apply_updates_runs_status_hook_for_transition` test (which
+        // only exercises `Keep`).
+        let mut instance = Instance::new("Idle Target", "/tmp/idle-target");
+        instance.status = Status::Running;
+        instance.idle_entered_at = None;
+        let id = instance.id.clone();
+        let mut sessions = vec![AttachedStatusHookSession {
+            instance,
+            hook_config: StatusHookConfig::default(),
+        }];
+
+        let stop_time = Utc::now() - chrono::Duration::minutes(3);
+        apply_updates(
+            &mut sessions,
+            vec![StatusUpdate {
+                id: id.clone(),
+                status: Status::Idle,
+                last_error: None,
+                idle_entered_at: IdleIntent::Set(stop_time),
+                last_accessed_at: None,
+                pane_dead: false,
+                live_status_baseline: Some(Status::Idle),
+            }],
+            false,
+        );
+        assert_eq!(
+            sessions[0].instance.idle_entered_at,
+            Some(stop_time),
+            "IdleIntent::Set(ts) must write Some(ts) onto idle_entered_at"
+        );
+
+        apply_updates(
+            &mut sessions,
+            vec![StatusUpdate {
+                id: id.clone(),
+                status: Status::Running,
+                last_error: None,
+                idle_entered_at: IdleIntent::Clear,
+                last_accessed_at: None,
+                pane_dead: false,
+                live_status_baseline: Some(Status::Running),
+            }],
+            false,
+        );
+        assert_eq!(
+            sessions[0].instance.idle_entered_at, None,
+            "IdleIntent::Clear must reset idle_entered_at to None"
+        );
     }
 }

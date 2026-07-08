@@ -42,7 +42,9 @@ fn polling_tier(status: Status) -> u64 {
 ///
 /// * `Set(ts)`: producer observed a transition into `Idle` at `ts`.
 /// * `Clear`: producer observed a transition out of `Idle`; the disk
-///   value must be reset to `None`.
+///   value must be reset to `None`. Also emitted by the sandbox-dead
+///   branch of [`poll_statuses_once`] as a synthesized transition
+///   (container health flipped false without a user action).
 /// * `Keep`: producer did not observe a transition (e.g. an
 ///   `attached_status_hooks` snapshot from a watcher clone that never
 ///   polled its own session); the disk value must not be touched, or a
@@ -325,15 +327,27 @@ mod tests {
         let default = StatusUpdate::default();
         assert_eq!(default.id, String::new(), "id defaults to empty string");
         assert_eq!(default.status, Status::Idle, "status defaults to Idle");
-        assert_eq!(default.last_error, None);
+        assert_eq!(
+            default.last_error, None,
+            "last_error defaults to None (no error observed)"
+        );
         assert_eq!(
             default.idle_entered_at,
             IdleIntent::Keep,
             "idle_entered_at defaults to Keep (no observation)"
         );
-        assert_eq!(default.last_accessed_at, None);
-        assert!(!default.pane_dead);
-        assert_eq!(default.live_status_baseline, None);
+        assert_eq!(
+            default.last_accessed_at, None,
+            "last_accessed_at defaults to None (no observation to carry back)"
+        );
+        assert!(
+            !default.pane_dead,
+            "pane_dead defaults to false (no dead-pane observation)"
+        );
+        assert_eq!(
+            default.live_status_baseline, None,
+            "live_status_baseline defaults to None (no baseline observed yet)"
+        );
     }
 
     #[test]
@@ -383,5 +397,45 @@ mod tests {
         // polls hot; just verify the warm and cold alignments here.
         assert_eq!(first_cycle % TIER_WARM, 0, "first cycle must poll warm");
         assert_eq!(first_cycle % TIER_COLD, 0, "first cycle must poll cold");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn poll_statuses_once_never_emits_idle_intent_keep() {
+        // Lock #2690 R5: the asymmetry that only
+        // `attached_status_hooks::snapshot` produces `IdleIntent::Keep`
+        // and `poll_statuses_once` never does is load-bearing (see the
+        // comment above the `idle_entered_at` projection). A future
+        // consolidation that adds `Keep` to this producer would erase
+        // the baseline seed that `update_status_with_metadata` writes
+        // on its first observation, silently reintroducing the #2690
+        // restamp bug.
+        //
+        // Structural today (both emit sites hardcode Set/Clear), so
+        // this test tightens against a refactor that would relax the
+        // projection into a match arm capable of returning Keep.
+        let mut running = Instance::new("running", "/tmp/running");
+        running.status = Status::Running;
+        let mut idle = Instance::new("idle", "/tmp/idle");
+        idle.status = Status::Idle;
+        idle.idle_entered_at = Some(Utc::now() - chrono::Duration::minutes(5));
+        let mut error = Instance::new("error", "/tmp/error");
+        error.status = Status::Error;
+
+        let mut state = StatusPollState::new();
+        let updates = poll_statuses_once(vec![running, idle, error], &mut state);
+
+        assert!(
+            !updates.is_empty(),
+            "hot/warm/cold instances all align on the first cycle; at least one update expected"
+        );
+        for update in updates {
+            assert!(
+                !matches!(update.idle_entered_at, IdleIntent::Keep),
+                "poll_statuses_once must never emit IdleIntent::Keep (session {}); got {:?}",
+                update.id,
+                update.idle_entered_at
+            );
+        }
     }
 }

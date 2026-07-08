@@ -3242,8 +3242,9 @@ fn decide_passive_transition(
 /// `status` and `idle_entered_at` are unconditional writes
 /// (last-writer-wins). The two paths are safe to interleave today because
 /// the poller is the sole authority on those two fields and both writers
-/// read the same live source within one tick, so they converge on the
-/// next tick even when their observations disagree.
+/// read the same live source, so they converge within one poll interval
+/// of the slower cadence (daemon at 2s, TUI at ~500ms) even when their
+/// observations disagree mid-cadence.
 ///
 /// A future field added to [`crate::session::PassiveStatusPatch`] that is
 /// neither monotone (like `last_accessed_at`) nor single-authority (like
@@ -3253,6 +3254,11 @@ fn decide_passive_transition(
 /// explicitly document why the two-writer shape stays safe.
 #[derive(Default)]
 struct PassiveTransitionWrites {
+    /// Keyed by instance id for O(1) lookup inside the persist closure.
+    /// [`crate::session::PassiveStatusPatch::from_instance`] keeps
+    /// `patch.id == inst.id`, so the map key and the value's `id` field
+    /// stay in sync by construction; the redundancy is intentional and
+    /// used by the closure's `.get(&inst.id)` at the flush site below.
     patches: std::collections::HashMap<String, crate::session::PassiveStatusPatch>,
     unread_ids: Vec<String>,
 }

@@ -5261,7 +5261,7 @@ impl HomeView {
             return;
         };
         let patch = crate::session::PassiveStatusPatch::from_instance(inst);
-        let _ = storage.update(|insts, _groups| {
+        if let Err(e) = storage.update(|insts, _groups| {
             if let Some(disk) = insts.iter_mut().find(|i| i.id == patch.id) {
                 disk.merge_passive_status_patch(&patch);
                 if mark_unread {
@@ -5269,7 +5269,21 @@ impl HomeView {
                 }
             }
             Ok(())
-        });
+        }) {
+            // Best-effort persistence (see method docstring): a write
+            // failure here does not roll back the in-memory update, but
+            // silence would obscure a persistent flock timeout or EIO
+            // loop. The daemon's sibling path in
+            // `api::persist_session_update` logs the same class of
+            // failure at `target: "http.api.sessions"`; log here so a
+            // TUI-only user has parity visibility under
+            // `AOE_LOG_LEVEL=debug`.
+            tracing::warn!(
+                target: "session.store",
+                session_id = %patch.id,
+                "persist_passive_status_transition failed: {e}"
+            );
+        }
     }
 
     /// Atomic per-action mutate: in-memory once, disk via

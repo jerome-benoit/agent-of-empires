@@ -694,6 +694,12 @@ pub struct Instance {
     /// `#[serde(skip)]`, and [`Instance::new`] also starts with `None` so
     /// in-memory and disk-loaded paths have the same first-check
     /// semantics. See #2690.
+    ///
+    /// The `#[serde(skip)]` + `Instance::new`-time `None` seed rely on
+    /// construction-ordering: [`Instance::new`] is called before the
+    /// instance enters any shared state (`state.instances`, `Storage`),
+    /// so a poll thread cannot observe it mid-construction. Safety here
+    /// is by construction-ordering, not by synchronization.
     #[serde(skip)]
     pub live_status_baseline: Option<Status>,
     #[serde(skip)]
@@ -1379,6 +1385,13 @@ impl Instance {
     /// `last_accessed_at` comparison would let an unrelated peer touch
     /// strand a real status transition on disk until the next one. See
     /// #2690.
+    ///
+    /// The `>=` guard on `last_accessed_at` compares `chrono::Utc::now()`
+    /// values, which delegate to `SystemTime::now()` (wall clock, not
+    /// monotonic). Under an NTP rewind, a genuinely newer live observation
+    /// stamped after the rewind can compare less than a value stamped
+    /// before it and be silently dropped. Best-effort monotone, not a hard
+    /// guarantee; the next poll tick converges regardless.
     pub(crate) fn merge_passive_status_patch(&mut self, patch: &PassiveStatusPatch) {
         self.status = patch.status;
         self.idle_entered_at = patch.idle_entered_at;
@@ -1390,7 +1403,7 @@ impl Instance {
                 target: "session.store",
                 session_id = %patch.id,
                 disk_ts = ?self.last_accessed_at,
-                patch_ts = ?patch.last_accessed_at,
+                patch_ts = %incoming,
                 "dropped passive status patch's last_accessed_at as a no-op (disk value is at least as recent; status/idle_entered_at still applied)"
             );
             return;
