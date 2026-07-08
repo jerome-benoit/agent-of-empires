@@ -12,9 +12,8 @@
 //! values, so its `Drop` closes the leak: env vars are restored to their
 //! prior state (or removed if they were previously unset) even if the test
 //! panics. The `Drop` shape mirrors `StorageHomeGuard` at
-//! [`crate::session::sync`] (see `src/session/sync.rs:346-377`); the guard
-//! additionally owns the tempdir so a single `AppDirGuard` binding covers
-//! both concerns.
+//! [`crate::session::sync`]; the guard additionally owns the tempdir so a
+//! single `AppDirGuard` binding covers both concerns.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -90,36 +89,29 @@ mod tests {
     use serial_test::serial;
 
     /// Locks the fix for #2306: `Drop` MUST restore `HOME` and (on
-    /// Linux/macOS) `XDG_CONFIG_HOME` to their pre-guard values, and MUST
-    /// remove them when the pre-guard value was unset. A future refactor
-    /// that quietly drops the `Drop` impl would reintroduce the leak this
-    /// PR closes.
+    /// Linux/macOS) `XDG_CONFIG_HOME` to their pre-guard values. A future
+    /// refactor that quietly drops the `Drop` impl would reintroduce the
+    /// leak this PR closes.
     #[test]
     #[serial]
     fn app_dir_guard_drop_restores_env_vars() {
-        // Snapshot the ambient env before any guard construction.
         let before_home = std::env::var_os("HOME");
         let before_xdg = std::env::var_os("XDG_CONFIG_HOME");
 
         {
             let guard = isolate_app_dir();
-            // Construction path: HOME is set to the tempdir root, and on
-            // Linux/macOS XDG_CONFIG_HOME is set to `<tempdir>/.config`.
             assert_eq!(
-                std::env::var_os("HOME").as_deref(),
-                Some(guard.path().as_os_str()),
+                std::env::var_os("HOME"),
+                Some(guard.path().as_os_str().to_os_string()),
                 "HOME must point at the guard's tempdir during the test body"
             );
             #[cfg(any(target_os = "linux", target_os = "macos"))]
-            {
-                let expected = guard.path().join(".config");
-                assert_eq!(
-                    std::env::var_os("XDG_CONFIG_HOME"),
-                    Some(expected.into_os_string()),
-                    "XDG_CONFIG_HOME must point at <tempdir>/.config"
-                );
-            }
-        } // guard drops here; env restored.
+            assert_eq!(
+                std::env::var_os("XDG_CONFIG_HOME"),
+                Some(guard.path().join(".config").into_os_string()),
+                "XDG_CONFIG_HOME must point at <tempdir>/.config"
+            );
+        }
 
         assert_eq!(
             std::env::var_os("HOME"),
@@ -131,6 +123,49 @@ mod tests {
             before_xdg,
             "XDG_CONFIG_HOME must be restored on guard Drop"
         );
+    }
+
+    /// Locks the `remove_var` branch of `restore_or_remove`: when the
+    /// pre-guard env var was unset, `Drop` MUST leave it unset. Under
+    /// Unix CI HOME is always set, so [`app_dir_guard_drop_restores_env_vars`]
+    /// above only exercises the `set_var` restoration branch. This test
+    /// forces the `None` snapshot by removing both vars before construction.
+    #[test]
+    #[serial]
+    fn app_dir_guard_drop_removes_env_vars_when_unset() {
+        let before_home = std::env::var_os("HOME");
+        let before_xdg = std::env::var_os("XDG_CONFIG_HOME");
+        std::env::remove_var("HOME");
+        std::env::remove_var("XDG_CONFIG_HOME");
+
+        {
+            let _guard = isolate_app_dir();
+            assert!(
+                std::env::var_os("HOME").is_some(),
+                "constructor must set HOME even when it was unset"
+            );
+        }
+
+        assert_eq!(
+            std::env::var_os("HOME"),
+            None,
+            "HOME must be removed on Drop when it was unset before construction"
+        );
+        assert_eq!(
+            std::env::var_os("XDG_CONFIG_HOME"),
+            None,
+            "XDG_CONFIG_HOME must stay unset on Drop when it was unset before construction"
+        );
+
+        // Restore the ambient env for any downstream serial test that
+        // reads it. `#[serial]` sequences tests but does not itself reset
+        // the process env after each one.
+        if let Some(v) = before_home {
+            std::env::set_var("HOME", v);
+        }
+        if let Some(v) = before_xdg {
+            std::env::set_var("XDG_CONFIG_HOME", v);
+        }
     }
 
     /// `AsRef<Path>` lets call sites pass `&guard` wherever a
