@@ -32,8 +32,8 @@ use std::path::Path;
 use tempfile::TempDir;
 
 /// RAII guard: isolates `HOME` and `XDG_CONFIG_HOME` for one test; restores
-/// them on `Drop`. See the module doc for the process-global env-leak
-/// motivation (issue #2306).
+/// them on `Drop`. See the [module documentation](crate::session::test_support)
+/// for the process-global env-leak motivation (issue #2306).
 ///
 /// `Debug` is intentionally not derived: the snapshot fields carry the
 /// caller's real `$HOME` and `$XDG_CONFIG_HOME`, and a derived `Debug`
@@ -41,6 +41,14 @@ use tempfile::TempDir;
 /// backtraces, `assert!` messages that format the guard). Path values on
 /// developer machines are often personally identifying; keep the guard
 /// opaque.
+///
+/// The tempdir path itself (returned by [`Self::path`]) is not personally
+/// identifying on Linux (`$TMPDIR` defaults to `/tmp`), but on macOS
+/// resolves via `_CS_DARWIN_USER_TEMP_DIR` to
+/// `/var/folders/xx/yy/T/tmpXXXXXX` where the `xx/yy` fragment is derived
+/// from the caller's UID. Call sites should not format `path()` into log
+/// output at `info` / `warn` levels for the same reason; use `debug!` or
+/// avoid the log entirely.
 #[must_use = "AppDirGuard restores env vars on Drop; bind it to `_tmp` or `_guard`, not `_`, or the isolation ends on the same line and the test body runs against the caller's real env"]
 pub(crate) struct AppDirGuard {
     temp: TempDir,
@@ -83,6 +91,20 @@ impl Drop for AppDirGuard {
 }
 
 fn restore_or_remove(key: &str, prev: Option<OsString>) {
+    // SAFETY (staged for Rust 2024 edition migration, at which point
+    // `std::env::set_var` and `std::env::remove_var` become `unsafe fn`):
+    // this function mutates a process-global env slot. It is sound to
+    // call as long as no other thread is concurrently reading or writing
+    // the same env key. The invariant is enforced by:
+    //   1. `AppDirGuard` is only constructed from `#[serial]`-annotated
+    //      tests, so the whole call sequence (snapshot -> set_var ->
+    //      test body -> Drop -> restore_or_remove) is linearized against
+    //      every other `#[serial]` test in the crate.
+    //   2. Non-`#[serial]` tests in the crate do not read `HOME` or
+    //      `XDG_CONFIG_HOME` (grep-verified; see the module doc).
+    //   3. The `#[tokio::test]` sites that use this helper all run on
+    //      the default single-threaded runtime; no worker task reads env
+    //      concurrently with the mutation.
     match prev {
         Some(v) => std::env::set_var(key, v),
         None => std::env::remove_var(key),
@@ -115,6 +137,10 @@ pub(crate) fn isolate_app_dir() -> AppDirGuard {
     let temp_home = TempDir::new().expect("create tempdir for AppDirGuard");
     let prev_home = std::env::var_os("HOME");
     let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
+    // SAFETY (staged for Rust 2024 edition migration): same invariant
+    // as [`restore_or_remove`] above. Callers are `#[serial]`-annotated
+    // tests; no other thread reads or writes `HOME` / `XDG_CONFIG_HOME`
+    // while this function runs.
     std::env::set_var("HOME", temp_home.path());
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     std::env::set_var("XDG_CONFIG_HOME", temp_home.path().join(".config"));
