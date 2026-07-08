@@ -11,9 +11,12 @@
 //! `AppDirGuard` owns both the tempdir and a snapshot of the previous env
 //! values, so its `Drop` closes the leak: env vars are restored to their
 //! prior state (or removed if they were previously unset) even if the test
-//! panics. The `Drop` shape mirrors `StorageHomeGuard` at
-//! [`crate::session::sync`]; the guard additionally owns the tempdir so a
-//! single `AppDirGuard` binding covers both concerns.
+//! panics. The `Drop` restore-or-remove pattern is similar to
+//! `StorageHomeGuard` at [`crate::session::sync`], with two deliberate
+//! divergences: (a) `AppDirGuard` snapshots `OsString` via `env::var_os`
+//! rather than `String` via `env::var`, so a non-UTF-8 prior value round-trips
+//! faithfully instead of coercing to `None`; (b) `AppDirGuard` owns the
+//! tempdir so a single binding covers both concerns.
 //!
 //! Scope: the guard isolates tests on Linux and macOS (the crate's
 //! supported native targets; Windows is WSL2-only per the README). On
@@ -31,6 +34,14 @@ use tempfile::TempDir;
 /// RAII guard: isolates `HOME` and `XDG_CONFIG_HOME` for one test; restores
 /// them on `Drop`. See the module doc for the process-global env-leak
 /// motivation (issue #2306).
+///
+/// `Debug` is intentionally not derived: the snapshot fields carry the
+/// caller's real `$HOME` and `$XDG_CONFIG_HOME`, and a derived `Debug`
+/// impl would print them verbatim in test failure output (unwrap-panic
+/// backtraces, `assert!` messages that format the guard). Path values on
+/// developer machines are often personally identifying; keep the guard
+/// opaque.
+#[must_use = "AppDirGuard restores env vars on Drop; bind it to `_tmp` or `_guard`, not `_`, or the isolation ends on the same line and the test body runs against the caller's real env"]
 pub(crate) struct AppDirGuard {
     temp: TempDir,
     prev_home: Option<OsString>,
@@ -38,7 +49,10 @@ pub(crate) struct AppDirGuard {
 }
 
 impl AppDirGuard {
-    /// Returns the tempdir root.
+    /// Returns the tempdir root. See also `impl AsRef<Path>` below: both
+    /// accessors are intentionally offered so callers can pick the one
+    /// that fits: `guard.path()` for direct use, `&guard` for
+    /// `impl AsRef<Path>`-style generic call sites.
     pub(crate) fn path(&self) -> &Path {
         self.temp.path()
     }
@@ -55,6 +69,14 @@ impl AsRef<Path> for AppDirGuard {
 
 impl Drop for AppDirGuard {
     fn drop(&mut self) {
+        // `prev_xdg` is snapshotted unconditionally at construction (line
+        // below), while the constructor only mutates `XDG_CONFIG_HOME`
+        // under `cfg(any(target_os = "linux", target_os = "macos"))`. On
+        // other targets the restore writes back the same value the
+        // constructor observed (a no-op on the ambient env); the
+        // asymmetry is deliberate so a future target that starts
+        // consulting `XDG_CONFIG_HOME` inherits the restore path
+        // automatically without a matching cfg edit here.
         restore_or_remove("HOME", self.prev_home.take());
         restore_or_remove("XDG_CONFIG_HOME", self.prev_xdg.take());
     }
@@ -78,6 +100,17 @@ fn restore_or_remove(key: &str, prev: Option<OsString>) {
 /// The prior values are snapshotted via [`std::env::var_os`] (`OsString`,
 /// not `String`) so a non-UTF-8 prior value survives round-tripping through
 /// the guard's `Drop`.
+///
+/// # Panics
+///
+/// - `TempDir::new()` panics via `.expect(...)` if the OS refuses to
+///   create a fresh tempdir (no space on `$TMPDIR`, `EACCES`, filesystem
+///   quota). This is the same failure surface as the pre-#2306 helpers
+///   this replaced.
+/// - `std::env::set_var` panics on a value containing a NUL byte. The
+///   value written here is `TempDir::path()`, which cannot contain a NUL
+///   on Unix (POSIX pathname rules), so this panic is unreachable in
+///   practice.
 pub(crate) fn isolate_app_dir() -> AppDirGuard {
     let temp_home = TempDir::new().expect("create tempdir for AppDirGuard");
     let prev_home = std::env::var_os("HOME");
@@ -145,11 +178,29 @@ mod tests {
     /// Unix CI HOME is always set, so [`app_dir_guard_drop_restores_env_vars`]
     /// above only exercises the `set_var` restoration branch. This test
     /// forces the `None` snapshot by removing both vars before construction.
+    ///
+    /// The pre-scope removal is wrapped in a small local RAII
+    /// (`AmbientEnvRestore`) so a panic in any mid-scope assertion
+    /// still restores the caller's original env before the next
+    /// `#[serial]` test observes an unset `HOME`.
     #[test]
     #[serial]
     fn app_dir_guard_drop_removes_env_vars_when_unset() {
-        let before_home = std::env::var_os("HOME");
-        let before_xdg = std::env::var_os("XDG_CONFIG_HOME");
+        struct AmbientEnvRestore {
+            home: Option<OsString>,
+            xdg: Option<OsString>,
+        }
+        impl Drop for AmbientEnvRestore {
+            fn drop(&mut self) {
+                restore_or_remove("HOME", self.home.take());
+                restore_or_remove("XDG_CONFIG_HOME", self.xdg.take());
+            }
+        }
+
+        let _restore = AmbientEnvRestore {
+            home: std::env::var_os("HOME"),
+            xdg: std::env::var_os("XDG_CONFIG_HOME"),
+        };
         std::env::remove_var("HOME");
         std::env::remove_var("XDG_CONFIG_HOME");
 
@@ -176,15 +227,9 @@ mod tests {
             "XDG_CONFIG_HOME must stay unset on Drop when it was unset before construction"
         );
 
-        // Restore the ambient env for any downstream serial test that
-        // reads it. `#[serial]` sequences tests but does not itself reset
-        // the process env after each one.
-        if let Some(v) = before_home {
-            std::env::set_var("HOME", v);
-        }
-        if let Some(v) = before_xdg {
-            std::env::set_var("XDG_CONFIG_HOME", v);
-        }
+        // `_restore` fires on scope exit (or on panic before this line):
+        // its `Drop` re-applies `before_home` / `before_xdg` for any
+        // downstream serial test that reads them.
     }
 
     /// `AsRef<Path>` lets call sites pass `&guard` wherever a
@@ -247,7 +292,11 @@ mod tests {
         {
             let _guard = isolate_app_dir();
             // Mid-scope write that must NOT survive `Drop`. Not the
-            // guard's tempdir; a distinct sentinel path.
+            // guard's tempdir; a distinct sentinel path. The string
+            // shape is Unix-flavoured but is only ever compared as
+            // bytes here (never opened as a filesystem path), so
+            // `set_var` on any target accepts it without touching the
+            // filesystem.
             std::env::set_var("HOME", "/tmp/aoe-mid-scope-sentinel");
             assert_eq!(
                 std::env::var_os("HOME"),
