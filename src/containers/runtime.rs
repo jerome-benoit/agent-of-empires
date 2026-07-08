@@ -135,13 +135,16 @@ impl ContainerRuntime {
             RuntimeKind::AppleContainer => {
                 // Apple Container's `inspect` returns success(0) for
                 // non-existent containers, so we use `logs` which properly
-                // fails for missing containers. APPLE_MISSING pins the
-                // absent-container stderr from `logs`; not_found_markers /
-                // daemon_down_markers / permission_denied_markers on
-                // RuntimeBase::APPLE_CONTAINER are calibrated to `logs`
-                // output, so switching to `inspect` here (or tightening the
-                // markers) needs new fixtures. Same silent-break risk as
-                // the Docker/Podman pinning comment above. See #2596.
+                // fails for missing containers. APPLE_MISSING captures
+                // Apple's absent-container stderr (from `rm/delete`);
+                // not_found_markers / daemon_down_markers /
+                // permission_denied_markers on RuntimeBase::APPLE_CONTAINER
+                // key off Apple's not-found style and are expected to match
+                // `logs` stderr by substring, though `logs` stderr has not
+                // been captured as a fixture. Switching argv here (or
+                // tightening the markers) needs new fixtures. Same
+                // silent-break risk as the Docker/Podman pinning comment
+                // above. See #2596.
                 // TODO: verify Apple `container logs` semantics on
                 //       stopped-but-existing containers (cf. #2730 for
                 //       fixture capture).
