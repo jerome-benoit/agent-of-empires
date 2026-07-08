@@ -3213,6 +3213,13 @@ struct PassiveTransitionDecision {
     mark_unread: bool,
 }
 
+/// Compute the passive-status write decision for one instance whose
+/// `status` differs from the tick's `prev` snapshot. The full
+/// contract lives on the return type at [`PassiveTransitionDecision`]:
+/// `patch: None` for structured / ACP sessions (the ACP overlay is the
+/// sole authority), and `mark_unread: true` only on genuine
+/// Running -> Idle when unread is enabled and the row is not already
+/// unread.
 fn decide_passive_transition(
     inst: &Instance,
     old_status: Status,
@@ -3395,6 +3402,11 @@ async fn status_poll_loop(state: Arc<AppState>) {
                     move |insts| {
                         for inst in insts.iter_mut() {
                             if let Some(patch) = patches.get(&inst.id) {
+                                debug_assert_eq!(
+                                    patch.id, inst.id,
+                                    "PassiveStatusPatch::from_instance keeps `patch.id == inst.id`; \
+                                     if this fires, the map key or the patch's `id` field has drifted"
+                                );
                                 inst.merge_passive_status_patch(patch);
                             }
                             if unread_ids.contains(&inst.id) {
