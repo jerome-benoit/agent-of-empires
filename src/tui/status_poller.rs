@@ -53,15 +53,15 @@ fn polling_tier(status: Status) -> u64 {
 /// in `src/tui/home/tests.rs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IdleIntent {
-    /// Producer has no observation; consumer preserves the current value.
-    #[default]
-    Keep,
-    /// Producer observed a non-`Idle` status; consumer sets the field to
-    /// `None`.
-    Clear,
     /// Producer observed `Idle` at the carried timestamp; consumer sets
     /// the field to `Some(ts)`.
     Set(DateTime<Utc>),
+    /// Producer observed a non-`Idle` status; consumer sets the field to
+    /// `None`.
+    Clear,
+    /// Producer has no observation; consumer preserves the current value.
+    #[default]
+    Keep,
 }
 
 /// Result of a status check for a single session.
@@ -212,15 +212,15 @@ pub(super) fn poll_statuses_once(
                 id: inst.id,
                 status: inst.status,
                 last_error: inst.last_error,
-                // Main-thread poller always ran `update_status_with_metadata`
-                // just above, so it is authoritative on `idle_entered_at`
-                // and emits `Set(ts)` or `Clear` unconditionally.
-                // `IdleIntent::Keep` is never emitted here;
+                // This producer is authoritative on `idle_entered_at`
+                // for both the sandbox-dead branch above and the tmux
+                // branch reached via `update_status_with_metadata`, and
+                // never emits `IdleIntent::Keep`:
                 // `attached_status_hooks::snapshot` is the sole
-                // `Keep`-emitter (see its docstring). This asymmetry is
+                // `Keep`-emitter (see its docstring). The asymmetry is
                 // load-bearing: a future consolidation that adds `Keep`
                 // to this producer would erase the baseline seed that
-                // `update_status_with_metadata` just wrote.
+                // `update_status_with_metadata` writes.
                 idle_entered_at: match inst.idle_entered_at {
                     Some(ts) => IdleIntent::Set(ts),
                     None => IdleIntent::Clear,

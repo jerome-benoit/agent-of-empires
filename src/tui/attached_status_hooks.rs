@@ -164,8 +164,9 @@ fn snapshot(sessions: &[AttachedStatusHookSession]) -> Vec<StatusUpdate> {
             // `Set(ts)` / `Clear` reflect the real observation.
             //
             // Arm order matches consumer sites (`apply_updates` above,
-            // `apply_status_update` in `src/tui/home/mod.rs`): Set first,
-            // Clear second, Keep last. Grep-friendly.
+            // `apply_status_update` in `src/tui/home/mod.rs`) and the
+            // enum declaration in `src/tui/status_poller.rs`:
+            // `Set` first, `Clear` second, `Keep` last.
             idle_entered_at: match (
                 session.instance.live_status_baseline,
                 session.instance.idle_entered_at,

@@ -1049,7 +1049,7 @@ pub(crate) struct PassiveStatusPatch {
     /// rather than fabricating a stamp, or a session that transitions
     /// status before anyone ever attaches would gain a spurious
     /// `last_accessed_at` and break the "`None` = never touched" contract
-    /// idle-reap and the freshness sort rely on.
+    /// that idle-reap and the freshness sort rely on.
     pub last_accessed_at: Option<DateTime<Utc>>,
 }
 
@@ -1391,7 +1391,7 @@ impl Instance {
                 session_id = %patch.id,
                 disk_ts = ?self.last_accessed_at,
                 patch_ts = ?patch.last_accessed_at,
-                "dropped stale-or-equal passive status patch's last_accessed_at (status/idle_entered_at still applied)"
+                "dropped passive status patch's last_accessed_at as a no-op (disk value is at least as recent; status/idle_entered_at still applied)"
             );
             return;
         }
