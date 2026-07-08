@@ -14,6 +14,15 @@
 //! panics. The `Drop` shape mirrors `StorageHomeGuard` at
 //! [`crate::session::sync`]; the guard additionally owns the tempdir so a
 //! single `AppDirGuard` binding covers both concerns.
+//!
+//! Scope: the guard isolates tests on Linux and macOS (the crate's
+//! supported native targets; Windows is WSL2-only per the README). On
+//! native Windows `dirs::home_dir()` resolves via
+//! `SHGetKnownFolderPath(FOLDERID_Profile)`, not `$HOME`, so a
+//! `set_var("HOME", ...)` alone would not redirect
+//! `get_app_dir_path`. Isolating tests on native Windows would need a
+//! different mechanism (e.g. a stub for the profile-folder lookup)
+//! rather than more env vars in this snapshot set.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -87,6 +96,7 @@ pub(crate) fn isolate_app_dir() -> AppDirGuard {
 mod tests {
     use super::*;
     use serial_test::serial;
+    use std::panic::AssertUnwindSafe;
 
     /// Locks the fix for #2306: `Drop` MUST restore `HOME` and (on
     /// Linux/macOS) `XDG_CONFIG_HOME` to their pre-guard values. A future
@@ -100,6 +110,11 @@ mod tests {
 
         {
             let guard = isolate_app_dir();
+            // Byte-identity holds because `TempDir::path()` is
+            // un-canonicalized on macOS (`/var/folders/...`, a symlink to
+            // `/private/var/folders/...`) and `set_var` writes the bytes
+            // verbatim. A future refactor that canonicalizes one side
+            // without the other would silently break this on macOS.
             assert_eq!(
                 std::env::var_os("HOME"),
                 Some(guard.path().as_os_str().to_os_string()),
@@ -139,10 +154,14 @@ mod tests {
         std::env::remove_var("XDG_CONFIG_HOME");
 
         {
-            let _guard = isolate_app_dir();
-            assert!(
-                std::env::var_os("HOME").is_some(),
-                "constructor must set HOME even when it was unset"
+            let guard = isolate_app_dir();
+            // Explicit path check (not just `is_some`) catches a
+            // constructor mutation that writes the wrong path when the
+            // prior snapshot was `None`.
+            assert_eq!(
+                std::env::var_os("HOME"),
+                Some(guard.path().as_os_str().to_os_string()),
+                "constructor must set HOME to the guard tempdir even when the prior value was unset"
             );
         }
 
@@ -175,6 +194,72 @@ mod tests {
     fn app_dir_guard_as_ref_path_matches_path() {
         let guard = isolate_app_dir();
         let via_as_ref: &Path = guard.as_ref();
-        assert_eq!(via_as_ref, guard.path());
+        assert_eq!(
+            via_as_ref,
+            guard.path(),
+            "AsRef<Path>::as_ref must return the same path as AppDirGuard::path"
+        );
+    }
+
+    /// Locks the "Drop-runs-on-unwind" contract that motivates the entire
+    /// RAII conversion. A future refactor that swaps `AppDirGuard` for a
+    /// non-RAII helper (e.g., a `fn cleanup(&self)` the test must call
+    /// explicitly) would let a panicking test leak `HOME`/`XDG_CONFIG_HOME`
+    /// exactly the way pre-#2306 did.
+    #[test]
+    #[serial]
+    fn app_dir_guard_drop_restores_env_vars_on_panic() {
+        let before_home = std::env::var_os("HOME");
+        let before_xdg = std::env::var_os("XDG_CONFIG_HOME");
+
+        let unwound = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            let _guard = isolate_app_dir();
+            panic!("simulate a test-body panic while the guard is live");
+        }));
+        assert!(
+            unwound.is_err(),
+            "the inner panic must actually propagate to catch_unwind"
+        );
+
+        assert_eq!(
+            std::env::var_os("HOME"),
+            before_home,
+            "HOME must be restored on guard Drop even when the test body panics"
+        );
+        assert_eq!(
+            std::env::var_os("XDG_CONFIG_HOME"),
+            before_xdg,
+            "XDG_CONFIG_HOME must be restored on guard Drop even when the test body panics"
+        );
+    }
+
+    /// Locks the "snapshot at construction" semantic: `Drop` restores to
+    /// the pre-construction env values, not to whatever the test last
+    /// wrote inside the guard's scope. A refactor that moves the
+    /// `env::var_os` snapshot from the constructor into `Drop::drop`
+    /// would pass every other test in this module but survive as a
+    /// silent regression here.
+    #[test]
+    #[serial]
+    fn app_dir_guard_drop_ignores_mid_scope_env_writes() {
+        let before_home = std::env::var_os("HOME");
+
+        {
+            let _guard = isolate_app_dir();
+            // Mid-scope write that must NOT survive `Drop`. Not the
+            // guard's tempdir; a distinct sentinel path.
+            std::env::set_var("HOME", "/tmp/aoe-mid-scope-sentinel");
+            assert_eq!(
+                std::env::var_os("HOME"),
+                Some(OsString::from("/tmp/aoe-mid-scope-sentinel")),
+                "mid-scope write must land while the guard is live"
+            );
+        }
+
+        assert_eq!(
+            std::env::var_os("HOME"),
+            before_home,
+            "Drop must restore the pre-construction snapshot, not the mid-scope write"
+        );
     }
 }
