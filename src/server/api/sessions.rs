@@ -489,10 +489,7 @@ fn builtin_acp_registry() -> &'static crate::acp::AgentRegistry {
 /// given profile-resolved map. Built-in capability is handled separately
 /// in the constructor, so this only covers the custom case.
 #[cfg(feature = "serve")]
-fn custom_agent_acp_capable(
-    agent_acp_cmd: &std::collections::HashMap<String, String>,
-    tool: &str,
-) -> bool {
+fn custom_agent_acp_capable(agent_acp_cmd: &HashMap<String, String>, tool: &str) -> bool {
     agent_acp_cmd
         .get(tool)
         .is_some_and(|cmd| crate::acp::AgentSpec::from_acp_cmd(tool, cmd).is_ok())
