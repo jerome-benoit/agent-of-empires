@@ -3307,7 +3307,7 @@ impl HomeView {
 
         let hidden_actionable = self
             .instances
-            .iter()
+            .values()
             .find(|inst| {
                 if visible_sessions.contains(&inst.id)
                     || current_session.as_deref() == Some(inst.id.as_str())
@@ -3371,7 +3371,7 @@ impl HomeView {
         }
 
         let mut best_hidden: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = None;
-        for inst in &self.instances {
+        for inst in self.instances.values() {
             if visible_sessions.contains(&inst.id)
                 || current_session.as_deref() == Some(inst.id.as_str())
                 || inst.is_archived()

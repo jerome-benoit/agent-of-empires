@@ -1085,8 +1085,7 @@ impl HomeView {
 
                     // Get the instance to move
                     let mut instance = self
-                        .instances()
-                        .find(|i| i.id == id)
+                        .get_instance(&id)
                         .cloned()
                         .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
 
@@ -1579,11 +1578,9 @@ impl HomeView {
         }
         // Off-thread tmux teardown so N x 4 shellouts don't block the input
         // thread. Mirrors `force_remove_session`.
-        let kill_targets: Vec<_> = self
-            .instances
-            .values()
-            .filter(|i| ids.contains(&i.id))
-            .cloned()
+        let kill_targets: Vec<_> = ids
+            .iter()
+            .filter_map(|id| self.instances.get(id).cloned())
             .collect();
         std::thread::spawn(move || {
             for inst in kill_targets {

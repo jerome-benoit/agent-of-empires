@@ -1975,10 +1975,7 @@ impl HomeView {
         let mut view = Self {
             storages,
             active_profile,
-            instances: all_instances
-                .into_iter()
-                .map(|i| (i.id.clone(), i))
-                .collect(),
+            instances: Self::build_instances_map(all_instances),
             pending_deletions: HashMap::new(),
             pending_group_deletions: HashMap::new(),
             pending_added: HashMap::new(),
@@ -2408,10 +2405,7 @@ impl HomeView {
             .as_ref()
             .and_then(|id| self.instances.get(id).cloned());
 
-        self.instances = all_instances
-            .into_iter()
-            .map(|i| (i.id.clone(), i))
-            .collect();
+        self.instances = Self::build_instances_map(all_instances);
 
         if let Some(stub) = creating_stub_snapshot {
             self.instances.entry(stub.id.clone()).or_insert(stub);
@@ -2687,6 +2681,8 @@ impl HomeView {
         let new_pane_dead = update.pane_dead;
 
         if should_update {
+            use crate::tui::status_poller::IdleIntent;
+
             let new_status = update.status;
             let new_error = update.last_error;
             let new_idle_entered_at = update.idle_entered_at;
@@ -2694,18 +2690,27 @@ impl HomeView {
             self.mutate_instance(&update.id, |inst| {
                 inst.status = new_status;
                 inst.last_error = new_error;
-                // Propagate the timestamp the polling clone wrote;
-                // see StatusPoller for why this isn't a simple
-                // `inst.idle_entered_at = …` from inside the poll.
-                inst.idle_entered_at = new_idle_entered_at;
+                // Match on the producer's stated intent for `idle_entered_at`
+                // instead of overloading `None`. See `IdleIntent` in
+                // `status_poller` for the three-variant contract that
+                // replaces the pre-fix `Option<DateTime<Utc>>` (which
+                // conflated "producer observed a transition out of Idle" with
+                // "producer has no observation"). See #2690.
+                match new_idle_entered_at {
+                    IdleIntent::Set(ts) => inst.idle_entered_at = Some(ts),
+                    IdleIntent::Clear => inst.idle_entered_at = None,
+                    IdleIntent::Keep => {}
+                }
                 if new_last_accessed.is_some() {
                     inst.last_accessed_at = new_last_accessed;
                 }
-                // Conditional, not unconditional like idle_entered_at: a
-                // producer that never establishes a baseline (attached_
-                // status_hooks's snapshot, when its own instance clone
-                // hasn't polled yet) must not clear one this instance
-                // already has. See #2690 CodeRabbit follow-up.
+                // A producer that has no baseline yet (`None`) must not
+                // clear one the real instance already has, or every
+                // subsequent poll of that instance re-seeds from `None`
+                // and silently disables restamping on real transitions.
+                // Locked by
+                // [`apply_status_update_propagates_live_status_baseline_from_poller`]
+                // in `src/tui/home/tests.rs`. See #2690.
                 if let Some(baseline) = new_live_status_baseline {
                     inst.live_status_baseline = Some(baseline);
                 }
@@ -2869,6 +2874,16 @@ impl HomeView {
     /// Tmux env may also be republished when this returns `false`
     /// (filtered or Failed paths republish the in-memory mirror).
     pub fn apply_session_id_updates(&mut self) -> bool {
+        // Fast path: no poller can produce a sid update this tick, so skip
+        // the whole-map snapshot clone on idle ticks (this function runs
+        // every 500ms).
+        if !self
+            .instances
+            .values()
+            .any(|i| i.session_id_poller.is_some())
+        {
+            return false;
+        }
         // `drain_and_persist_session_ids` takes `&mut [Instance]` and is
         // shared with `src/server/mod.rs`. Snapshot into a `Vec` at the
         // boundary, then re-`insert` touched ids back into the map;
@@ -4163,6 +4178,23 @@ impl HomeView {
             .collect()
     }
 
+    /// Build the id-keyed `IndexMap` from a `Vec<Instance>` (the storage-load
+    /// shape). Logs a warning on a duplicate id so a corrupt disk state
+    /// surfaces in logs rather than silently keeping only the last row.
+    fn build_instances_map(all_instances: Vec<Instance>) -> indexmap::IndexMap<String, Instance> {
+        let mut map = indexmap::IndexMap::with_capacity(all_instances.len());
+        for inst in all_instances {
+            if let Some(prev) = map.insert(inst.id.clone(), inst) {
+                tracing::warn!(
+                    target: "tui.home",
+                    id = %prev.id,
+                    "duplicate session id in loaded rows; keeping later entry"
+                );
+            }
+        }
+        map
+    }
+
     /// `cloned_instances_for_profile` on `self.active_profile` when set,
     /// else the unfiltered `cloned_instances`. The scope every UI-facing
     /// build path (flat items, project view) shares.
@@ -5261,7 +5293,7 @@ impl HomeView {
             return;
         };
         let patch = crate::session::PassiveStatusPatch::from_instance(inst);
-        let _ = storage.update(|insts, _groups| {
+        if let Err(e) = storage.update(|insts, _groups| {
             if let Some(disk) = insts.iter_mut().find(|i| i.id == patch.id) {
                 disk.merge_passive_status_patch(&patch);
                 if mark_unread {
@@ -5269,7 +5301,21 @@ impl HomeView {
                 }
             }
             Ok(())
-        });
+        }) {
+            // Best-effort persistence (see method docstring): a write
+            // failure here does not roll back the in-memory update, but
+            // silence would obscure a persistent flock timeout or EIO
+            // loop. The daemon's sibling path in
+            // `api::persist_session_update` logs the same class of
+            // failure at `target: "http.api.sessions"`; log here so a
+            // TUI-only user has parity visibility under
+            // `AOE_LOG_LEVEL=debug`.
+            tracing::warn!(
+                target: "session.store",
+                session_id = %patch.id,
+                "persist_passive_status_transition failed: {e}"
+            );
+        }
     }
 
     /// Atomic per-action mutate: in-memory once, disk via
