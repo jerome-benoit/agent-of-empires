@@ -45,6 +45,7 @@ mod plugins;
 mod profile_picker;
 mod project_registry;
 mod resume_fallback;
+mod purge_restore_race;
 mod sandbox;
 mod serve;
 mod settings;

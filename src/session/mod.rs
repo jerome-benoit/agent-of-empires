@@ -4,6 +4,7 @@ pub mod artifacts;
 pub mod builder;
 pub(crate) mod capture;
 pub mod civilizations;
+pub(crate) mod claim;
 // Discovery of on-disk Claude Code sessions. Lives here (not under the
 // serve-gated `acp` module) because terminal/tmux import via the CLI works in
 // every build; only the structured-view import path needs `serve`.
@@ -62,9 +63,9 @@ pub use groups::{
 pub(crate) use instance::ResumeAttemptPolicy;
 pub(crate) use instance::{persist_session_to_storage, PassiveStatusPatch, ResumeIntent, SidWrite};
 pub use instance::{
-    EnsureReadyError, EnsureReadyOutcome, Instance, LaunchSidOutcome, SandboxInfo, SessionBucket,
-    StartOutcome, Status, TerminalInfo, View, WorkspaceInfo, WorkspaceRepo, WorktreeInfo,
-    TMUX_SESSION_GONE_ERROR,
+    ClaimOp, EnsureReadyError, EnsureReadyOutcome, Instance, LaunchSidOutcome, SandboxInfo,
+    SessionBucket, StartOutcome, Status, TerminalInfo, View, WorkspaceInfo, WorkspaceRepo,
+    WorktreeInfo, TMUX_SESSION_GONE_ERROR,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};
