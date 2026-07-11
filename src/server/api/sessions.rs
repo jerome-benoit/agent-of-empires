@@ -4515,8 +4515,12 @@ pub async fn create_session(
                             .await
                             .iter()
                             .any(|i| i.id == id);
+                        // On CapacityFull the reconciler adopts this orphan
+                        // next tick and respawns once a slot frees; its
+                        // `capacity_deferred` gate re-publishes the same banner
+                        // once (a single benign duplicate). See #1027.
                         let message =
-                            format!("Failed to start structured view agent {agent:?}: {e}");
+                            crate::server::api::structured_spawn_error_message(&e, &agent);
                         if still_present {
                             tracing::warn!(
                                 target: "acp.supervisor",

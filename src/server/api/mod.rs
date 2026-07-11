@@ -24,6 +24,8 @@ pub(crate) mod system;
 mod telemetry;
 
 #[cfg(feature = "serve")]
+pub(crate) use acp::structured_spawn_error_message;
+#[cfg(feature = "serve")]
 pub use acp::{
     acp_attachment, acp_cancel, acp_context_primer, acp_disable, acp_enable, acp_files,
     acp_force_end_turn, acp_prompt, acp_prompt_diff_comments, acp_replay, acp_set_config_option,
