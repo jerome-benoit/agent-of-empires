@@ -651,6 +651,12 @@ pub struct HomeView {
     /// worker reports back via `apply_restart_results`.
     pub(super) restart_in_flight: std::collections::HashSet<String>,
 
+    /// Trashed sessions whose permanent-purge Purge claim (#2541) this TUI won
+    /// before dispatching the teardown. Their delete finalize applies the #2534
+    /// restore-race recheck and releases the claim (ownership-guarded), instead
+    /// of the plain live-session removal.
+    pub(super) purge_claimed: std::collections::HashSet<String>,
+
     // Performance: background session creation (for sandbox)
     pub(super) creation_poller: CreationPoller,
     /// Set to true if user cancelled while creation was pending
@@ -1905,6 +1911,23 @@ impl HomeView {
                     });
                 }
             }
+            // Self-heal (#2541): clear op_claims left by a purge/restore that
+            // crashed mid-operation. `try_claim` already treats an expired claim
+            // as free, so this is belt-and-suspenders that stops a stranded
+            // claim from lingering on disk after a crash.
+            let ttl = crate::session::Instance::op_claim_ttl();
+            let now = chrono::Utc::now();
+            for inst in &mut instances {
+                if inst.clear_expired_op_claim(ttl, now) {
+                    let target_id = inst.id.clone();
+                    let _ = storage.update(|disk, _groups| {
+                        if let Some(d) = disk.iter_mut().find(|i| i.id == target_id) {
+                            d.clear_expired_op_claim(ttl, now);
+                        }
+                        Ok(())
+                    });
+                }
+            }
             let tree = GroupTree::new_with_groups(&instances, &groups);
             group_trees.insert(profile_name.clone(), tree);
             all_instances.extend(instances);
@@ -2079,6 +2102,7 @@ impl HomeView {
             stop_poller: StopPoller::new(),
             restart_poller: RestartPoller::new(),
             restart_in_flight: std::collections::HashSet::new(),
+            purge_claimed: std::collections::HashSet::new(),
             creation_poller: CreationPoller::new(),
             creation_cancelled: false,
             on_launch_hooks_ran: HashSet::new(),
@@ -2814,6 +2838,32 @@ impl HomeView {
                     .instances
                     .get(&result.session_id)
                     .and_then(crate::session::recent_project_entry_for);
+
+                // A claimed trashed-purge (#2541) commits under the flock with
+                // the #2534 restore-race recheck: if a peer restored the session
+                // mid-purge, keep the restored row and release our claim rather
+                // than dropping it. Otherwise it removes the row on disk itself,
+                // so the normal in-memory removal is skipped in favor of a
+                // reload that converges with disk.
+                if self.purge_claimed.remove(&result.session_id) {
+                    let kept_restored = self.finalize_claimed_purge(&result.session_id);
+                    if kept_restored {
+                        self.info_dialog = Some(InfoDialog::new(
+                            "Session restored",
+                            "This session was restored while its delete ran; the record was kept, but its worktree, branch, container, or transcript may already be gone. Inspect and repair it.",
+                        ));
+                    } else if let Some(entry) = recent_entry {
+                        if let Err(e) = crate::session::record_recent_project(entry) {
+                            tracing::warn!(target: "tui.home",
+                                "recording recent project after delete failed: {e}");
+                        }
+                    }
+                    if let Err(e) = self.reload() {
+                        tracing::warn!(target: "tui.home", "Failed to reload session state: {e}");
+                    }
+                    return true;
+                }
+
                 self.remove_instance(&result.session_id);
                 self.rebuild_group_trees();
 
@@ -2830,6 +2880,12 @@ impl HomeView {
                     tracing::warn!(target: "tui.home", "Failed to reload session state: {e}");
                 }
             } else {
+                // A claimed trashed-purge whose teardown failed keeps the row
+                // for retry; release our owned Purge claim so it is not wedged
+                // (a peer restore is then free to win). See #2541.
+                if self.purge_claimed.remove(&result.session_id) {
+                    self.release_trashed_purge_claim(&result.session_id);
+                }
                 let error = if result.errors.is_empty() {
                     None
                 } else {

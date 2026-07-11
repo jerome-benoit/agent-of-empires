@@ -410,6 +410,30 @@ pub enum SessionBucket {
     Trashed,
 }
 
+/// Which irreversible operation currently owns a session's `op_claim`. The
+/// purge (permanent teardown) and restore (worktree move-back) paths run their
+/// slow work on an unlocked snapshot; the claim is the durable, cross-process
+/// primitive that serializes the two so neither tears down (or moves) state the
+/// other is authoritative over. See #2541.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ClaimOp {
+    Purge,
+    Restore,
+}
+
+/// A durable ownership marker for an in-flight purge or restore. `at` serves
+/// double duty: ownership plus the base for the TTL self-heal (a claim older
+/// than the TTL is treated as absent, so a crash mid-operation cannot strand a
+/// row permanently). Written on disk under the storage flock via
+/// [`Instance::try_claim`], the only serialization point visible across the
+/// CLI, the serve daemon, and the TUI. See #2541.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpClaim {
+    pub op: ClaimOp,
+    pub at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instance {
     pub id: String,
@@ -550,6 +574,19 @@ pub struct Instance {
     /// `sessions.json` rows, so no migration is needed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pre_trash_project_path: Option<String>,
+
+    /// Durable ownership of an in-flight purge or restore, acquired under the
+    /// storage flock via [`Self::try_claim`] before either path runs its slow
+    /// unlocked phase (purge teardown, restore worktree move). It closes the
+    /// cross-process purge/restore race (#2541): a purge refuses to tear down a
+    /// row a fresh restore claim holds, and a restore refuses to move a row a
+    /// fresh purge claim holds. Deliberately NOT copied by
+    /// [`Self::merge_user_action_diff`]: keeping it out of the peer-diff set is
+    /// exactly what stops a concurrent user action from clobbering a live claim.
+    /// Additive: absent in older `sessions.json` rows, so no migration is
+    /// needed (mirrors `trashed_at`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op_claim: Option<OpClaim>,
 
     /// Namespaced per-session plugin data, keyed by plugin id. Each plugin
     /// owns only its own slot (`plugin_meta["<id>"]`), an opaque JSON value it
@@ -1107,6 +1144,7 @@ impl Instance {
             pinned_at: None,
             trashed_at: None,
             pre_trash_project_path: None,
+            op_claim: None,
             plugin_meta: std::collections::BTreeMap::new(),
             scratch: false,
             worktree_info: None,
@@ -1480,6 +1518,10 @@ impl Instance {
         if pre.status != post.status {
             self.status = post.status;
         }
+        // `op_claim` is intentionally NOT spliced here. It is a cross-process
+        // ownership marker for an in-flight purge/restore, not a user-action
+        // field; excluding it from the peer diff is what stops a concurrent
+        // user action from clobbering a live claim on disk. See #2541.
         self.last_accessed_at = self.last_accessed_at.max(post.last_accessed_at);
 
         let archived_changed = pre.archived_at != post.archived_at;
@@ -1579,6 +1621,66 @@ impl Instance {
 
     pub fn is_trashed(&self) -> bool {
         self.trashed_at.is_some()
+    }
+
+    /// TTL for an [`OpClaim`]. Longer than any realistic teardown or worktree
+    /// move so a live operation is never overridden mid-flight, short enough
+    /// that a crash mid-operation self-heals promptly (the next purge/restore
+    /// overrides the expired claim, and the load-time reconcile clears it). See
+    /// #2541.
+    pub fn op_claim_ttl() -> chrono::Duration {
+        chrono::Duration::minutes(10)
+    }
+
+    /// Atomically acquire or keep the op claim for `want`. Returns `Ok` when
+    /// the claim is free, already ours, or expired (self-heal), and
+    /// `Err(holder)` when the other operation holds a still-fresh claim.
+    ///
+    /// Must be called inside a `Storage::update` closure so the check-and-set
+    /// runs under the storage flock, the only cross-process serialization
+    /// point. The whole destructive/irreversible phase (purge teardown, restore
+    /// worktree move) must win this before running unlocked, and clear the
+    /// claim when it finishes. See #2541.
+    pub fn try_claim(
+        &mut self,
+        want: ClaimOp,
+        ttl: chrono::Duration,
+        now: DateTime<Utc>,
+    ) -> Result<(), ClaimOp> {
+        match &self.op_claim {
+            Some(c) if c.op != want && (now - c.at) < ttl => Err(c.op.clone()),
+            _ => {
+                self.op_claim = Some(OpClaim { op: want, at: now });
+                Ok(())
+            }
+        }
+    }
+
+    /// Drop the op claim unconditionally.
+    pub fn clear_op_claim(&mut self) {
+        self.op_claim = None;
+    }
+
+    /// Drop the op claim only when it is owned by `op`. Ownership-guarding the
+    /// clear is critical on the stale-override path: if a purge overran the TTL
+    /// and a peer restore overrode it with a fresh Restore claim, the purge's
+    /// final commit must not clear that live Restore claim. See #2541.
+    pub fn clear_op_claim_if_owned(&mut self, op: ClaimOp) {
+        if matches!(&self.op_claim, Some(c) if c.op == op) {
+            self.op_claim = None;
+        }
+    }
+
+    /// Self-heal: drop an expired claim so a crash mid-operation cannot strand
+    /// a row as permanently un-purgeable/un-restorable. Returns whether it
+    /// cleared anything (so a caller can persist only when needed). See #2541.
+    pub fn clear_expired_op_claim(&mut self, ttl: chrono::Duration, now: DateTime<Utc>) -> bool {
+        if matches!(&self.op_claim, Some(c) if (now - c.at) >= ttl) {
+            self.op_claim = None;
+            true
+        } else {
+            false
+        }
     }
 
     /// The mutually-exclusive lifecycle bucket a session renders in.
@@ -5490,6 +5592,202 @@ mod tests {
         let json = serde_json::to_string(&inst).expect("serialize");
         let back: Instance = serde_json::from_str(&json).expect("round-trip");
         assert!(back.is_trashed());
+    }
+
+    // Mirrors `test_trashed_at_serde_roundtrip_and_default`: a fresh row omits
+    // `op_claim` on the wire (skip_serializing_if), so a legacy sessions.json
+    // without the key deserializes to None and no migration is needed. A set
+    // claim round-trips. Runs in both the non-serve and serve builds. See #2541.
+    #[test]
+    fn test_op_claim_serde_roundtrip_and_default() {
+        let fresh = Instance::new("s", "/tmp/x");
+        let fresh_json = serde_json::to_string(&fresh).expect("serialize fresh");
+        assert!(
+            !fresh_json.contains("op_claim"),
+            "None op_claim must not be serialized"
+        );
+        let parsed: Instance = serde_json::from_str(&fresh_json).expect("parse fresh");
+        assert_eq!(parsed.op_claim, None, "missing op_claim => None");
+
+        let mut inst = Instance::new("s", "/tmp/x");
+        let now = Utc::now();
+        inst.try_claim(ClaimOp::Purge, Instance::op_claim_ttl(), now)
+            .expect("free row grants the claim");
+        let json = serde_json::to_string(&inst).expect("serialize");
+        let back: Instance = serde_json::from_str(&json).expect("round-trip");
+        assert_eq!(
+            back.op_claim,
+            Some(OpClaim {
+                op: ClaimOp::Purge,
+                at: now
+            })
+        );
+    }
+
+    // Mirrors `test_ensure_pane_ready_bails_on_deleting`: a fresh Purge claim
+    // makes a Restore claim attempt lose (symmetry). See #2541.
+    #[test]
+    fn restore_refuses_claimed_row() {
+        let mut inst = Instance::new("s", "/tmp/x");
+        let now = Utc::now();
+        inst.try_claim(ClaimOp::Purge, Instance::op_claim_ttl(), now)
+            .expect("purge wins the free row");
+        assert_eq!(
+            inst.try_claim(ClaimOp::Restore, Instance::op_claim_ttl(), now),
+            Err(ClaimOp::Purge),
+            "a fresh Purge claim must refuse a Restore"
+        );
+    }
+
+    // Symmetry the other direction: a fresh Restore claim refuses a Purge.
+    #[test]
+    fn purge_refuses_restore_claimed_row() {
+        let mut inst = Instance::new("s", "/tmp/x");
+        let now = Utc::now();
+        inst.try_claim(ClaimOp::Restore, Instance::op_claim_ttl(), now)
+            .expect("restore wins the free row");
+        assert_eq!(
+            inst.try_claim(ClaimOp::Purge, Instance::op_claim_ttl(), now),
+            Err(ClaimOp::Restore),
+        );
+    }
+
+    // Two purges of the same row: the second `try_claim(Purge)` on an already
+    // Purge-claimed row reacquires (no refusal) and refreshes the timestamp.
+    // See #2541.
+    #[test]
+    fn concurrent_purge_reacquires_own_claim() {
+        let mut inst = Instance::new("s", "/tmp/x");
+        let first = Utc::now();
+        inst.try_claim(ClaimOp::Purge, Instance::op_claim_ttl(), first)
+            .expect("first purge claims");
+        let second = first + chrono::Duration::seconds(5);
+        inst.try_claim(ClaimOp::Purge, Instance::op_claim_ttl(), second)
+            .expect("second purge reacquires its own claim");
+        assert_eq!(
+            inst.op_claim.as_ref().map(|c| c.at),
+            Some(second),
+            "reacquisition refreshes the claim timestamp"
+        );
+    }
+
+    // Self-heal: a claim older than the TTL is treated as absent, so the other
+    // operation can override it. Eliminates the post-crash wedge. See #2541.
+    #[test]
+    fn stale_claim_is_overridable() {
+        let mut inst = Instance::new("s", "/tmp/x");
+        let ttl = Instance::op_claim_ttl();
+        let old = Utc::now() - ttl - chrono::Duration::seconds(1);
+        inst.op_claim = Some(OpClaim {
+            op: ClaimOp::Purge,
+            at: old,
+        });
+        let now = Utc::now();
+        assert_eq!(
+            inst.try_claim(ClaimOp::Restore, ttl, now),
+            Ok(()),
+            "an expired Purge claim must not block a Restore"
+        );
+        assert_eq!(inst.op_claim.map(|c| c.op), Some(ClaimOp::Restore));
+    }
+
+    // Cross-surface server guarantee (#2541): the retention auto-purge
+    // (`purge_expired_trash` -> `purge_session_artifacts` -> `acquire_op_claim`)
+    // skips a row a fresh Restore claim holds, because `try_claim(Purge)` is
+    // refused and leaves the claim untouched. The full daemon wiring is not
+    // unit-testable (it needs a live `AppState`); this pins the claim decision
+    // the sweep relies on.
+    #[cfg(feature = "serve")]
+    #[test]
+    fn purge_expired_trash_skips_claimed_row() {
+        let mut row = Instance::new("s", "/tmp/x");
+        row.trash();
+        let now = Utc::now();
+        let ttl = Instance::op_claim_ttl();
+        row.try_claim(ClaimOp::Restore, ttl, now)
+            .expect("restore holds the row");
+        let before = row.op_claim.clone();
+        assert_eq!(
+            row.try_claim(ClaimOp::Purge, ttl, now),
+            Err(ClaimOp::Restore),
+            "the retention purge must be refused while a restore holds the row"
+        );
+        assert_eq!(
+            row.op_claim, before,
+            "a refused purge leaves the restore claim untouched"
+        );
+    }
+
+    // The ownership-guarded clear only drops a claim owned by the requested op,
+    // so a purge's final commit never clobbers a peer's fresh Restore claim on
+    // the stale-override path. See #2541.
+    #[test]
+    fn clear_op_claim_if_owned_only_clears_matching_op() {
+        let mut inst = Instance::new("s", "/tmp/x");
+        inst.op_claim = Some(OpClaim {
+            op: ClaimOp::Restore,
+            at: Utc::now(),
+        });
+        inst.clear_op_claim_if_owned(ClaimOp::Purge);
+        assert_eq!(
+            inst.op_claim.as_ref().map(|c| c.op.clone()),
+            Some(ClaimOp::Restore),
+            "clearing for Purge must leave a Restore claim intact"
+        );
+        inst.clear_op_claim_if_owned(ClaimOp::Restore);
+        assert_eq!(inst.op_claim, None, "clearing for the owner drops it");
+    }
+
+    #[test]
+    fn clear_expired_op_claim_only_clears_expired() {
+        let ttl = Instance::op_claim_ttl();
+        let now = Utc::now();
+        let mut fresh = Instance::new("s", "/tmp/x");
+        fresh.op_claim = Some(OpClaim {
+            op: ClaimOp::Purge,
+            at: now,
+        });
+        assert!(!fresh.clear_expired_op_claim(ttl, now));
+        assert!(fresh.op_claim.is_some(), "a fresh claim survives");
+
+        let mut stale = Instance::new("s", "/tmp/x");
+        stale.op_claim = Some(OpClaim {
+            op: ClaimOp::Purge,
+            at: now - ttl - chrono::Duration::seconds(1),
+        });
+        assert!(stale.clear_expired_op_claim(ttl, now));
+        assert_eq!(stale.op_claim, None, "an expired claim is cleared");
+    }
+
+    // Sequenced substitute for the real cross-process race, which is not
+    // unit-testable (the true serialization is the storage flock across
+    // processes). Steps mirror the flock-serialized closures: a purge claims,
+    // a concurrent restore's claim attempt bails, and the purge's final removal
+    // (still-trashed row) proceeds regardless. See #2541.
+    #[test]
+    fn sequenced_purge_blocks_restore_then_removes() {
+        let ttl = Instance::op_claim_ttl();
+        let now = Utc::now();
+        let mut row = Instance::new("s", "/tmp/x");
+        row.trash();
+
+        // Purge wins the claim first.
+        row.try_claim(ClaimOp::Purge, ttl, now)
+            .expect("purge claims");
+
+        // A concurrent restore, reaching the flock afterwards, is refused.
+        assert_eq!(
+            row.try_claim(ClaimOp::Restore, ttl, now),
+            Err(ClaimOp::Purge),
+            "restore must bail while a fresh purge claim holds"
+        );
+
+        // The restore having bailed, the row is still trashed, so the purge's
+        // #2534 final-commit recheck removes it.
+        assert!(
+            !crate::cli::purge_restored_row_must_be_kept(true, row.is_trashed()),
+            "a still-trashed row is removed, not kept"
+        );
     }
 
     // A non-fork session omits fork_pending on the wire (skip_serializing_if),

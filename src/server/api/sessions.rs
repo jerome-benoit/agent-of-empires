@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::git::error::GitError;
 use crate::session::config::SessionConfig;
-use crate::session::{EnsureReadyError, EnsureReadyOutcome, Instance, Status, Storage};
+use crate::session::{ClaimOp, EnsureReadyError, EnsureReadyOutcome, Instance, Status, Storage};
 
 use super::validate_display_label;
 use super::validate_no_shell_injection;
@@ -1776,6 +1776,114 @@ fn persist_failed_response() -> axum::response::Response {
         .into_response()
 }
 
+/// Outcome of acquiring a durable op claim on disk. See #2541.
+enum OpClaimResult {
+    /// The claim is ours (free, expired, or already held by this op).
+    Claimed,
+    /// The other operation holds a still-fresh claim.
+    Refused,
+    /// The row is no longer on disk.
+    Gone,
+    /// Storage failed; the caller surfaces a 500.
+    Error,
+}
+
+/// Acquire the durable `op` claim for session `id` on disk, under the storage
+/// flock. That flock is the only serialization point visible across the CLI,
+/// the serve daemon, and the TUI, so the in-memory `instance_lock` alone cannot
+/// close the cross-process purge/restore race. See #2541.
+async fn acquire_op_claim(
+    state: &Arc<AppState>,
+    profile: &str,
+    id: &str,
+    op: ClaimOp,
+) -> OpClaimResult {
+    let profile = profile.to_string();
+    let id = id.to_string();
+    let file_watch = state.file_watch.clone();
+    let joined = tokio::task::spawn_blocking(move || {
+        let storage = Storage::new(&profile, file_watch).map_err(|e| e.to_string())?;
+        storage
+            .update(|instances, _groups| {
+                let Some(stored) = instances.iter_mut().find(|i| i.id == id) else {
+                    return Ok(OpClaimResult::Gone);
+                };
+                Ok(
+                    match stored.try_claim(op, Instance::op_claim_ttl(), chrono::Utc::now()) {
+                        Ok(()) => OpClaimResult::Claimed,
+                        Err(_) => OpClaimResult::Refused,
+                    },
+                )
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await;
+    match joined {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => {
+            tracing::error!(target: "http.api.sessions", "op claim acquire failed: {e}");
+            OpClaimResult::Error
+        }
+        Err(e) => {
+            tracing::error!(target: "http.api.sessions", "op claim acquire join failed: {e}");
+            OpClaimResult::Error
+        }
+    }
+}
+
+/// Release the `op` claim for session `id` on disk and in memory,
+/// ownership-guarded so a peer's fresh claim (stale-override) is never cleared.
+/// Best-effort: a stranded claim self-heals via the TTL. See #2541.
+async fn release_op_claim(state: &Arc<AppState>, profile: &str, id: &str, op: ClaimOp) {
+    let disk_op = op.clone();
+    let _ = persist_session_update(
+        profile.to_string(),
+        "op-claim-release",
+        state.file_watch.clone(),
+        {
+            let id = id.to_string();
+            move |instances| {
+                if let Some(inst) = instances.iter_mut().find(|i| i.id == id) {
+                    inst.clear_op_claim_if_owned(disk_op);
+                }
+            }
+        },
+    )
+    .await;
+    let mut instances = state.instances.write().await;
+    if let Some(inst) = instances.iter_mut().find(|i| i.id == id) {
+        inst.clear_op_claim_if_owned(op);
+    }
+}
+
+/// Run `mutate` on the disk instances under the storage flock and return its
+/// bool result (e.g. whether a claim-guarded commit landed). See #2541.
+async fn persist_op_result<F>(state: &Arc<AppState>, profile: &str, mutate: F) -> Result<bool, ()>
+where
+    F: FnOnce(&mut Vec<Instance>) -> bool + Send + 'static,
+{
+    let profile = profile.to_string();
+    let file_watch = state.file_watch.clone();
+    let joined = tokio::task::spawn_blocking(move || {
+        let storage = Storage::new(&profile, file_watch).map_err(|e| e.to_string())?;
+        storage
+            .update(|instances, _groups| Ok(mutate(instances)))
+            .map_err(|e| e.to_string())
+    })
+    .await;
+    match joined {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(e)) => {
+            tracing::error!(target: "http.api.sessions", "persist op result failed: {e}");
+            Err(())
+        }
+        Err(e) => {
+            tracing::error!(target: "http.api.sessions", "persist op result join failed: {e}");
+            Err(())
+        }
+    }
+}
+
 pub async fn update_session_notifications(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -2482,6 +2590,33 @@ pub async fn restore_session(
         (inst.source_profile.clone(), inst.clone())
     };
 
+    // Symmetric claim (#2541): win the Restore claim on disk BEFORE the unlocked
+    // worktree move. The in-memory `instance_lock` held above does not serialize
+    // a purge running in another process (CLI / another daemon); only the
+    // durable on-disk claim does. A fresh peer Purge claim wins and the restore
+    // is refused.
+    match acquire_op_claim(&state, &profile, &id, ClaimOp::Restore).await {
+        OpClaimResult::Claimed => {}
+        OpClaimResult::Gone => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "message": "Session not found" })),
+            )
+                .into_response();
+        }
+        OpClaimResult::Refused => {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": "purge_in_progress",
+                    "message": "Session is being purged; restore was refused"
+                })),
+            )
+                .into_response();
+        }
+        OpClaimResult::Error => return persist_failed_response(),
+    }
+
     // Move the worktree back to its pre-trash location before clearing the
     // marker. Strict: if the original path is occupied or git refuses, keep
     // the session trashed and surface a conflict, rather than restoring it to
@@ -2497,10 +2632,12 @@ pub async fn restore_session(
         Ok(pair) => pair,
         Err(e) => {
             tracing::warn!(target: "http.api.sessions", session = %id, "restore relocation join failed: {e}");
+            release_op_claim(&state, &profile, &id, ClaimOp::Restore).await;
             return persist_failed_response();
         }
     };
     if let crate::session::trash::RestoreOutcome::Failed { reason } = &restored.0 {
+        release_op_claim(&state, &profile, &id, ClaimOp::Restore).await;
         return (
             StatusCode::CONFLICT,
             Json(serde_json::json!({
@@ -2513,24 +2650,39 @@ pub async fn restore_session(
     let restored_path = restored.1.project_path.clone();
     let restored_pre = restored.1.pre_trash_project_path.clone();
 
-    let persist_id = id.clone();
+    // Final commit under the flock: untrash + release our claim, but only if we
+    // still own it. A stale-override purge (past the TTL) may have stolen it
+    // mid-move; in that case do not untrash and let the purge win (degrades to
+    // #2534, never worse than the status quo). See #2541.
+    let commit_id = id.clone();
     let (rp, pre) = (restored_path.clone(), restored_pre.clone());
-    if persist_session_update(
-        profile,
-        "restore",
-        state.file_watch.clone(),
-        move |instances| {
-            if let Some(inst) = instances.iter_mut().find(|i| i.id == persist_id) {
-                inst.project_path = rp.clone();
-                inst.pre_trash_project_path = pre.clone();
-                inst.untrash();
-            }
-        },
-    )
+    let committed = match persist_op_result(&state, &profile, move |instances| {
+        let Some(inst) = instances.iter_mut().find(|i| i.id == commit_id) else {
+            return false;
+        };
+        if matches!(&inst.op_claim, Some(c) if c.op == ClaimOp::Purge) {
+            return false;
+        }
+        inst.project_path = rp.clone();
+        inst.pre_trash_project_path = pre.clone();
+        inst.untrash();
+        inst.clear_op_claim_if_owned(ClaimOp::Restore);
+        true
+    })
     .await
-    .is_err()
     {
-        return persist_failed_response();
+        Ok(v) => v,
+        Err(()) => return persist_failed_response(),
+    };
+    if !committed {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": "purge_in_progress",
+                "message": "Session was claimed by a purge mid-restore; restore was refused"
+            })),
+        )
+            .into_response();
     }
 
     let mut instances = state.instances.write().await;
@@ -2540,6 +2692,7 @@ pub async fn restore_session(
     inst.project_path = restored_path;
     inst.pre_trash_project_path = restored_pre;
     inst.untrash();
+    inst.clear_op_claim_if_owned(ClaimOp::Restore);
     let response =
         SessionResponse::from_instance(&*inst, crate::claude_settings::read_tui_fullscreen());
     (StatusCode::OK, Json(serde_json::json!(response))).into_response()
@@ -3304,6 +3457,22 @@ async fn purge_session_artifacts(
     recent_entry: Option<crate::session::RecentProjectEntry>,
 ) -> Result<Vec<String>, String> {
     let profile = instance.source_profile.clone();
+    let was_trashed = instance.is_trashed();
+
+    // Symmetric claim (#2541): win the Purge claim on disk before any
+    // irreversible teardown, so a restore from another process cannot bring the
+    // session back after its artifacts are gone. Refuse when a fresh Restore
+    // claim holds the row; a row already gone from disk proceeds (the teardown
+    // is idempotent and the final removal is a no-op).
+    match acquire_op_claim(state, &profile, id, ClaimOp::Purge).await {
+        OpClaimResult::Claimed | OpClaimResult::Gone => {}
+        OpClaimResult::Refused => {
+            return Err("Session is being restored, so it was not purged".to_string())
+        }
+        OpClaimResult::Error => {
+            return Err("Failed to acquire the purge claim under the storage lock".to_string())
+        }
+    }
 
     // True once we have crossed the irreversible line (the structured-view
     // transcript has been deleted). After that point a sidecar-cleanup
@@ -3369,6 +3538,7 @@ async fn purge_session_artifacts(
             // Nothing irreversible happened (no transcript to lose), so keep
             // the row intact and let the caller surface the error; the user
             // can retry, e.g. with force on a dirty worktree.
+            release_op_claim(state, &profile, id, ClaimOp::Purge).await;
             return Err(errs);
         }
         // The durable transcript is already gone; a kept row would only allow
@@ -3387,13 +3557,32 @@ async fn purge_session_artifacts(
 
     // Disk first: if persistence fails, in-memory state stays intact and the
     // poll loop will not re-add a half-deleted row.
+    // #2534/#2541: revalidate under the flock. The teardown ran on an unlocked
+    // snapshot; if a restore from another process brought the session back
+    // (stale-override past the claim TTL), keep the row and release our purge
+    // claim (ownership-guarded) rather than deleting a session the user just
+    // restored. Degrades that rare residual to #2534 behavior, never worse.
     let storage = Storage::new(&profile, state.file_watch.clone())
         .map_err(|e| format!("Session was torn down but storage init failed: {e}"))?;
     let id_for_save = id.to_string();
-    tokio::task::spawn_blocking(move || {
+    let kept_restored = tokio::task::spawn_blocking(move || {
         storage.update(|instances, _groups| {
-            instances.retain(|i| i.id != id_for_save);
-            Ok(())
+            Ok(match instances.iter().position(|i| i.id == id_for_save) {
+                None => false,
+                Some(idx)
+                    if crate::cli::purge_restored_row_must_be_kept(
+                        was_trashed,
+                        instances[idx].is_trashed(),
+                    ) =>
+                {
+                    instances[idx].clear_op_claim_if_owned(ClaimOp::Purge);
+                    true
+                }
+                Some(idx) => {
+                    instances.remove(idx);
+                    false
+                }
+            })
         })
     })
     .await
@@ -3401,6 +3590,17 @@ async fn purge_session_artifacts(
     .map_err(|e| {
         format!("Session deletion completed on disk, but sessions.json could not be updated: {e}")
     })?;
+
+    if kept_restored {
+        tracing::warn!(
+            target: "http.api.sessions",
+            session = %id,
+            "session was restored while its purge ran; kept the restored row, but its worktree, branch, container, or transcript may already be gone"
+        );
+        // Leave the in-memory row and its lock in place; the poll loop
+        // converges its trashed flag from the peer's on-disk untrash.
+        return Ok(messages);
+    }
 
     {
         let mut instances = state.instances.write().await;
@@ -3431,6 +3631,29 @@ pub(crate) async fn reconcile_trashed_worktrees(state: &Arc<AppState>) {
             .map(|i| (i.id.clone(), i.source_profile.clone()))
             .collect()
     };
+
+    // Self-heal (#2541): clear op_claims left by a purge/restore that crashed
+    // mid-operation. `try_claim` already treats an expired claim as free, so
+    // this is belt-and-suspenders; it stops a stranded claim from lingering on
+    // disk after a crash, on the daemon's startup reconcile pass.
+    let profiles: std::collections::HashSet<String> =
+        candidates.iter().map(|(_, p)| p.clone()).collect();
+    let now = chrono::Utc::now();
+    let ttl = Instance::op_claim_ttl();
+    for profile in profiles {
+        let _ = persist_session_update(
+            profile,
+            "op-claim-self-heal",
+            state.file_watch.clone(),
+            move |instances| {
+                for inst in instances.iter_mut() {
+                    inst.clear_expired_op_claim(ttl, now);
+                }
+            },
+        )
+        .await;
+    }
+
     for (id, profile) in candidates {
         let lock = state.instance_lock(&id).await;
         let _guard = lock.lock().await;

@@ -5,7 +5,7 @@ use clap::{Args, Subcommand};
 use serde::Serialize;
 use std::collections::HashSet;
 
-use crate::session::{GroupTree, Instance, ResumeIntent, StartOutcome, Storage};
+use crate::session::{ClaimOp, GroupTree, Instance, ResumeIntent, StartOutcome, Storage};
 
 #[derive(Subcommand)]
 pub enum SessionCommands {
@@ -419,6 +419,35 @@ async fn restore_session(profile: &str, args: SessionIdArgs) -> Result<()> {
         .clone();
     let restore_id = inst.id.clone();
 
+    // Symmetric claim (#2541): win the Restore claim under the flock BEFORE the
+    // unlocked worktree move, so a concurrent purge from another process cannot
+    // tear the worktree down while this restore relocates it. A fresh Purge
+    // claim wins here and the restore bails.
+    let claimed = storage.update(|instances, _groups| {
+        let Some(stored) = instances.iter_mut().find(|i| i.id == restore_id) else {
+            return Ok(None);
+        };
+        match stored.try_claim(
+            ClaimOp::Restore,
+            Instance::op_claim_ttl(),
+            chrono::Utc::now(),
+        ) {
+            Ok(()) => Ok(Some(true)),
+            Err(ClaimOp::Purge) => Ok(Some(false)),
+            Err(_) => Ok(Some(true)),
+        }
+    })?;
+    match claimed {
+        None => anyhow::bail!("No trashed session matching '{}'", args.identifier),
+        Some(false) => {
+            anyhow::bail!(
+                "Session {} is being purged by another process, so it was not restored",
+                inst.title
+            )
+        }
+        Some(true) => {}
+    }
+
     // Move the worktree back to its pre-trash location before flipping the
     // marker. Strict: if the original path is occupied or git refuses, leave
     // the session trashed and surface the error rather than restoring it to
@@ -426,6 +455,7 @@ async fn restore_session(profile: &str, args: SessionIdArgs) -> Result<()> {
     if let crate::session::trash::RestoreOutcome::Failed { reason } =
         crate::session::trash::restore_worktree_location(&mut inst)
     {
+        release_restore_claim(&storage, &restore_id);
         anyhow::bail!("Cannot restore worktree: {reason}");
     }
     let restored_path = inst.project_path.clone();
@@ -436,13 +466,34 @@ async fn restore_session(profile: &str, args: SessionIdArgs) -> Result<()> {
             .iter_mut()
             .find(|i| i.id == restore_id)
             .ok_or_else(|| anyhow::anyhow!("No trashed session matching '{}'", args.identifier))?;
+        // If a stale-override purge stole our claim while the worktree moved,
+        // do not untrash: let the purge win (degrades to #2534, never worse
+        // than the status quo). See #2541.
+        if matches!(&stored.op_claim, Some(c) if c.op == ClaimOp::Purge) {
+            anyhow::bail!(
+                "Session {} was claimed by a purge mid-restore, so it was not restored",
+                stored.title
+            );
+        }
         stored.project_path = restored_path.clone();
         stored.pre_trash_project_path = restored_pre.clone();
         stored.untrash();
+        stored.clear_op_claim_if_owned(ClaimOp::Restore);
         Ok(stored.title.clone())
     })?;
     println!("Restored: {}", title);
     Ok(())
+}
+
+/// Release a Restore claim after a failed worktree move, ownership-guarded so a
+/// peer's fresh Purge claim (stale-override) is never cleared. See #2541.
+fn release_restore_claim(storage: &Storage, restore_id: &str) {
+    let _ = storage.update(|instances, _groups| {
+        if let Some(stored) = instances.iter_mut().find(|i| i.id == restore_id) {
+            stored.clear_op_claim_if_owned(ClaimOp::Restore);
+        }
+        Ok(())
+    });
 }
 
 async fn list_trash(profile: &str) -> Result<()> {
@@ -464,6 +515,13 @@ async fn list_trash(profile: &str) -> Result<()> {
     Ok(())
 }
 
+/// Whether an `empty-trash` candidate won the purge claim (proceed) or must be
+/// skipped (gone, restored, or a peer holds a fresh Restore claim). See #2541.
+enum EmptyTrashClaim {
+    Claimed,
+    Skip,
+}
+
 async fn empty_trash(profile: &str) -> Result<()> {
     let storage = Storage::new_unwatched(profile)?;
 
@@ -483,6 +541,31 @@ async fn empty_trash(profile: &str) -> Result<()> {
 
     let mut purged_ids = Vec::new();
     for inst in &trashed {
+        // Per-row claim just before each teardown (#2541). A single up-front
+        // batch claim would risk overrunning the TTL for late rows in a large
+        // empty-trash; claiming per row keeps every teardown inside a fresh
+        // claim. Skip a row a concurrent restore is holding (fresh Restore
+        // claim) or has already brought back to life.
+        let claim = storage.update(|all_instances, _groups| {
+            Ok(match all_instances.iter_mut().find(|i| i.id == inst.id) {
+                None => EmptyTrashClaim::Skip,
+                Some(stored) if !stored.is_trashed() => EmptyTrashClaim::Skip,
+                Some(stored) => {
+                    match stored.try_claim(
+                        ClaimOp::Purge,
+                        Instance::op_claim_ttl(),
+                        chrono::Utc::now(),
+                    ) {
+                        Err(ClaimOp::Restore) => EmptyTrashClaim::Skip,
+                        _ => EmptyTrashClaim::Claimed,
+                    }
+                }
+            })
+        })?;
+        if matches!(claim, EmptyTrashClaim::Skip) {
+            continue;
+        }
+
         let config = crate::session::repo_config::resolve_config_with_repo_or_warn(
             profile,
             std::path::Path::new(&inst.project_path),
@@ -542,12 +625,11 @@ async fn empty_trash(profile: &str) -> Result<()> {
     // lock is neither removed by us nor still around, so subtracting would
     // wrongly report it as kept for retry.
     let (removed, restored, kept) = storage.update(|all_instances, _groups| {
-        let (removed, restored) = super::apply_empty_trash_purge(all_instances, &purged_set);
-        let kept = all_instances
-            .iter()
-            .filter(|i| candidate_ids.contains(&i.id))
-            .count();
-        Ok((removed, restored, kept))
+        Ok(super::finalize_empty_trash(
+            all_instances,
+            &purged_set,
+            &candidate_ids,
+        ))
     })?;
     if restored > 0 {
         eprintln!(

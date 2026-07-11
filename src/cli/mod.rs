@@ -38,7 +38,7 @@ pub mod worktree;
 
 pub use definition::{command_name, Cli, Commands, CLI_COMMAND_NAMES};
 
-use crate::session::Instance;
+use crate::session::{ClaimOp, Instance};
 use anyhow::{bail, Result};
 
 pub fn resolve_session<'a>(identifier: &str, instances: &'a [Instance]) -> Result<&'a Instance> {
@@ -189,6 +189,27 @@ pub(crate) fn apply_empty_trash_purge(
         }
     });
     (before - instances.len(), restored)
+}
+
+/// Phase-2 finalize for `empty-trash` under the flock: drop successfully-purged
+/// rows still trashed, keep rows a restore brought back, and release the Purge
+/// claim on every kept candidate (ownership-guarded so a peer's fresh Restore
+/// claim survives). Returns `(removed, restored, kept)`, where `kept` counts
+/// candidate rows still present after the purge. See #2527, #2534, #2541.
+pub(crate) fn finalize_empty_trash(
+    instances: &mut Vec<Instance>,
+    purged: &std::collections::HashSet<String>,
+    candidate_ids: &std::collections::HashSet<String>,
+) -> (usize, usize, usize) {
+    let (removed, restored) = apply_empty_trash_purge(instances, purged);
+    let mut kept = 0usize;
+    for stored in instances.iter_mut() {
+        if candidate_ids.contains(&stored.id) {
+            stored.clear_op_claim_if_owned(ClaimOp::Purge);
+            kept += 1;
+        }
+    }
+    (removed, restored, kept)
 }
 
 pub fn truncate(s: &str, max: usize) -> String {
@@ -347,6 +368,65 @@ mod tests {
         assert!(surviving.contains(&restored_id.as_str()));
         assert!(surviving.contains(&untargeted_id.as_str()));
         assert_eq!(instances.len(), 2);
+    }
+
+    // #2541: empty-trash Phase 2 must release the Purge claim on every kept
+    // candidate (restored mid-purge, or teardown/transcript failed) so the row
+    // is not left wedged, and must never clear a peer's fresh Restore claim.
+    #[test]
+    fn empty_trash_clears_claim_on_kept_row() {
+        use std::collections::HashSet;
+
+        let now = chrono::Utc::now();
+        let ttl = Instance::op_claim_ttl();
+
+        // Purged and still trashed: removed (claim goes with the row).
+        let mut removed_row = Instance::new("removed", "/tmp/a");
+        removed_row.trash();
+        removed_row.try_claim(ClaimOp::Purge, ttl, now).unwrap();
+
+        // A candidate a peer restored mid-purge: kept, our Purge claim released.
+        let mut restored_row = Instance::new("restored", "/tmp/b");
+        restored_row.try_claim(ClaimOp::Purge, ttl, now).unwrap(); // untrashed by peer
+
+        // A candidate whose teardown failed (not in purged set) but which a peer
+        // has since claimed for Restore: kept, and the Restore claim survives.
+        let mut retry_row = Instance::new("retry", "/tmp/c");
+        retry_row.trash();
+        retry_row.try_claim(ClaimOp::Restore, ttl, now).unwrap();
+
+        let purged: HashSet<String> = [removed_row.id.clone(), restored_row.id.clone()]
+            .into_iter()
+            .collect();
+        let candidate_ids: HashSet<String> = [
+            removed_row.id.clone(),
+            restored_row.id.clone(),
+            retry_row.id.clone(),
+        ]
+        .into_iter()
+        .collect();
+        let restored_id = restored_row.id.clone();
+        let retry_id = retry_row.id.clone();
+        let mut instances = vec![removed_row, restored_row, retry_row];
+
+        let (removed, restored, kept) =
+            finalize_empty_trash(&mut instances, &purged, &candidate_ids);
+
+        assert_eq!(removed, 1, "only the still-trashed purged row is removed");
+        assert_eq!(restored, 1, "the restored candidate is kept and counted");
+        assert_eq!(kept, 2, "restored + retry rows remain as candidates");
+
+        let restored_kept = instances.iter().find(|i| i.id == restored_id).unwrap();
+        assert_eq!(
+            restored_kept.op_claim, None,
+            "our Purge claim is released on the kept restored row"
+        );
+        let retry_kept = instances.iter().find(|i| i.id == retry_id).unwrap();
+        assert_eq!(
+            retry_kept.op_claim.as_ref().map(|c| c.op.clone()),
+            Some(ClaimOp::Restore),
+            "a peer's fresh Restore claim is never cleared by the purge finalize"
+        );
     }
 
     // #2524: the non-serve purge path used to be unreachable, orphaning

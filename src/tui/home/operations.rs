@@ -1,7 +1,7 @@
 //! Session operations for HomeView (create, delete, rename)
 
 use crate::session::builder::{self, InstanceParams};
-use crate::session::{list_profiles, GroupTree, Item, Status, Storage};
+use crate::session::{list_profiles, ClaimOp, GroupTree, Instance, Item, Status, Storage};
 use crate::tui::deletion_poller::DeletionRequest;
 use crate::tui::dialogs::{DeleteOptions, GroupDeleteOptions, InfoDialog, NewSessionData};
 use crate::tui::restart_poller::RestartRequest;
@@ -534,6 +534,39 @@ impl HomeView {
                 return Ok(());
             }
 
+            // #2541: a permanent delete of a trashed session is a purge that can
+            // race a restore from another process. Win the Purge claim under the
+            // flock before the unlocked teardown; refuse if a peer restore holds
+            // a fresh claim. A live-session delete has no restore to race, so it
+            // skips the claim.
+            let was_trashed = self.get_instance(&id).is_some_and(|i| i.is_trashed());
+            if was_trashed {
+                match self.claim_trashed_purge(&id) {
+                    PurgeClaimOutcome::Claimed => {
+                        self.purge_claimed.insert(id.clone());
+                    }
+                    PurgeClaimOutcome::Refused => {
+                        self.info_dialog = Some(InfoDialog::new(
+                            "Restore in progress",
+                            "This session is being restored by another process; it was not deleted.",
+                        ));
+                        return Ok(());
+                    }
+                    PurgeClaimOutcome::Gone => {
+                        self.drop_peer_deleted_rows(std::slice::from_ref(&id));
+                        self.rebuild_flat_items();
+                        return Ok(());
+                    }
+                    PurgeClaimOutcome::Error => {
+                        self.info_dialog = Some(InfoDialog::new(
+                            "Delete Failed",
+                            "Could not claim the purge under the storage lock. Try again.",
+                        ));
+                        return Ok(());
+                    }
+                }
+            }
+
             self.set_instance_status(&id, Status::Deleting);
 
             if let Some(inst) = self.get_instance(&id) {
@@ -551,6 +584,94 @@ impl HomeView {
             }
         }
         Ok(())
+    }
+
+    /// Acquire the Purge claim for a trashed session before its unlocked
+    /// teardown, under the storage flock (the cross-process serialization
+    /// point). See #2541.
+    fn claim_trashed_purge(&self, id: &str) -> PurgeClaimOutcome {
+        let Some(profile) = self.instances.get(id).map(|i| i.source_profile.clone()) else {
+            return PurgeClaimOutcome::Gone;
+        };
+        let Some(storage) = self.storages.get(&profile) else {
+            tracing::warn!(
+                target: "tui.home",
+                profile = %profile,
+                id = %id,
+                "purge claim: no storage registered for profile"
+            );
+            return PurgeClaimOutcome::Error;
+        };
+        match storage.update(|insts, _groups| {
+            Ok(match insts.iter_mut().find(|i| i.id == id) {
+                None => PurgeClaimOutcome::Gone,
+                Some(stored) => {
+                    match stored.try_claim(
+                        ClaimOp::Purge,
+                        Instance::op_claim_ttl(),
+                        chrono::Utc::now(),
+                    ) {
+                        Err(ClaimOp::Restore) => PurgeClaimOutcome::Refused,
+                        _ => PurgeClaimOutcome::Claimed,
+                    }
+                }
+            })
+        }) {
+            Ok(outcome) => outcome,
+            Err(e) => {
+                tracing::warn!(target: "tui.home", id = %id, "purge claim failed: {e}");
+                PurgeClaimOutcome::Error
+            }
+        }
+    }
+
+    /// Finalize a claimed trashed-purge under the flock: apply the #2534 recheck
+    /// (keep the row if a peer restored it mid-purge) and release the owned
+    /// Purge claim, else drop the row. Returns whether the row was kept
+    /// (restored mid-purge). See #2541.
+    pub(super) fn finalize_claimed_purge(&mut self, id: &str) -> bool {
+        let Some(profile) = self.instances.get(id).map(|i| i.source_profile.clone()) else {
+            return false;
+        };
+        let Some(storage) = self.storages.get(&profile) else {
+            return false;
+        };
+        storage
+            .update(|insts, _groups| {
+                Ok(match insts.iter().position(|i| i.id == id) {
+                    None => false,
+                    Some(idx)
+                        if crate::cli::purge_restored_row_must_be_kept(
+                            true,
+                            insts[idx].is_trashed(),
+                        ) =>
+                    {
+                        insts[idx].clear_op_claim_if_owned(ClaimOp::Purge);
+                        true
+                    }
+                    Some(idx) => {
+                        insts.remove(idx);
+                        false
+                    }
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    /// Release a trashed-purge claim on a kept row (teardown failed),
+    /// ownership-guarded so a peer's fresh Restore claim survives. See #2541.
+    pub(super) fn release_trashed_purge_claim(&self, id: &str) {
+        let Some(profile) = self.instances.get(id).map(|i| i.source_profile.clone()) else {
+            return;
+        };
+        if let Some(storage) = self.storages.get(&profile) {
+            let _ = storage.update(|insts, _groups| {
+                if let Some(stored) = insts.iter_mut().find(|i| i.id == id) {
+                    stored.clear_op_claim_if_owned(ClaimOp::Purge);
+                }
+                Ok(())
+            });
+        }
     }
 
     pub(super) fn delete_selected_group(&mut self) -> anyhow::Result<()> {
@@ -1492,36 +1613,67 @@ impl HomeView {
         let Some(id) = self.selected_session.clone() else {
             return;
         };
-        let is_trashed = matches!(
-            self.instances.get(&id),
-            Some(i) if i.is_trashed()
-        );
-        if !is_trashed {
+        let Some(profile) = self
+            .instances
+            .get(&id)
+            .filter(|i| i.is_trashed())
+            .map(|i| i.source_profile.clone())
+        else {
             return;
-        }
-        // Move the worktree back to its pre-trash location before clearing the
-        // marker. Strict: if the original path is occupied, keep the session
-        // trashed and tell the user, rather than restoring it to the holding
-        // path.
-        let mut restore_error: Option<String> = None;
-        let _ = self.apply_user_action(&id, |inst| {
-            if let crate::session::trash::RestoreOutcome::Failed { reason } =
-                crate::session::trash::restore_worktree_location(inst)
-            {
-                restore_error = Some(reason);
-            } else {
-                inst.untrash();
+        };
+        // Restore is NOT routed through `apply_user_action` here: that persists
+        // via `merge_user_action_diff`, which deliberately drops `op_claim`, so
+        // the symmetric claim would never reach disk. Drive storage directly,
+        // mirroring the CLI restore. See #2541.
+        let outcome = {
+            let Some(storage) = self.storages.get(&profile) else {
+                tracing::warn!(
+                    target: "tui.home",
+                    profile = %profile,
+                    id = %id,
+                    "restore: no storage registered for profile"
+                );
+                return;
+            };
+            restore_from_trash_with_storage(storage, &id)
+        };
+        match outcome {
+            RestoreFromTrash::Restored {
+                project_path,
+                pre_trash_project_path,
+            } => {
+                if let Some(inst) = self.instances.get_mut(&id) {
+                    inst.project_path = project_path;
+                    inst.pre_trash_project_path = pre_trash_project_path;
+                    inst.untrash();
+                    inst.clear_op_claim_if_owned(ClaimOp::Restore);
+                }
+                self.rebuild_flat_items();
+                self.select_session_by_id(&id);
             }
-        });
-        if let Some(reason) = restore_error {
-            self.info_dialog = Some(crate::tui::dialogs::InfoDialog::new(
-                "Restore Failed",
-                &format!("Could not restore the worktree: {reason}"),
-            ));
-            return;
+            RestoreFromTrash::Gone => {
+                self.drop_peer_deleted_rows(std::slice::from_ref(&id));
+                self.rebuild_flat_items();
+            }
+            RestoreFromTrash::PurgeInProgress => {
+                self.info_dialog = Some(crate::tui::dialogs::InfoDialog::new(
+                    "Restore Failed",
+                    "This session is being purged by another process; it was not restored.",
+                ));
+            }
+            RestoreFromTrash::WorktreeFailed { reason } => {
+                self.info_dialog = Some(crate::tui::dialogs::InfoDialog::new(
+                    "Restore Failed",
+                    &format!("Could not restore the worktree: {reason}"),
+                ));
+            }
+            RestoreFromTrash::PersistFailed => {
+                self.info_dialog = Some(crate::tui::dialogs::InfoDialog::new(
+                    "Restore Failed",
+                    "Could not persist the restore. Try again.",
+                ));
+            }
         }
-        self.rebuild_flat_items();
-        self.select_session_by_id(&id);
     }
 
     /// Collect the active (non-archived) session ids under the currently
@@ -1607,6 +1759,111 @@ impl HomeView {
         }
         self.update_selected();
         Ok(())
+    }
+}
+
+/// Outcome of acquiring a TUI trashed-purge claim before dispatching teardown.
+/// See #2541.
+enum PurgeClaimOutcome {
+    Claimed,
+    Refused,
+    Gone,
+    Error,
+}
+
+/// Outcome of a TUI restore-from-trash driven directly against storage. See #2541.
+enum RestoreFromTrash {
+    Restored {
+        project_path: String,
+        pre_trash_project_path: Option<String>,
+    },
+    Gone,
+    PurgeInProgress,
+    WorktreeFailed {
+        reason: String,
+    },
+    PersistFailed,
+}
+
+/// Result of the Phase-1 locked claim: either the claim was won (carrying a
+/// snapshot for the unlocked worktree move), the row is gone, or a peer purge
+/// holds a fresh claim. See #2541.
+enum ClaimSnapshot {
+    Claimed(Box<Instance>),
+    Gone,
+    PurgeInProgress,
+}
+
+/// Restore a trashed session under the storage flock: win the Restore claim,
+/// move the worktree back off-lock, then commit untrash + release the claim,
+/// ownership-guarded. Mirrors the CLI restore so the symmetric claim reaches
+/// disk (the TUI's `merge_user_action_diff` path deliberately drops it). See
+/// #2541.
+fn restore_from_trash_with_storage(storage: &Storage, id: &str) -> RestoreFromTrash {
+    let claimed = storage.update(|insts, _groups| {
+        let Some(stored) = insts.iter_mut().find(|i| i.id == id) else {
+            return Ok(ClaimSnapshot::Gone);
+        };
+        Ok(
+            match stored.try_claim(
+                ClaimOp::Restore,
+                Instance::op_claim_ttl(),
+                chrono::Utc::now(),
+            ) {
+                Err(ClaimOp::Purge) => ClaimSnapshot::PurgeInProgress,
+                _ => ClaimSnapshot::Claimed(Box::new(stored.clone())),
+            },
+        )
+    });
+    let mut inst = match claimed {
+        Ok(ClaimSnapshot::Claimed(inst)) => *inst,
+        Ok(ClaimSnapshot::Gone) => return RestoreFromTrash::Gone,
+        Ok(ClaimSnapshot::PurgeInProgress) => return RestoreFromTrash::PurgeInProgress,
+        Err(e) => {
+            tracing::warn!(target: "tui.home", id = %id, "restore claim failed: {e}");
+            return RestoreFromTrash::PersistFailed;
+        }
+    };
+
+    if let crate::session::trash::RestoreOutcome::Failed { reason } =
+        crate::session::trash::restore_worktree_location(&mut inst)
+    {
+        let _ = storage.update(|insts, _groups| {
+            if let Some(stored) = insts.iter_mut().find(|i| i.id == id) {
+                stored.clear_op_claim_if_owned(ClaimOp::Restore);
+            }
+            Ok(())
+        });
+        return RestoreFromTrash::WorktreeFailed { reason };
+    }
+    let restored_path = inst.project_path.clone();
+    let restored_pre = inst.pre_trash_project_path.clone();
+
+    let committed = storage.update(|insts, _groups| {
+        let Some(stored) = insts.iter_mut().find(|i| i.id == id) else {
+            return Ok(false);
+        };
+        // A stale-override purge may have stolen the claim mid-move; let it win
+        // (degrades to #2534, never worse than the status quo).
+        if matches!(&stored.op_claim, Some(c) if c.op == ClaimOp::Purge) {
+            return Ok(false);
+        }
+        stored.project_path = restored_path.clone();
+        stored.pre_trash_project_path = restored_pre.clone();
+        stored.untrash();
+        stored.clear_op_claim_if_owned(ClaimOp::Restore);
+        Ok(true)
+    });
+    match committed {
+        Ok(true) => RestoreFromTrash::Restored {
+            project_path: restored_path,
+            pre_trash_project_path: restored_pre,
+        },
+        Ok(false) => RestoreFromTrash::PurgeInProgress,
+        Err(e) => {
+            tracing::warn!(target: "tui.home", id = %id, "restore commit failed: {e}");
+            RestoreFromTrash::PersistFailed
+        }
     }
 }
 

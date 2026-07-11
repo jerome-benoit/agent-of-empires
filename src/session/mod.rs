@@ -62,9 +62,9 @@ pub use groups::{
 pub(crate) use instance::ResumeAttemptPolicy;
 pub(crate) use instance::{persist_session_to_storage, PassiveStatusPatch, ResumeIntent, SidWrite};
 pub use instance::{
-    EnsureReadyError, EnsureReadyOutcome, Instance, LaunchSidOutcome, SandboxInfo, SessionBucket,
-    StartOutcome, Status, TerminalInfo, View, WorkspaceInfo, WorkspaceRepo, WorktreeInfo,
-    TMUX_SESSION_GONE_ERROR,
+    ClaimOp, EnsureReadyError, EnsureReadyOutcome, Instance, LaunchSidOutcome, OpClaim,
+    SandboxInfo, SessionBucket, StartOutcome, Status, TerminalInfo, View, WorkspaceInfo,
+    WorkspaceRepo, WorktreeInfo, TMUX_SESSION_GONE_ERROR,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};
