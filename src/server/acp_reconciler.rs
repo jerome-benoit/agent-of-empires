@@ -188,6 +188,10 @@ pub async fn reconcile_acp_workers(
         // budget so a session that was crash-loop-parked gets a clean slate.
         parked.remove(id);
         respawn_history.remove(id);
+        // Same clean-slate intent for the capacity marker: an explicit retry
+        // that still hits capacity should re-publish a fresh banner rather
+        // than staying gated behind the previous episode's marker.
+        capacity_deferred.remove(id);
     }
 
     // Out-of-band respawn requests (web "Update & restart" after a global
@@ -201,6 +205,7 @@ pub async fn reconcile_acp_workers(
         attempted.remove(&id);
         parked.remove(&id);
         respawn_history.remove(&id);
+        capacity_deferred.remove(&id);
     }
 
     // Idle auto-stop (#1689). Cadence-gated to IDLE_REAP_INTERVAL so the
@@ -478,7 +483,10 @@ pub async fn reconcile_acp_workers(
                 // frees. NEVER `attempted.insert`: `attempted` is persistent
                 // (only the live-set retain drops it), so keeping the id there
                 // would skip the session forever and the self-heal would never
-                // fire.
+                // fire. Unlike `RetryAfterAttachTimeout` this needs no
+                // `!parked` guard: an id only reaches a spawn (and thus
+                // CapacityFull) after passing the parked check, so it is never
+                // parked here.
                 attempted.remove(&id);
                 // Publish the capacity banner once per transition; the gate
                 // returns true only on the first insert (mirrors
@@ -1976,13 +1984,15 @@ mod tests {
         );
     }
 
-    /// When a peer worker stops and the slot frees, the next tick respawns
+    /// When a peer worker stops and the slot frees, the next tick re-attempts
     /// the deferred session and clears the capacity marker on the
-    /// SpawnFinished path (the critical clear, since a successful respawn
-    /// leaves the id in `attempted` and never revisits the is_running branch).
+    /// SpawnFinished path (the critical clear, since a re-attempt leaves the id
+    /// in `attempted` and never revisits the is_running branch). The re-attempt
+    /// here fails fast (bogus agent) but still routes through SpawnFinished, so
+    /// it exercises the exact clear path a real respawn would.
     #[tokio::test]
     #[serial_test::serial]
-    async fn capacity_deferred_retries_and_succeeds_when_slot_frees() {
+    async fn capacity_deferred_clears_marker_when_slot_frees() {
         let (state, _home, _project) = capacity_test_state("s-free").await;
         state.acp_supervisor.test_insert_worker("occupant").await;
 
@@ -2016,16 +2026,66 @@ mod tests {
         .await;
         assert!(
             !capacity_deferred.contains("s-free"),
-            "a freed slot must respawn the deferred session and clear the marker"
+            "a freed slot must re-attempt the deferred session and clear the marker"
+        );
+        assert_eq!(
+            capacity_startup_errors(&state, "s-free"),
+            1,
+            "clearing the marker must not re-publish the capacity banner"
         );
     }
 
-    /// §2 create/enable message selection: a CapacityFull spawn publishes the
-    /// capacity Display (matching the front-end capacity regex), not the
-    /// generic crash-style startup error, so the create/enable paths show the
-    /// capacity banner instead of a misleading failure.
+    /// The second (out-of-band) clear site: a deferred session whose worker
+    /// comes online via a REST spawn is picked up by the `is_running` branch,
+    /// which clears the capacity marker. Covers the path the reconciler's own
+    /// respawn (SpawnFinished) never reaches.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn capacity_deferred_cleared_by_is_running_branch() {
+        let (state, _home, _project) = capacity_test_state("s-oob").await;
+        state.acp_supervisor.test_insert_worker("occupant").await;
+
+        let mut attempted = HashSet::new();
+        let mut respawn_history: HashMap<String, Vec<Instant>> = HashMap::new();
+        let mut parked = HashSet::new();
+        let mut capacity_deferred = HashSet::new();
+
+        run_tick(
+            &state,
+            &mut attempted,
+            &mut respawn_history,
+            &mut parked,
+            &mut capacity_deferred,
+        )
+        .await;
+        assert!(
+            capacity_deferred.contains("s-oob"),
+            "precondition: the session is capacity-deferred after the first tick"
+        );
+
+        // A REST spawn brings the deferred session's own worker online.
+        state.acp_supervisor.test_insert_worker("s-oob").await;
+        run_tick(
+            &state,
+            &mut attempted,
+            &mut respawn_history,
+            &mut parked,
+            &mut capacity_deferred,
+        )
+        .await;
+        assert!(
+            !capacity_deferred.contains("s-oob"),
+            "the is_running branch must clear the marker for an out-of-band worker"
+        );
+    }
+
+    /// §2 message selection, shared by both the create-path (`create_session`)
+    /// and the enable-path (`acp_enable`) via `structured_spawn_error_message`:
+    /// a CapacityFull spawn surfaces the capacity Display (matching the
+    /// front-end capacity regex) so the session shows the capacity banner, while
+    /// any other error keeps the generic crash-style message.
     #[test]
-    fn create_at_capacity_publishes_capacity_status_not_generic_error() {
+    fn structured_spawn_error_message_prefers_capacity_display_over_generic() {
         use crate::acp::supervisor::SupervisorError;
         use crate::server::api::structured_spawn_error_message;
 
@@ -2048,24 +2108,6 @@ mod tests {
         assert!(
             generic_msg.contains("Failed to start structured view agent"),
             "non-capacity errors keep the generic message, got: {generic_msg}"
-        );
-    }
-
-    /// The enable path shares the same message selection as create, so a
-    /// tmux to structured switch at capacity also shows the capacity banner.
-    #[test]
-    fn acp_enable_at_capacity_publishes_capacity_status() {
-        use crate::acp::supervisor::SupervisorError;
-        use crate::server::api::structured_spawn_error_message;
-
-        let capacity = SupervisorError::CapacityFull {
-            current: 2,
-            limit: 2,
-        };
-        let msg = structured_spawn_error_message(&capacity, "opencode");
-        assert!(
-            msg.contains("capacity full") && msg.contains("max_concurrent_workers"),
-            "enable at capacity must surface the capacity Display, got: {msg}"
         );
     }
 }
