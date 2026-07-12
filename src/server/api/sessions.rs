@@ -4515,10 +4515,9 @@ pub async fn create_session(
                             .await
                             .iter()
                             .any(|i| i.id == id);
-                        // On CapacityFull the reconciler adopts this orphan
-                        // next tick and respawns once a slot frees; its
-                        // `capacity_deferred` gate re-publishes the same banner
-                        // once (a single benign duplicate). See #1027.
+                        // Capacity-aware banner selection (and the benign
+                        // first-tick duplicate) is documented on
+                        // `structured_spawn_error_message`.
                         let message =
                             crate::server::api::structured_spawn_error_message(&e, &agent);
                         if still_present {

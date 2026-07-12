@@ -72,6 +72,26 @@ fn record_and_check_respawn_budget(
     false
 }
 
+/// Drop every per-session reconciler budget/marker entry for `id` so an
+/// explicit user retry (`aoe acp restart` or the #2109 "Update & restart")
+/// starts from a clean slate: re-armed for a fresh spawn, un-parked, respawn
+/// budget reset, and its capacity marker cleared so a repeat capacity block
+/// re-publishes a fresh banner. The `is_running` branch deliberately does NOT
+/// use this (it clears the same three budget maps but *inserts* into
+/// `attempted`), so only the two reaper loops share this reset.
+fn forget_session_budget(
+    id: &str,
+    attempted: &mut HashSet<String>,
+    parked: &mut HashSet<String>,
+    respawn_history: &mut HashMap<String, Vec<Instant>>,
+    capacity_deferred: &mut HashSet<String>,
+) {
+    attempted.remove(id);
+    parked.remove(id);
+    respawn_history.remove(id);
+    capacity_deferred.remove(id);
+}
+
 /// Build the banner published when a structured-view worker exhausts its
 /// respawn budget and the session is parked. When the session's project_path
 /// no longer exists on disk, every respawn is doomed for the same reason: the
@@ -108,14 +128,13 @@ enum ResumeOutcome {
     /// populated; a permanently-failing spawn (e.g. missing
     /// claude-agent-acp) does not loop forever.
     SpawnFinished,
-    /// Spawn refused by `SupervisorError::CapacityFull`: a transient,
-    /// non-crash, user-actionable condition (a slot frees when a peer
-    /// worker stops), not a spawn failure. The join handler refunds this
-    /// tick's respawn-budget entry, re-arms the retry (`attempted.remove`,
-    /// never insert), and publishes the capacity banner once per transition
-    /// via the `capacity_deferred` gate. The per-tick reconciler retry is
-    /// the self-heal. `message` is the `CapacityFull` Display, reused as the
-    /// `AgentStartupError` body so it matches the front-end regex. See #1027.
+    /// Spawn refused by `SupervisorError::CapacityFull`: transient,
+    /// non-crash, and user-actionable (a slot frees when a peer worker
+    /// stops), not a spawn failure. The id is re-armed (dropped from
+    /// `attempted`) so the per-tick retry self-heals; the join handler
+    /// refunds the budget and publishes the banner once. `message` is the
+    /// `CapacityFull` Display, reused verbatim as the `AgentStartupError`
+    /// body so it matches the front-end regex. See #1027.
     CapacityDeferred { message: String },
 }
 
@@ -183,29 +202,20 @@ pub async fn reconcile_acp_workers(
     // reattaches with the cached `acp_session_id`.
     let restart_pending = state.acp_supervisor.reap_user_stopped().await;
     for id in &restart_pending {
-        attempted.remove(id);
-        // `aoe acp restart` is an explicit user retry: wipe the respawn
-        // budget so a session that was crash-loop-parked gets a clean slate.
-        parked.remove(id);
-        respawn_history.remove(id);
-        // Same clean-slate intent for the capacity marker: an explicit retry
-        // that still hits capacity should re-publish a fresh banner rather
-        // than staying gated behind the previous episode's marker.
-        capacity_deferred.remove(id);
+        // `aoe acp restart` is an explicit user retry: give the session a
+        // clean slate (re-armed, un-parked, budget + capacity marker reset).
+        forget_session_budget(id, attempted, parked, respawn_history, capacity_deferred);
     }
 
     // Out-of-band respawn requests (web "Update & restart" after a global
     // adapter install, #2109). These sessions failed their spawn on a
     // compatibility rejection and have no live worker, so the
     // `reap_user_stopped` path above never sees them; they sit pinned in
-    // `attempted`. Clear the guard (and the respawn budget, like an
-    // explicit restart) so the resume pass below fresh-spawns them on the
-    // freshly-installed adapter and the next handshake clears the red X.
+    // `attempted`. Same clean-slate reset (like an explicit restart) so the
+    // resume pass below fresh-spawns them on the freshly-installed adapter and
+    // the next handshake clears the red X.
     for id in state.acp_supervisor.take_respawn_requests() {
-        attempted.remove(&id);
-        parked.remove(&id);
-        respawn_history.remove(&id);
-        capacity_deferred.remove(&id);
+        forget_session_budget(&id, attempted, parked, respawn_history, capacity_deferred);
     }
 
     // Idle auto-stop (#1689). Cadence-gated to IDLE_REAP_INTERVAL so the
@@ -502,8 +512,8 @@ pub async fn reconcile_acp_workers(
                 // case reaches: a successful respawn returns SpawnFinished and
                 // leaves the id in `attempted`, so the `is_running` branch is
                 // unreachable next tick. Without this clear the marker sticks
-                // for the worker's life and a second capacity episode would not
-                // re-publish the banner.
+                // for the worker's life and a second capacity transition would
+                // not re-publish the banner.
                 capacity_deferred.remove(&id);
             }
             Err(e) => {
