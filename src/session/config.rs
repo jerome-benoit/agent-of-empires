@@ -1259,6 +1259,16 @@ pub struct SessionConfig {
     )]
     pub default_attach_mode: NewSessionAttachMode,
 
+    /// Automatically start live-send when switching into Terminal or Tool
+    /// view, instead of requiring a separate Enter/Tab/click.
+    #[serde(default)]
+    #[setting(
+        label = "Auto Live-Send On View Switch",
+        widget = "toggle",
+        category = "Interaction"
+    )]
+    pub live_send_on_view_switch: bool,
+
     /// What a single mouse click on a session row does in the Agent view. Live
     /// mode (default) enters live-send for the clicked row, the historical
     /// behavior. Select only just moves the cursor so you can read the preview
@@ -1504,6 +1514,7 @@ impl Default for SessionConfig {
             live_send_leader: default_live_send_leader(),
             new_session_attach_mode: NewSessionAttachMode::default(),
             default_attach_mode: NewSessionAttachMode::default(),
+            live_send_on_view_switch: false,
             click_action: ClickAction::default(),
             confirm_before_quit: true,
             unread_indicator: true,

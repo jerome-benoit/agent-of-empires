@@ -1279,6 +1279,7 @@ impl HomeView {
                     self.view_mode = ViewMode::Tool(tool_name);
                     self.preview_scroll_offset = 0;
                     self.tool_preview_cache = super::PreviewCache::default();
+                    self.pending_dialog_click_action = self.maybe_auto_start_live_send();
                 }
             }
             return true;
@@ -1757,7 +1758,7 @@ impl HomeView {
                     self.view_mode = ViewMode::Tool(tool_name);
                     self.preview_scroll_offset = 0;
                     self.tool_preview_cache = super::PreviewCache::default();
-                    return None;
+                    return self.maybe_auto_start_live_send();
                 }
             }
         }
@@ -2344,12 +2345,12 @@ impl HomeView {
         if let Some(tool_name) = self.match_tool_hotkey(&key) {
             if matches!(&self.view_mode, ViewMode::Tool(current) if current == &tool_name) {
                 self.view_mode = ViewMode::Structured;
-            } else {
-                self.view_mode = ViewMode::Tool(tool_name);
-                self.preview_scroll_offset = 0;
-                self.tool_preview_cache = super::PreviewCache::default();
+                return None;
             }
-            return None;
+            self.view_mode = ViewMode::Tool(tool_name);
+            self.preview_scroll_offset = 0;
+            self.tool_preview_cache = super::PreviewCache::default();
+            return self.maybe_auto_start_live_send();
         }
 
         // Context-dependent Esc handling (not a relocatable action).
@@ -2540,6 +2541,11 @@ impl HomeView {
                     ViewMode::Structured => ViewMode::Terminal,
                     ViewMode::Terminal | ViewMode::Tool(_) => ViewMode::Structured,
                 };
+                if matches!(self.view_mode, ViewMode::Terminal) {
+                    if let Some(action) = self.maybe_auto_start_live_send() {
+                        return Some(action);
+                    }
+                }
             }
             ActionId::SendMessage => self.open_send_message_dialog(),
             ActionId::Stop => self.stop_selected(),
@@ -3236,7 +3242,7 @@ impl HomeView {
                 self.view_mode = ViewMode::Tool(tool_name);
                 self.preview_scroll_offset = 0;
                 self.tool_preview_cache = super::PreviewCache::default();
-                None
+                self.maybe_auto_start_live_send()
             }
             PaletteAction::Cheat(message) => Some(Action::SetTransientStatus(message)),
         }
@@ -5059,7 +5065,7 @@ impl HomeView {
         // throw voice text on the floor; losing dictation is worse than
         // silently catching it.
         if let Some((id, title, target)) = self.resolve_send_target() {
-            let label = live_send::format_target_label(&title, target);
+            let label = live_send::format_target_label(&title, &target);
             self.pending_send_session = Some(id);
             self.pending_send_target = target;
             let mut dialog = SendMessageDialog::new(&label);
@@ -5155,9 +5161,8 @@ impl HomeView {
         // currently previewing. Structured view → agent pane (historical
         // default). Terminal view → the paired host or container
         // terminal pane, so 'm'/Tab compose against the same shell
-        // the user sees. Tool view stays out of live-send (no clean
-        // target for lazygit/yazi etc.; let the caller fall back to
-        // AttachToolSession).
+        // the user sees. Tool view → the named tool's paired pane, so
+        // live-send can drive lazygit/yazi/etc. the same way.
         self.pending_live_send_target = match &self.view_mode {
             ViewMode::Structured => live_send::LiveSendTarget::Agent,
             ViewMode::Terminal => {
@@ -5167,9 +5172,24 @@ impl HomeView {
                     live_send::LiveSendTarget::Terminal
                 }
             }
-            ViewMode::Tool(_) => return None,
+            ViewMode::Tool(name) => live_send::LiveSendTarget::Tool(name.clone()),
         };
         Some(Action::EnterLiveSend(id))
+    }
+
+    /// Auto-start live-send after an explicit view switch (`ToggleView`,
+    /// opening a tool session) when the `Auto Live-Send On View Switch`
+    /// setting is on for the selected session's resolved config. `None`
+    /// when there's no selected session or the setting is off; the
+    /// caller then leaves the plain view switch alone. Deliberately not
+    /// wired into list navigation/selection: this only fires from the
+    /// explicit view-switch call sites that invoke it.
+    pub(super) fn maybe_auto_start_live_send(&mut self) -> Option<Action> {
+        let id = self.selected_session.clone()?;
+        if !self.live_send_on_view_switch(&id) {
+            return None;
+        }
+        self.start_live_send()
     }
 
     /// Translate one key event in live-send mode and hand the result to
@@ -5372,7 +5392,7 @@ impl HomeView {
         let Some(inst) = self.get_instance(&state.session_id) else {
             return Some("Session was deleted while live mode was active.");
         };
-        let current_name = match state.target {
+        let current_name = match &state.target {
             live_send::LiveSendTarget::Agent => {
                 crate::tmux::Session::generate_name(&inst.id, &inst.title)
             }
@@ -5381,6 +5401,11 @@ impl HomeView {
             }
             live_send::LiveSendTarget::ContainerTerminal => {
                 crate::tmux::ContainerTerminalSession::generate_name(&inst.id, &inst.title)
+            }
+            live_send::LiveSendTarget::Tool(name) => {
+                crate::tmux::ToolSession::new(&inst.id, &inst.title, name)
+                    .session_name()
+                    .to_string()
             }
         };
         if current_name != state.tmux_name {
@@ -5404,7 +5429,7 @@ impl HomeView {
         let Some((id, title, target)) = self.resolve_send_target() else {
             return;
         };
-        let label = live_send::format_target_label(&title, target);
+        let label = live_send::format_target_label(&title, &target);
         self.pending_send_session = Some(id);
         self.pending_send_target = target;
         let mut dialog = SendMessageDialog::new(&label);
@@ -5452,13 +5477,14 @@ impl HomeView {
             return None;
         }
         let target = self.current_send_target();
-        let ready = match target {
+        let ready = match &target {
             live_send::LiveSendTarget::Agent => crate::tmux::Session::new(&inst.id, &inst.title)
                 .map(|s| s.exists())
                 .unwrap_or(false),
             live_send::LiveSendTarget::Terminal | live_send::LiveSendTarget::ContainerTerminal => {
                 true
             }
+            live_send::LiveSendTarget::Tool(_) => true,
         };
         if !ready {
             return None;
@@ -5490,7 +5516,7 @@ impl HomeView {
         }
 
         if let Some((id, title, target)) = self.resolve_send_target() {
-            let label = live_send::format_target_label(&title, target);
+            let label = live_send::format_target_label(&title, &target);
             self.pending_send_session = Some(id);
             self.pending_send_target = target;
             let mut dialog = SendMessageDialog::new(&label);
@@ -5999,15 +6025,15 @@ mod tests {
         // banner route through the same helper so the label can't drift.
         use live_send::{format_target_label, LiveSendTarget};
         assert_eq!(
-            format_target_label("my-session", LiveSendTarget::Agent),
+            format_target_label("my-session", &LiveSendTarget::Agent),
             "my-session",
         );
         assert_eq!(
-            format_target_label("my-session", LiveSendTarget::Terminal),
+            format_target_label("my-session", &LiveSendTarget::Terminal),
             "my-session (terminal)",
         );
         assert_eq!(
-            format_target_label("my-session", LiveSendTarget::ContainerTerminal),
+            format_target_label("my-session", &LiveSendTarget::ContainerTerminal),
             "my-session (container)",
         );
     }
