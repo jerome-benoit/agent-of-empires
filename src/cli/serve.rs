@@ -75,10 +75,10 @@ pub struct ServeArgs {
     #[arg(long = "allowed-host", value_name = "HOST")]
     pub allowed_host: Vec<String>,
 
-    /// Extra browser `Origin` to accept (repeatable, exact scheme+host+port,
-    /// e.g. `https://aoe.example.com:8443`). Needed only for a reverse proxy
-    /// on a nonstandard port; standard 80/443 origins for `--allowed-host`
-    /// entries are derived automatically.
+    /// Extra browser `Origin` to accept (repeatable, full origin
+    /// `scheme://host[:port]`, e.g. `https://aoe.example.com:8443`). Needed
+    /// only for a reverse proxy on a nonstandard port; standard 80/443 origins
+    /// for `--allowed-host` entries are derived automatically.
     #[arg(long = "allowed-origin", value_name = "ORIGIN")]
     pub allowed_origin: Vec<String>,
 
@@ -291,21 +291,48 @@ fn validate_behind_proxy_allowlist(
 }
 
 /// A browser `Origin` is always `scheme://host[:port]`, so a schemeless
-/// `--allowed-origin` (e.g. `aoe.example.com:8443`) normalizes to a value no
-/// `Origin` header can ever equal: it would silently 403 the very requests it
-/// was meant to permit. Reject it at startup with the corrected form instead
-/// of failing closed at runtime (#2735).
+/// (`aoe.example.com:8443`) or hostless (`https://`) `--allowed-origin`
+/// normalizes to a value no `Origin` header can ever equal: it would silently
+/// 403 the very requests it was meant to permit. Reject it at startup with the
+/// corrected form instead of failing closed at runtime (#2735).
 fn validate_allowed_origins(allowed_origins: &[String]) -> Result<()> {
     for origin in allowed_origins {
         let lower = origin.trim().to_ascii_lowercase();
-        if !lower.starts_with("http://") && !lower.starts_with("https://") {
+        let host = lower
+            .strip_prefix("https://")
+            .or_else(|| lower.strip_prefix("http://"));
+        if !host.is_some_and(|h| !h.trim_end_matches('/').is_empty()) {
             bail!(
                 "--allowed-origin {origin:?} must be a full origin of the form \
                  scheme://host[:port].\n\
-                 A browser Origin always carries a scheme, so a schemeless value \
-                 can never match and would reject the requests it should allow. \
-                 Example:\n  \
+                 A browser Origin always carries a scheme and a host, so a \
+                 schemeless or hostless value can never match and would reject \
+                 the requests it should allow. Example:\n  \
                  aoe serve --allowed-origin https://aoe.example.com:8443"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A `--allowed-host` is a bare `Host` value (a port is harmless: `norm_host`
+/// strips it symmetrically on both sides). A pasted URL/scheme
+/// (`https://aoe.example.com`) makes `norm_host` split at the scheme colon and
+/// keep the garbage host `"https"`, silently 403ing the requests it was meant
+/// to permit. Reject a value carrying `://` or an empty value at startup with
+/// the corrected form instead of failing closed at runtime (#2735).
+fn validate_allowed_hosts(allowed_hosts: &[String]) -> Result<()> {
+    for host in allowed_hosts {
+        let trimmed = host.trim();
+        if trimmed.is_empty() || trimmed.contains("://") {
+            bail!(
+                "--allowed-host {host:?} must be a bare hostname or IP \
+                 (optionally host:port), not a URL.\n\
+                 The DNS-rebinding gate compares it against the request's Host \
+                 header, which carries no scheme, so a URL or empty value can \
+                 never match and would reject the requests it should allow. \
+                 Example:\n  \
+                 aoe serve --host 0.0.0.0 --allowed-host aoe.example.com"
             );
         }
     }
@@ -685,6 +712,7 @@ pub async fn run(profile: &str, args: ServeArgs) -> Result<()> {
     )?;
 
     validate_behind_proxy_allowlist(args.behind_proxy, args.remote, &args.allowed_host)?;
+    validate_allowed_hosts(&args.allowed_host)?;
     validate_allowed_origins(&args.allowed_origin)?;
 
     // --behind-proxy + --remote is meaningless: --remote manages its
@@ -1074,6 +1102,8 @@ pub async fn restart_daemon() -> Result<()> {
         &launch.host,
     )?;
     validate_behind_proxy_allowlist(launch.behind_proxy, launch.remote, &launch.allowed_host)?;
+    validate_allowed_hosts(&launch.allowed_host)?;
+    validate_allowed_origins(&launch.allowed_origin)?;
 
     let args = launch.to_serve_args(passphrase);
 
@@ -1523,6 +1553,12 @@ mod tests {
     }
 
     #[test]
+    fn hostless_allowed_origin_errors_at_startup() {
+        assert!(validate_allowed_origins(&["https://".to_string()]).is_err());
+        assert!(validate_allowed_origins(&["https:///".to_string()]).is_err());
+    }
+
+    #[test]
     fn scheme_qualified_allowed_origin_ok() {
         validate_allowed_origins(&[
             "https://aoe.example.com:8443".to_string(),
@@ -1530,6 +1566,30 @@ mod tests {
             "HTTPS://aoe.example.com".to_string(),
         ])
         .expect("full scheme://host[:port] origins are accepted (scheme case-insensitive)");
+    }
+
+    #[test]
+    fn allowed_hosts_accept_bare_host_and_port() {
+        validate_allowed_hosts(&[
+            "aoe.example.com".to_string(),
+            "aoe.example.com:8443".to_string(),
+            "192.168.1.5".to_string(),
+            "2001:db8::1".to_string(),
+            "[::1]:8080".to_string(),
+        ])
+        .expect("a bare host or host:port (incl. IPv6) is a valid --allowed-host");
+    }
+
+    #[test]
+    fn allowed_hosts_reject_pasted_url() {
+        let err = validate_allowed_hosts(&["https://aoe.example.com".to_string()])
+            .expect_err("a pasted URL must be rejected at startup");
+        assert!(err.to_string().contains("not a URL"));
+    }
+
+    #[test]
+    fn allowed_hosts_reject_empty() {
+        assert!(validate_allowed_hosts(&["   ".to_string()]).is_err());
     }
 
     #[test]

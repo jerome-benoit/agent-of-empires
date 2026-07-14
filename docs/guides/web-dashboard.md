@@ -100,7 +100,7 @@ Requires `cloudflared` on the host:
 | `--passphrase` | | Passphrase for the login wall. Valid with `--auth=token` (token + passphrase) and `--auth=passphrase`. Also reads `AOE_SERVE_PASSPHRASE` |
 | `--behind-proxy` | off | Server sits behind an external reverse proxy that terminates TLS. Sets `; Secure` cookies and trusts `X-Forwarded-For` / `cf-connecting-ip` from loopback peers; does NOT spawn a tunnel. Requires at least one `--allowed-host` |
 | `--allowed-host` | | Extra `Host` value the DNS-rebinding gate accepts (repeatable). Add the public hostname behind a reverse proxy or custom tunnel, or the LAN IP/name when binding `0.0.0.0`. `--remote` tunnel hosts are added automatically |
-| `--allowed-origin` | | Extra browser `Origin` to accept (repeatable, exact `scheme://host:port`). Needed only for a reverse proxy on a nonstandard port; standard 80/443 origins for `--allowed-host` entries are derived automatically |
+| `--allowed-origin` | | Extra browser `Origin` to accept (repeatable, full origin `scheme://host[:port]`). Needed only for a reverse proxy on a nonstandard port; standard 80/443 origins for `--allowed-host` entries are derived automatically |
 | `--no-auth` | off | Alias for `--auth=none` (kept for backwards compatibility) |
 | `--remote` | off | Expose over HTTPS tunnel (Tailscale Funnel if available, else Cloudflare quick tunnel) |
 | `--tunnel-name` | | Use a named Cloudflare tunnel (requires `--remote`; overrides Tailscale auto-detection) |
@@ -158,7 +158,7 @@ The server also sets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
 
 ### DNS rebinding
 
-`aoe serve` validates the `Host` and `Origin` of every request before authentication. A request whose `Host` is not in the allowlist, or whose browser `Origin` is present but unlisted, is rejected with `403 Forbidden`. Requests with no `Origin` (curl, the native TUI client, non-browser WebSocket clients) are exempt from the origin check. A request that sends an `Origin` header, including the opaque `Origin: null` that sandboxed iframes and some `file://` pages emit, is checked and rejected unless that exact origin is allowlisted; only a wholly absent `Origin` is exempt. This closes the DNS-rebinding vector, where a malicious page rebinds its own hostname to your machine's IP and drives the local dashboard from the browser: the browser sends the attacker's hostname as `Host`, which is not in the allowlist.
+`aoe serve` validates the `Host` and `Origin` of every request before authentication. A request whose `Host` is not in the allowlist, or whose browser `Origin` is present but unlisted, is rejected with `403 Forbidden`. Requests with no `Origin` (curl, the native TUI client, non-browser WebSocket clients) are exempt from the origin check. A request that sends an `Origin` header, including the opaque `Origin: null` that sandboxed iframes and some `file://` pages emit, is always checked and rejected unless that exact origin is allowlisted; because `--allowed-origin` only accepts a full `scheme://host[:port]`, `Origin: null` can never be allowlisted and is always rejected. Only a wholly absent `Origin` is exempt. This closes the DNS-rebinding vector, where a malicious page rebinds its own hostname to your machine's IP and drives the local dashboard from the browser: the browser sends the attacker's hostname as `Host`, which is not in the allowlist.
 
 The allowlist is derived automatically:
 
