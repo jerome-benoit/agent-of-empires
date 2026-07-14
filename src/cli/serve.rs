@@ -789,8 +789,8 @@ pub async fn run(profile: &str, args: ServeArgs) -> Result<()> {
         passphrase: args.passphrase.as_deref(),
         behind_proxy: args.behind_proxy,
         open_browser: args.open,
-        allowed_hosts: args.allowed_host.clone(),
-        allowed_origins: args.allowed_origin.clone(),
+        extra_allowed_hosts: args.allowed_host.clone(),
+        extra_allowed_origins: args.allowed_origin.clone(),
     })
     .await;
 
