@@ -1886,7 +1886,7 @@ async fn http_request_span(
 
 /// True when `host` is a wildcard bind ("all interfaces") rather than a
 /// concrete, routable name a browser would send back as `Host`.
-fn is_wildcard_bind(host: &str) -> bool {
+pub(crate) fn is_wildcard_bind(host: &str) -> bool {
     matches!(host, "0.0.0.0" | "::" | "[::]")
 }
 
@@ -5209,6 +5209,27 @@ mod tests {
     }
 
     #[test]
+    fn null_origin_is_denied() {
+        assert_eq!(
+            evaluate_access(
+                Some("localhost"),
+                Some("null"),
+                &vecs(&["localhost"]),
+                &vecs(&["http://localhost:8080"])
+            ),
+            AccessDecision::DenyOrigin
+        );
+    }
+
+    #[test]
+    fn userinfo_host_is_denied() {
+        assert_eq!(
+            evaluate_access(Some("user@localhost"), None, &vecs(&["localhost"]), &[]),
+            AccessDecision::DenyHost
+        );
+    }
+
+    #[test]
     fn wildcard_bind_defaults_to_localhost_trio() {
         let (h, _o) = resolve_access_policy("0.0.0.0", 8080, &[], &[], None);
         assert_eq!(h, vecs(&["localhost", "127.0.0.1", "::1"]));
@@ -5445,6 +5466,33 @@ mod tests {
         assert_eq!(
             host_body, origin_body,
             "both deny reasons must return an identical, non-leaking body"
+        );
+    }
+
+    #[tokio::test]
+    async fn listed_origin_passes_gate_to_auth() {
+        use tower::ServiceExt;
+        let remote: std::net::SocketAddr = "203.0.113.7:5555".parse().unwrap();
+        let state = test_support::build_test_app_state_with_policy(
+            Vec::new(),
+            vecs(&["localhost"]),
+            vecs(&["http://localhost:8080"]),
+            Some("secret-token".to_string()),
+        );
+        let app = test_support::build_router_for_test(state);
+        let mut req = axum::http::Request::builder()
+            .uri("/api/sessions")
+            .header("host", "localhost")
+            .header("origin", "http://localhost:8080")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(axum::extract::ConnectInfo(remote));
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            axum::http::StatusCode::UNAUTHORIZED,
+            "a listed Origin must pass the gate and reach auth"
         );
     }
 

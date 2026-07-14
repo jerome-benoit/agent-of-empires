@@ -158,7 +158,7 @@ The server also sets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
 
 ### DNS rebinding
 
-`aoe serve` validates the `Host` and `Origin` of every request before authentication. A request whose `Host` is not in the allowlist, or whose browser `Origin` is present but unlisted, is rejected with `403 Forbidden`. Requests with no `Origin` (curl, the native TUI client, non-browser WebSocket clients) are exempt from the origin check. This closes the DNS-rebinding vector, where a malicious page rebinds its own hostname to your machine's IP and drives the local dashboard from the browser: the browser sends the attacker's hostname as `Host`, which is not in the allowlist.
+`aoe serve` validates the `Host` and `Origin` of every request before authentication. A request whose `Host` is not in the allowlist, or whose browser `Origin` is present but unlisted, is rejected with `403 Forbidden`. Requests with no `Origin` (curl, the native TUI client, non-browser WebSocket clients) are exempt from the origin check. A request that sends an `Origin` header, including the opaque `Origin: null` that sandboxed iframes and some `file://` pages emit, is checked and rejected unless that exact origin is allowlisted; only a wholly absent `Origin` is exempt. This closes the DNS-rebinding vector, where a malicious page rebinds its own hostname to your machine's IP and drives the local dashboard from the browser: the browser sends the attacker's hostname as `Host`, which is not in the allowlist.
 
 The allowlist is derived automatically:
 

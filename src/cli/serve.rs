@@ -734,6 +734,20 @@ pub async fn run(profile: &str, args: ServeArgs) -> Result<()> {
             eprintln!("  Read-only mode is ON: terminal input is disabled.");
             eprintln!();
         }
+        // A wildcard bind is reachable under any name that resolves to this
+        // host, so the DNS-rebinding gate trusts only loopback by default: the
+        // LAN/VPN URLs printed below return 403 until the reachable name is
+        // allowlisted. A concrete bind (--host 192.168.1.5) allowlists itself
+        // and needs no hint. See #2735.
+        if crate::server::is_wildcard_bind(&args.host) && args.allowed_host.is_empty() {
+            let msg = "Wildcard bind: LAN/VPN URLs are rejected (403) until you \
+                       allowlist the reachable name. Re-run with \
+                       --allowed-host <ip-or-hostname> (repeatable), e.g. \
+                       --allowed-host 192.168.1.5. Loopback still works.";
+            eprintln!("  {msg}");
+            eprintln!();
+            tracing::warn!(target: "serve", "{msg}");
+        }
         eprintln!("==========================================================");
         eprintln!();
     }
