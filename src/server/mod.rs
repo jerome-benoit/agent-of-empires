@@ -290,6 +290,17 @@ pub struct AppState {
     /// (`"tunnel"` / `"tailscale"` / `"local"`), fed to the telemetry snapshot.
     /// Never a tunnel name, hostname, or `.ts.net` URL, only the mode.
     pub serve_mode: &'static str,
+    /// DNS-rebinding gate: accepted `Host` values, port-stripped,
+    /// ASCII-lowercased, IPv6 unbracketed. Resolved once at launch by
+    /// `resolve_access_policy` from the bind host, `--allowed-host`, and any
+    /// auto-injected tunnel host. `access_policy` rejects an unlisted `Host`
+    /// with 403, before auth. See #2735.
+    pub allowed_hosts: Vec<String>,
+    /// DNS-rebinding gate: accepted `Origin` values (scheme + host [+ port],
+    /// ASCII-lowercased). A request whose `Origin` is unlisted is rejected
+    /// with 403; a request with no `Origin` (curl, native TUI, non-browser
+    /// WS) is exempt. Resolved alongside `allowed_hosts`. See #2735.
+    pub allowed_origins: Vec<String>,
     /// Per-instance mutex guarding mutations that must not interleave
     /// (e.g. `ensure_session` decide-and-restart). Entries are created on
     /// first use and live for the lifetime of the process — there are only
@@ -596,6 +607,12 @@ pub struct ServerConfig<'a> {
     /// same surface as `remote`, without spawning a tunnel.
     pub behind_proxy: bool,
     pub open_browser: bool,
+    /// Operator-supplied `--allowed-host` entries, added to the derived
+    /// loopback/bind defaults before the gate is built. See #2735.
+    pub allowed_hosts: Vec<String>,
+    /// Operator-supplied `--allowed-origin` entries (exact scheme+host+port),
+    /// for reverse proxies on nonstandard ports. See #2735.
+    pub allowed_origins: Vec<String>,
 }
 
 /// Resolve the coarse auth-mode label the same way `/api/about` reports it, so
@@ -629,6 +646,8 @@ pub async fn start_server(config: ServerConfig<'_>) -> anyhow::Result<()> {
         passphrase,
         behind_proxy,
         open_browser,
+        allowed_hosts: extra_allowed_hosts,
+        allowed_origins: extra_allowed_origins,
     } = config;
 
     raise_fd_limit();
@@ -999,6 +1018,26 @@ pub async fn start_server(config: ServerConfig<'_>) -> anyhow::Result<()> {
         .map(|h| h.mode_label())
         .unwrap_or("local");
 
+    // DNS-rebinding gate (#2735). Auto-inject the tunnel/Tailscale public host
+    // so remote dashboards and their live-terminal WS upgrade (which carries
+    // `Origin: https://<tunnel-host>`) pass without any operator flag; the URL
+    // rotates on quick tunnels and the bind is forced to loopback, so
+    // `--allowed-host` cannot cover this path.
+    let tunnel_host: Option<String> = tunnel_handle.as_ref().and_then(|h| host_from_url(&h.url));
+    let (allowed_hosts, allowed_origins) = resolve_access_policy(
+        host,
+        local_port,
+        &extra_allowed_hosts,
+        &extra_allowed_origins,
+        tunnel_host.as_deref(),
+    );
+    tracing::debug!(
+        target: "http.access",
+        ?allowed_hosts,
+        ?allowed_origins,
+        "resolved DNS-rebinding allowlist"
+    );
+
     let state = Arc::new(AppState {
         profile: profile.to_string(),
         read_only,
@@ -1009,6 +1048,8 @@ pub async fn start_server(config: ServerConfig<'_>) -> anyhow::Result<()> {
         behind_tunnel: remote || behind_proxy,
         auth_mode,
         serve_mode,
+        allowed_hosts,
+        allowed_origins,
         instance_locks: RwLock::new(std::collections::HashMap::new()),
         smart_rename_inflight: std::sync::Mutex::new(std::collections::HashSet::new()),
         smart_rename_attempted: std::sync::Mutex::new(std::collections::HashSet::new()),
@@ -1784,6 +1825,10 @@ fn build_router(state: Arc<AppState>) -> Router {
             state.clone(),
             auth::auth_middleware,
         ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            access_policy,
+        ))
         .layer(axum::middleware::from_fn(security_headers))
         .layer(axum::middleware::from_fn(http_request_span))
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
@@ -1837,6 +1882,211 @@ async fn http_request_span(
         response.headers_mut().insert("x-request-id", value);
     }
     response
+}
+
+/// True when `host` is a wildcard bind ("all interfaces") rather than a
+/// concrete, routable name a browser would send back as `Host`.
+fn is_wildcard_bind(host: &str) -> bool {
+    matches!(host, "0.0.0.0" | "::" | "[::]" | "*")
+}
+
+/// Strip an optional `:port` and IPv6 brackets from a `Host`/authority value,
+/// yielding the canonical bare host. `localhost:8080` -> `localhost`,
+/// `[::1]:8080` -> `::1`, `127.0.0.1` -> `127.0.0.1`. A bare (unbracketed)
+/// IPv6 literal has multiple colons and no port, so it is returned unchanged.
+fn strip_host_port(host: &str) -> &str {
+    let host = host.trim();
+    if let Some(rest) = host.strip_prefix('[') {
+        return rest.split(']').next().unwrap_or(rest);
+    }
+    match host.rfind(':') {
+        Some(idx) if !host[..idx].contains(':') => &host[..idx],
+        _ => host,
+    }
+}
+
+/// Canonical host key for the allowlist and for `Host` comparison: bare host,
+/// ASCII-lowercased (DNS is case-insensitive).
+fn norm_host(host: &str) -> String {
+    strip_host_port(host).to_ascii_lowercase()
+}
+
+/// Wrap an IPv6 literal in brackets for use inside an origin authority;
+/// hostnames and IPv4 literals pass through unchanged.
+fn bracket_if_ipv6(host: &str) -> String {
+    if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    }
+}
+
+fn push_unique(list: &mut Vec<String>, item: String) {
+    if !item.is_empty() && !list.contains(&item) {
+        list.push(item);
+    }
+}
+
+/// Extract the bare host from a tunnel URL like `https://x.trycloudflare.com`.
+fn host_from_url(url: &str) -> Option<String> {
+    let after_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(after_scheme);
+    let authority = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let host = norm_host(authority);
+    (!host.is_empty()).then_some(host)
+}
+
+/// Resolve the `(allowed_hosts, allowed_origins)` pair the DNS-rebinding gate
+/// enforces. Pure so the defaulting, wildcard handling, and tunnel
+/// auto-injection are unit-testable without a live server (#2735).
+///
+/// - Loopback trio (`localhost`, `127.0.0.1`, `::1`) is always trusted, plus
+///   the concrete bind `host` (wildcards excluded: they mean "all interfaces",
+///   not a routable Host).
+/// - Each local host gets `http`/`https` origins on the actual bind `port`.
+/// - Operator `--allowed-host` entries are trusted for direct access on the
+///   bind port and for standard-port (proxy) access.
+/// - A `tunnel_host` (Cloudflare/Tailscale public name) is auto-injected with
+///   its portless `https` origin, so tunnels work with no operator flag.
+/// - Operator `--allowed-origin` entries are added verbatim (lowercased) for
+///   reverse proxies on nonstandard ports.
+fn resolve_access_policy(
+    host: &str,
+    port: u16,
+    extra_hosts: &[String],
+    extra_origins: &[String],
+    tunnel_host: Option<&str>,
+) -> (Vec<String>, Vec<String>) {
+    let mut hosts: Vec<String> = Vec::new();
+    let mut origins: Vec<String> = Vec::new();
+
+    let mut local: Vec<String> = vec![
+        "localhost".to_string(),
+        "127.0.0.1".to_string(),
+        "::1".to_string(),
+    ];
+    if !is_wildcard_bind(host) {
+        push_unique(&mut local, norm_host(host));
+    }
+    for h in &local {
+        push_unique(&mut hosts, h.clone());
+        let hb = bracket_if_ipv6(h);
+        push_unique(&mut origins, format!("http://{hb}:{port}"));
+        push_unique(&mut origins, format!("https://{hb}:{port}"));
+    }
+
+    for h in extra_hosts {
+        let nh = norm_host(h);
+        if nh.is_empty() {
+            continue;
+        }
+        push_unique(&mut hosts, nh.clone());
+        let hb = bracket_if_ipv6(&nh);
+        push_unique(&mut origins, format!("http://{hb}:{port}"));
+        push_unique(&mut origins, format!("https://{hb}:{port}"));
+        push_unique(&mut origins, format!("http://{hb}"));
+        push_unique(&mut origins, format!("https://{hb}"));
+    }
+
+    if let Some(th) = tunnel_host {
+        let nh = norm_host(th);
+        if !nh.is_empty() {
+            push_unique(&mut hosts, nh.clone());
+            push_unique(&mut origins, format!("https://{}", bracket_if_ipv6(&nh)));
+        }
+    }
+
+    for o in extra_origins {
+        push_unique(&mut origins, o.trim().to_ascii_lowercase());
+    }
+
+    (hosts, origins)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum AccessDecision {
+    Allow,
+    DenyMissingHost,
+    DenyHost,
+    DenyOrigin,
+}
+
+/// Pure DNS-rebinding decision: reject a missing/unlisted `Host`, reject a
+/// present-but-unlisted `Origin`, and exempt requests with no `Origin`
+/// (curl / native TUI / non-browser WS). Comparisons are case-insensitive on
+/// the host and on the whole origin (scheme + host are case-insensitive; the
+/// port is digits). See #2735.
+fn evaluate_access(
+    host_header: Option<&str>,
+    origin_header: Option<&str>,
+    allowed_hosts: &[String],
+    allowed_origins: &[String],
+) -> AccessDecision {
+    let Some(raw_host) = host_header else {
+        return AccessDecision::DenyMissingHost;
+    };
+    let host = norm_host(raw_host);
+    if !allowed_hosts.contains(&host) {
+        return AccessDecision::DenyHost;
+    }
+    if let Some(origin) = origin_header {
+        let origin = origin.trim().to_ascii_lowercase();
+        if !allowed_origins.contains(&origin) {
+            return AccessDecision::DenyOrigin;
+        }
+    }
+    AccessDecision::Allow
+}
+
+fn access_denied() -> axum::response::Response {
+    use axum::response::IntoResponse;
+    (axum::http::StatusCode::FORBIDDEN, "host not allowed").into_response()
+}
+
+/// DNS-rebinding gate. Runs before `auth_middleware` (layered outside it) so a
+/// rejected request never reaches auth: the 403 short-circuits here. HTTP/1.1
+/// always carries `Host`; for HTTP/2 the `:authority` pseudo-header maps to it,
+/// with the URI authority as a fallback. See #2735.
+async fn access_policy(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let host_header = request
+        .headers()
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| request.uri().authority().map(|a| a.as_str().to_string()));
+    let origin_header = request
+        .headers()
+        .get(axum::http::header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+
+    match evaluate_access(
+        host_header.as_deref(),
+        origin_header.as_deref(),
+        &state.allowed_hosts,
+        &state.allowed_origins,
+    ) {
+        AccessDecision::Allow => next.run(request).await,
+        AccessDecision::DenyMissingHost => {
+            tracing::debug!(target: "http.access", "rejected: missing Host header");
+            access_denied()
+        }
+        AccessDecision::DenyHost => {
+            tracing::debug!(target: "http.access", host = ?host_header, "rejected: host not in allowlist");
+            access_denied()
+        }
+        AccessDecision::DenyOrigin => {
+            tracing::debug!(target: "http.access", origin = ?origin_header, "rejected: origin not in allowlist");
+            access_denied()
+        }
+    }
 }
 
 /// Content-Security-Policy for the dashboard.
@@ -4639,6 +4889,18 @@ pub mod test_support {
     /// `recently_restarted`, and the file-watch trio are real. Acp
     /// fields are stubbed because the helper's acp overlay reads them.
     pub fn build_test_app_state(prior: Vec<Instance>) -> Arc<AppState> {
+        build_test_app_state_with_policy(prior, Vec::new(), Vec::new(), None)
+    }
+
+    /// Like [`build_test_app_state`] but seeds the DNS-rebinding allowlist and,
+    /// optionally, a real auth token so tests can exercise `access_policy` and
+    /// the router layering, including the before-auth ordering (#2735).
+    pub fn build_test_app_state_with_policy(
+        prior: Vec<Instance>,
+        allowed_hosts: Vec<String>,
+        allowed_origins: Vec<String>,
+        token: Option<String>,
+    ) -> Arc<AppState> {
         let app_dir = tempfile::tempdir().expect("tempdir");
         let acp_db = app_dir.path().join("acp_events.db");
         let event_store =
@@ -4654,12 +4916,14 @@ pub mod test_support {
             profile: "test".to_string(),
             read_only: false,
             instances: RwLock::new(prior),
-            token_manager: Arc::new(TokenManager::new(None, Duration::from_secs(3600))),
+            token_manager: Arc::new(TokenManager::new(token, Duration::from_secs(3600))),
             login_manager: Arc::new(login::LoginManager::new(None)),
             rate_limiter: Arc::new(RateLimiter::new()),
             behind_tunnel: false,
             auth_mode: "none",
             serve_mode: "local",
+            allowed_hosts,
+            allowed_origins,
             instance_locks: RwLock::new(HashMap::new()),
             smart_rename_inflight: std::sync::Mutex::new(std::collections::HashSet::new()),
             smart_rename_attempted: std::sync::Mutex::new(std::collections::HashSet::new()),
@@ -4703,6 +4967,10 @@ pub mod test_support {
 
     pub async fn has_disk_watch_handle(state: &Arc<AppState>, profile: &str) -> bool {
         state.disk_watch_handles.lock().await.contains_key(profile)
+    }
+
+    pub fn build_router_for_test(state: Arc<AppState>) -> axum::Router {
+        super::build_router(state)
     }
 
     pub async fn disk_watch_handle_count(state: &Arc<AppState>) -> usize {
@@ -4771,6 +5039,273 @@ pub mod test_support {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn vecs(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn strip_host_port_variants() {
+        assert_eq!(strip_host_port("localhost:8080"), "localhost");
+        assert_eq!(strip_host_port("localhost"), "localhost");
+        assert_eq!(strip_host_port("127.0.0.1:8080"), "127.0.0.1");
+        assert_eq!(strip_host_port("[::1]:8080"), "::1");
+        assert_eq!(strip_host_port("[::1]"), "::1");
+        assert_eq!(strip_host_port("::1"), "::1");
+        assert_eq!(strip_host_port("example.com"), "example.com");
+    }
+
+    #[test]
+    fn host_from_url_extracts_bare_host() {
+        assert_eq!(
+            host_from_url("https://x.trycloudflare.com").as_deref(),
+            Some("x.trycloudflare.com")
+        );
+        assert_eq!(
+            host_from_url("https://foo.ts.net/path?x=1").as_deref(),
+            Some("foo.ts.net")
+        );
+        assert_eq!(
+            host_from_url("https://Foo.TS.net").as_deref(),
+            Some("foo.ts.net")
+        );
+        assert_eq!(host_from_url(""), None);
+    }
+
+    #[test]
+    fn host_in_allowlist_passes() {
+        assert_eq!(
+            evaluate_access(Some("localhost"), None, &vecs(&["localhost"]), &[]),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn host_not_in_allowlist_403() {
+        assert_eq!(
+            evaluate_access(Some("evil.com"), None, &vecs(&["localhost"]), &[]),
+            AccessDecision::DenyHost
+        );
+    }
+
+    #[test]
+    fn host_port_stripped_before_match() {
+        assert_eq!(
+            evaluate_access(Some("localhost:8080"), None, &vecs(&["localhost"]), &[]),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn host_ipv6_bracketed_port_stripped() {
+        assert_eq!(
+            evaluate_access(Some("[::1]:8080"), None, &vecs(&["::1"]), &[]),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn host_match_is_case_insensitive() {
+        assert_eq!(
+            evaluate_access(Some("LOCALHOST"), None, &vecs(&["localhost"]), &[]),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn missing_host_denied() {
+        assert_eq!(
+            evaluate_access(None, None, &vecs(&["localhost"]), &[]),
+            AccessDecision::DenyMissingHost
+        );
+    }
+
+    #[test]
+    fn origin_absent_is_exempt() {
+        assert_eq!(
+            evaluate_access(
+                Some("localhost"),
+                None,
+                &vecs(&["localhost"]),
+                &vecs(&["http://localhost:8080"])
+            ),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn origin_in_allowlist_passes() {
+        assert_eq!(
+            evaluate_access(
+                Some("localhost"),
+                Some("http://localhost:8080"),
+                &vecs(&["localhost"]),
+                &vecs(&["http://localhost:8080"])
+            ),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn origin_not_in_allowlist_403() {
+        assert_eq!(
+            evaluate_access(
+                Some("localhost"),
+                Some("https://evil.com"),
+                &vecs(&["localhost"]),
+                &vecs(&["http://localhost:8080"])
+            ),
+            AccessDecision::DenyOrigin
+        );
+    }
+
+    #[test]
+    fn origin_match_is_case_insensitive() {
+        assert_eq!(
+            evaluate_access(
+                Some("localhost"),
+                Some("https://X.TryCloudflare.com"),
+                &vecs(&["localhost"]),
+                &vecs(&["https://x.trycloudflare.com"])
+            ),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn wildcard_bind_defaults_to_localhost_trio() {
+        let (h, _o) = resolve_access_policy("0.0.0.0", 8080, &[], &[], None);
+        assert_eq!(h, vecs(&["localhost", "127.0.0.1", "::1"]));
+        assert_eq!(
+            evaluate_access(Some("192.168.1.5"), None, &h, &[]),
+            AccessDecision::DenyHost
+        );
+    }
+
+    #[test]
+    fn concrete_bind_host_is_allowed() {
+        let (h, o) = resolve_access_policy("192.168.1.5", 8080, &[], &[], None);
+        assert!(h.contains(&"192.168.1.5".to_string()));
+        assert!(o.contains(&"http://192.168.1.5:8080".to_string()));
+    }
+
+    #[test]
+    fn explicit_host_flag_extends_allowlist() {
+        let (h, o) = resolve_access_policy("0.0.0.0", 8080, &vecs(&["aoe.example.com"]), &[], None);
+        assert!(h.contains(&"aoe.example.com".to_string()));
+        assert!(o.contains(&"https://aoe.example.com".to_string()));
+        assert!(o.contains(&"https://aoe.example.com:8080".to_string()));
+    }
+
+    #[test]
+    fn remote_tunnel_host_auto_injected() {
+        let (h, _o) =
+            resolve_access_policy("127.0.0.1", 8080, &[], &[], Some("x.trycloudflare.com"));
+        assert!(h.contains(&"x.trycloudflare.com".to_string()));
+        assert_eq!(
+            evaluate_access(Some("x.trycloudflare.com"), None, &h, &[]),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn tunnel_origin_auto_injected() {
+        let (h, o) =
+            resolve_access_policy("127.0.0.1", 8080, &[], &[], Some("x.trycloudflare.com"));
+        assert!(o.contains(&"https://x.trycloudflare.com".to_string()));
+        assert_eq!(
+            evaluate_access(
+                Some("x.trycloudflare.com"),
+                Some("https://x.trycloudflare.com"),
+                &h,
+                &o
+            ),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn tailscale_host_auto_injected() {
+        let (h, o) =
+            resolve_access_policy("127.0.0.1", 8080, &[], &[], Some("host.tailnet.ts.net"));
+        assert!(h.contains(&"host.tailnet.ts.net".to_string()));
+        assert!(o.contains(&"https://host.tailnet.ts.net".to_string()));
+    }
+
+    #[test]
+    fn explicit_origin_flag_added_verbatim() {
+        let (_h, o) = resolve_access_policy(
+            "127.0.0.1",
+            8080,
+            &[],
+            &vecs(&["https://aoe.example.com:8443"]),
+            None,
+        );
+        assert!(o.contains(&"https://aoe.example.com:8443".to_string()));
+    }
+
+    #[tokio::test]
+    async fn access_policy_rejects_unlisted_host_at_router() {
+        use tower::ServiceExt;
+        let state = test_support::build_test_app_state_with_policy(
+            Vec::new(),
+            vecs(&["localhost"]),
+            vecs(&["http://localhost:8080"]),
+            None,
+        );
+        let app = test_support::build_router_for_test(state);
+        let req = axum::http::Request::builder()
+            .uri("/api/sessions")
+            .header("host", "evil.com")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn access_policy_runs_before_auth() {
+        use tower::ServiceExt;
+        let remote: std::net::SocketAddr = "203.0.113.7:5555".parse().unwrap();
+        let make_state = || {
+            test_support::build_test_app_state_with_policy(
+                Vec::new(),
+                vecs(&["localhost"]),
+                vecs(&["http://localhost:8080"]),
+                Some("secret-token".to_string()),
+            )
+        };
+
+        let app = test_support::build_router_for_test(make_state());
+        let mut bad = axum::http::Request::builder()
+            .uri("/api/sessions")
+            .header("host", "evil.com")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        bad.extensions_mut()
+            .insert(axum::extract::ConnectInfo(remote));
+        let resp = app.oneshot(bad).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            axum::http::StatusCode::FORBIDDEN,
+            "an unlisted Host must 403 before auth can 401"
+        );
+
+        let app = test_support::build_router_for_test(make_state());
+        let mut good = axum::http::Request::builder()
+            .uri("/api/sessions")
+            .header("host", "localhost")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        good.extensions_mut()
+            .insert(axum::extract::ConnectInfo(remote));
+        let resp = app.oneshot(good).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            axum::http::StatusCode::UNAUTHORIZED,
+            "a listed Host passes the gate and reaches auth"
+        );
+    }
 
     #[test]
     fn decide_passive_transition_skips_patch_for_structured_session() {

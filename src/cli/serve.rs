@@ -67,6 +67,21 @@ pub struct ServeArgs {
     #[arg(long)]
     pub behind_proxy: bool,
 
+    /// Extra `Host` header value to accept (repeatable). The DNS-rebinding
+    /// gate answers only to loopback plus a non-wildcard `--host` by default;
+    /// add the public hostname when serving behind a reverse proxy or a custom
+    /// tunnel, or the LAN IP/name when binding `0.0.0.0`. Auto-injected tunnel
+    /// hosts (`--remote`) need no flag.
+    #[arg(long = "allowed-host", value_name = "HOST")]
+    pub allowed_host: Vec<String>,
+
+    /// Extra browser `Origin` to accept (repeatable, exact scheme+host+port,
+    /// e.g. `https://aoe.example.com:8443`). Needed only for a reverse proxy
+    /// on a nonstandard port; standard 80/443 origins for `--allowed-host`
+    /// entries are derived automatically.
+    #[arg(long = "allowed-origin", value_name = "ORIGIN")]
+    pub allowed_origin: Vec<String>,
+
     /// Read-only mode: view terminals but cannot send keystrokes
     #[arg(long)]
     pub read_only: bool,
@@ -108,7 +123,8 @@ pub struct ServeArgs {
     /// would change daemon state (`--stop`, `--daemon`, `--remote`) or
     /// the bind config of a fresh daemon (`--no-auth`, `--auth`,
     /// `--behind-proxy`, `--read-only`, `--passphrase`, `--port`,
-    /// `--tunnel-name`, `--no-tailscale`, `--tunnel-url`, `--open`).
+    /// `--tunnel-name`, `--no-tailscale`, `--tunnel-url`, `--open`,
+    /// `--allowed-host`, `--allowed-origin`).
     /// Clap reports the misuse instead of silently ignoring the extras.
     #[arg(
         long,
@@ -117,6 +133,7 @@ pub struct ServeArgs {
             "no_auth", "auth", "behind_proxy",
             "read_only", "passphrase", "port",
             "tunnel_name", "no_tailscale", "tunnel_url", "open",
+            "allowed_host", "allowed_origin",
         ],
     )]
     pub status: bool,
@@ -154,6 +171,7 @@ pub struct ServeArgs {
             "no_auth", "auth", "behind_proxy",
             "read_only", "passphrase", "port", "host",
             "tunnel_name", "no_tailscale", "tunnel_url", "open",
+            "allowed_host", "allowed_origin",
         ],
     )]
     pub restart: bool,
@@ -249,6 +267,29 @@ fn validate_auth_combination(
     Ok(())
 }
 
+/// A daemon behind an external reverse proxy (`--behind-proxy`, no `--remote`)
+/// answers to the operator's public hostname, which aoe cannot derive (there
+/// is no tunnel handle to read it from). Without at least one `--allowed-host`
+/// the DNS-rebinding gate would 403 every proxied request, so refuse to start
+/// with an explicit message instead of failing silently at runtime (#2735).
+/// `--remote` is exempt: it auto-injects the tunnel host.
+fn validate_behind_proxy_allowlist(
+    behind_proxy: bool,
+    remote: bool,
+    allowed_hosts: &[String],
+) -> Result<()> {
+    if behind_proxy && !remote && allowed_hosts.is_empty() {
+        bail!(
+            "--behind-proxy requires --allowed-host <public-hostname>.\n\
+             The reverse proxy forwards requests carrying your public Host header,\n\
+             which aoe cannot infer. Without it the DNS-rebinding gate would reject\n\
+             every proxied request. Example:\n  \
+             aoe serve --host 127.0.0.1 --behind-proxy --allowed-host aoe.example.com"
+        );
+    }
+    Ok(())
+}
+
 /// True when `aoe serve --remote` will route through Cloudflare and therefore
 /// needs `cloudflared` on PATH. That covers both an explicit named tunnel
 /// (`--tunnel-name`) and the quick-tunnel fallback path that runs when
@@ -292,6 +333,10 @@ pub struct ServeLaunch {
     pub tunnel_name: Option<String>,
     pub tunnel_url: Option<String>,
     pub no_tailscale: bool,
+    #[serde(default)]
+    pub allowed_host: Vec<String>,
+    #[serde(default)]
+    pub allowed_origin: Vec<String>,
 }
 
 const SERVE_LAUNCH_SCHEMA: u32 = 1;
@@ -320,6 +365,8 @@ impl ServeLaunch {
             open: false,
             daemon_child: false,
             restart: false,
+            allowed_host: self.allowed_host.clone(),
+            allowed_origin: self.allowed_origin.clone(),
         }
     }
 }
@@ -615,6 +662,8 @@ pub async fn run(profile: &str, args: ServeArgs) -> Result<()> {
         &args.host,
     )?;
 
+    validate_behind_proxy_allowlist(args.behind_proxy, args.remote, &args.allowed_host)?;
+
     // --behind-proxy + --remote is meaningless: --remote manages its
     // own ingress, --behind-proxy assumes an external one. Warn but
     // do not hard-fail; --remote wins for the tunnel-spawn decision
@@ -740,6 +789,8 @@ pub async fn run(profile: &str, args: ServeArgs) -> Result<()> {
         passphrase: args.passphrase.as_deref(),
         behind_proxy: args.behind_proxy,
         open_browser: args.open,
+        allowed_hosts: args.allowed_host.clone(),
+        allowed_origins: args.allowed_origin.clone(),
     })
     .await;
 
@@ -818,6 +869,12 @@ fn start_daemon(profile: &str, args: &ServeArgs) -> Result<()> {
     }
     if args.no_tailscale {
         cmd.arg("--no-tailscale");
+    }
+    for h in &args.allowed_host {
+        cmd.args(["--allowed-host", h]);
+    }
+    for o in &args.allowed_origin {
+        cmd.args(["--allowed-origin", o]);
     }
     if let Some(ref passphrase) = args.passphrase {
         // Pass via env var to avoid exposing the passphrase in the process list
@@ -905,6 +962,8 @@ fn start_daemon(profile: &str, args: &ServeArgs) -> Result<()> {
         tunnel_name: args.tunnel_name.clone(),
         tunnel_url: args.tunnel_url.clone(),
         no_tailscale: args.no_tailscale,
+        allowed_host: args.allowed_host.clone(),
+        allowed_origin: args.allowed_origin.clone(),
     };
     if let Err(e) = write_serve_launch(&launch) {
         tracing::warn!(target: "serve.lifecycle", error = %e, "failed to write serve.launch");
@@ -977,6 +1036,7 @@ pub async fn restart_daemon() -> Result<()> {
         launch.remote,
         &launch.host,
     )?;
+    validate_behind_proxy_allowlist(launch.behind_proxy, launch.remote, &launch.allowed_host)?;
 
     let args = launch.to_serve_args(passphrase);
 
@@ -1347,6 +1407,8 @@ mod tests {
             tunnel_name: Some("named".to_string()),
             tunnel_url: Some("aoe.example.com".to_string()),
             no_tailscale: true,
+            allowed_host: vec!["aoe.example.com".to_string()],
+            allowed_origin: vec!["https://aoe.example.com:8443".to_string()],
         }
     }
 
@@ -1366,6 +1428,8 @@ mod tests {
         assert_eq!(back.tunnel_name, launch.tunnel_name);
         assert_eq!(back.tunnel_url, launch.tunnel_url);
         assert_eq!(back.no_tailscale, launch.no_tailscale);
+        assert_eq!(back.allowed_host, launch.allowed_host);
+        assert_eq!(back.allowed_origin, launch.allowed_origin);
     }
 
     #[test]
@@ -1389,6 +1453,30 @@ mod tests {
         assert!(!args.restart);
         assert!(!args.stop);
         assert_eq!(args.passphrase.as_deref(), Some("hunter2"));
+        assert_eq!(args.allowed_host, vec!["aoe.example.com".to_string()]);
+        assert_eq!(
+            args.allowed_origin,
+            vec!["https://aoe.example.com:8443".to_string()]
+        );
+    }
+
+    #[test]
+    fn behind_proxy_without_allowed_host_errors_at_startup() {
+        let err = validate_behind_proxy_allowlist(true, false, &[])
+            .expect_err("behind-proxy with no allowed host must be rejected");
+        assert!(err.to_string().contains("--allowed-host"));
+    }
+
+    #[test]
+    fn behind_proxy_with_allowed_host_ok() {
+        validate_behind_proxy_allowlist(true, false, &["aoe.example.com".to_string()])
+            .expect("behind-proxy with an allowed host starts");
+    }
+
+    #[test]
+    fn behind_proxy_remote_is_exempt_from_allowed_host() {
+        validate_behind_proxy_allowlist(true, true, &[])
+            .expect("remote auto-injects the tunnel host, so no flag is required");
     }
 
     #[test]
