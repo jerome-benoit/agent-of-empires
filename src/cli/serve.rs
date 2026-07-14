@@ -290,6 +290,28 @@ fn validate_behind_proxy_allowlist(
     Ok(())
 }
 
+/// A browser `Origin` is always `scheme://host[:port]`, so a schemeless
+/// `--allowed-origin` (e.g. `aoe.example.com:8443`) normalizes to a value no
+/// `Origin` header can ever equal: it would silently 403 the very requests it
+/// was meant to permit. Reject it at startup with the corrected form instead
+/// of failing closed at runtime (#2735).
+fn validate_allowed_origins(allowed_origins: &[String]) -> Result<()> {
+    for origin in allowed_origins {
+        let lower = origin.trim().to_ascii_lowercase();
+        if !lower.starts_with("http://") && !lower.starts_with("https://") {
+            bail!(
+                "--allowed-origin {origin:?} must be a full origin of the form \
+                 scheme://host[:port].\n\
+                 A browser Origin always carries a scheme, so a schemeless value \
+                 can never match and would reject the requests it should allow. \
+                 Example:\n  \
+                 aoe serve --allowed-origin https://aoe.example.com:8443"
+            );
+        }
+    }
+    Ok(())
+}
+
 /// True when `aoe serve --remote` will route through Cloudflare and therefore
 /// needs `cloudflared` on PATH. That covers both an explicit named tunnel
 /// (`--tunnel-name`) and the quick-tunnel fallback path that runs when
@@ -663,6 +685,7 @@ pub async fn run(profile: &str, args: ServeArgs) -> Result<()> {
     )?;
 
     validate_behind_proxy_allowlist(args.behind_proxy, args.remote, &args.allowed_host)?;
+    validate_allowed_origins(&args.allowed_origin)?;
 
     // --behind-proxy + --remote is meaningless: --remote manages its
     // own ingress, --behind-proxy assumes an external one. Warn but
@@ -1491,6 +1514,22 @@ mod tests {
     fn behind_proxy_remote_is_exempt_from_allowed_host() {
         validate_behind_proxy_allowlist(true, true, &[])
             .expect("remote auto-injects the tunnel host, so no flag is required");
+    }
+
+    #[test]
+    fn schemeless_allowed_origin_errors_at_startup() {
+        assert!(validate_allowed_origins(&["aoe.example.com:8443".to_string()]).is_err());
+        assert!(validate_allowed_origins(&["".to_string()]).is_err());
+    }
+
+    #[test]
+    fn scheme_qualified_allowed_origin_ok() {
+        validate_allowed_origins(&[
+            "https://aoe.example.com:8443".to_string(),
+            "http://localhost:3000".to_string(),
+            "HTTPS://aoe.example.com".to_string(),
+        ])
+        .expect("full scheme://host[:port] origins are accepted (scheme case-insensitive)");
     }
 
     #[test]

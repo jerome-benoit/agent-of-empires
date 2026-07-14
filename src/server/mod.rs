@@ -5496,6 +5496,52 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn access_policy_authority_fallback_allows_listed() {
+        use tower::ServiceExt;
+        let remote: std::net::SocketAddr = "203.0.113.7:5555".parse().unwrap();
+        let state = test_support::build_test_app_state_with_policy(
+            Vec::new(),
+            vecs(&["x.trycloudflare.com"]),
+            Vec::new(),
+            Some("secret-token".to_string()),
+        );
+        let app = test_support::build_router_for_test(state);
+        // Absolute-form URI + no Host header: access_policy falls back to
+        // request.uri().authority() (the HTTP/2 :authority path).
+        let mut req = axum::http::Request::builder()
+            .uri("http://x.trycloudflare.com/api/sessions")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert!(req.headers().get(axum::http::header::HOST).is_none());
+        req.extensions_mut()
+            .insert(axum::extract::ConnectInfo(remote));
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            axum::http::StatusCode::UNAUTHORIZED,
+            "an :authority in the allowlist passes the gate and reaches auth"
+        );
+    }
+
+    #[tokio::test]
+    async fn access_policy_authority_fallback_rejects_unlisted() {
+        use tower::ServiceExt;
+        let state = test_support::build_test_app_state_with_policy(
+            Vec::new(),
+            vecs(&["localhost"]),
+            Vec::new(),
+            None,
+        );
+        let app = test_support::build_router_for_test(state);
+        let req = axum::http::Request::builder()
+            .uri("http://evil.trycloudflare.com/api/sessions")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
     #[test]
     fn decide_passive_transition_skips_patch_for_structured_session() {
         // Locks the CI regression from #2697: structured/ACP sessions
