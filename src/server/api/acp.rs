@@ -32,6 +32,23 @@ const MAX_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
 /// Maximum decoded size of all attachments on one prompt (20 MiB).
 const MAX_TOTAL_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
 
+/// Startup-error banner text for a failed detached structured-view spawn,
+/// shared by the create-path (`create_session`) and enable-path
+/// (`acp_enable`). `CapacityFull` is transient and user-actionable, so its
+/// Display (which carries "capacity full" + "max_concurrent_workers", matching
+/// the front-end capacity regex) is surfaced verbatim instead of the generic
+/// crash-style message, so the session shows the capacity banner rather than a
+/// misleading failure. The detached task runs before the reconciler sees the
+/// session, so on `CapacityFull` the first reconciler tick re-publishes the
+/// same banner once via its `capacity_deferred` gate: a single benign
+/// duplicate the front-end reducer collapses idempotently. See #1027.
+pub(crate) fn structured_spawn_error_message(err: &SupervisorError, agent: &str) -> String {
+    match err {
+        SupervisorError::CapacityFull { .. } => err.to_string(),
+        _ => format!("Failed to start structured view agent {agent:?}: {err}"),
+    }
+}
+
 /// MIME types accepted per attachment kind. Conservative on purpose:
 /// `image/svg+xml` is excluded (scriptable XML), and embedded resources
 /// are limited to inert text/document types. The image kind is also
@@ -1745,7 +1762,9 @@ pub async fn acp_enable(
             })
             .await
         {
-            let message = format!("Failed to start structured view agent {agent_name:?}: {e}");
+            // Capacity-aware banner selection (and the benign first-tick
+            // duplicate) is documented on `structured_spawn_error_message`.
+            let message = structured_spawn_error_message(&e, &agent_name);
             tracing::warn!(target: "acp.switch", session = %session_id, "spawn after enable: {message}");
             supervisor.publish_startup_error(&session_id, message);
         }

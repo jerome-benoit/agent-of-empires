@@ -3304,6 +3304,13 @@ async fn status_poll_loop(state: Arc<AppState>) {
         std::collections::HashMap::new();
     #[cfg(feature = "serve")]
     let mut acp_parked: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Per-session capacity-deferred marker (#1027). A structured session
+    // refused by `CapacityFull` is re-armed for retry every tick; this set
+    // gates the capacity banner to publish once per transition and is cleared
+    // once the session's worker comes online or leaves the live set.
+    #[cfg(feature = "serve")]
+    let mut acp_capacity_deferred: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
     loop {
         interval.tick().await;
 
@@ -3482,6 +3489,7 @@ async fn status_poll_loop(state: Arc<AppState>) {
                 &mut last_rate_limit_reap,
                 &mut acp_respawn_history,
                 &mut acp_parked,
+                &mut acp_capacity_deferred,
             )
             .await;
 

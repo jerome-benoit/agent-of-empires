@@ -2677,6 +2677,32 @@ impl<S: BroadcastSink> Supervisor<S> {
         self.workers.lock().await.len()
     }
 
+    /// Insert a fake in-memory worker so a test can occupy a capacity slot
+    /// without launching a real runner. Mirrors the `WorkerHandle` fixture in
+    /// `capacity_full_returns_after_limit`. The slot is counted by
+    /// `begin_resume` and `is_running`, but no registry entry is written, so
+    /// the reconciler's orphan sweep never touches it.
+    #[cfg(test)]
+    pub(crate) async fn test_insert_worker(&self, session_id: &str) {
+        let (client, _tx) = AcpClient::fake_for_test(AcpSessionId(format!("acp-{session_id}")));
+        self.workers.lock().await.insert(
+            session_id.to_string(),
+            WorkerHandle {
+                client: Arc::new(client),
+                drain_task: tokio::spawn(async {}),
+                restart_history: vec![],
+                kind: WorkerKind::Stdio,
+            },
+        );
+    }
+
+    /// Drop a fake in-memory worker inserted by `test_insert_worker`, freeing
+    /// the capacity slot for the next reconciler tick.
+    #[cfg(test)]
+    pub(crate) async fn test_remove_worker(&self, session_id: &str) {
+        self.workers.lock().await.remove(session_id);
+    }
+
     /// Reap workers whose on-disk registry entry has disappeared while
     /// the in-memory `WorkerHandle` is still installed. This is the
     /// out-of-band stop signal: `aoe acp stop|kill|restart` (a

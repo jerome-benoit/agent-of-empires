@@ -4558,8 +4558,11 @@ pub async fn create_session(
                             .await
                             .iter()
                             .any(|i| i.id == id);
+                        // Capacity-aware banner selection (and the benign
+                        // first-tick duplicate) is documented on
+                        // `structured_spawn_error_message`.
                         let message =
-                            format!("Failed to start structured view agent {agent:?}: {e}");
+                            crate::server::api::structured_spawn_error_message(&e, &agent);
                         if still_present {
                             tracing::warn!(
                                 target: "acp.supervisor",
