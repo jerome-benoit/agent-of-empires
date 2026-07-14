@@ -290,24 +290,31 @@ fn validate_behind_proxy_allowlist(
     Ok(())
 }
 
-/// A browser `Origin` is always `scheme://host[:port]`, so a schemeless
-/// (`aoe.example.com:8443`) or hostless (`https://`) `--allowed-origin`
-/// normalizes to a value no `Origin` header can ever equal: it would silently
-/// 403 the very requests it was meant to permit. Reject it at startup with the
-/// corrected form instead of failing closed at runtime (#2735).
+/// A browser `Origin` is always `scheme://host[:port]` with no path, so a
+/// schemeless (`aoe.example.com:8443`), hostless (`https://`), or path-bearing
+/// (`https://x/app`) `--allowed-origin` normalizes to a value no `Origin`
+/// header can ever equal: it would silently 403 the very requests it was meant
+/// to permit. Reject it at startup with the corrected form instead of failing
+/// closed at runtime (#2735).
 fn validate_allowed_origins(allowed_origins: &[String]) -> Result<()> {
     for origin in allowed_origins {
         let lower = origin.trim().to_ascii_lowercase();
         let host = lower
             .strip_prefix("https://")
             .or_else(|| lower.strip_prefix("http://"));
-        if !host.is_some_and(|h| !h.trim_end_matches('/').is_empty()) {
+        // A purely trailing slash is harmless (`norm_origin` strips it); a slash
+        // that survives the trim is a real path the gate can never match.
+        let valid = host.is_some_and(|h| {
+            let h = h.trim_end_matches('/');
+            !h.is_empty() && !h.contains('/')
+        });
+        if !valid {
             bail!(
                 "--allowed-origin {origin:?} must be a full origin of the form \
                  scheme://host[:port].\n\
-                 A browser Origin always carries a scheme and a host, so a \
-                 schemeless or hostless value can never match and would reject \
-                 the requests it should allow. Example:\n  \
+                 A browser Origin always carries a scheme and a host and no path, \
+                 so a schemeless, hostless, or path-bearing value can never match \
+                 and would reject the requests it should allow. Example:\n  \
                  aoe serve --allowed-origin https://aoe.example.com:8443"
             );
         }
@@ -316,22 +323,21 @@ fn validate_allowed_origins(allowed_origins: &[String]) -> Result<()> {
 }
 
 /// A `--allowed-host` is a bare `Host` value (a port is harmless: `norm_host`
-/// strips it symmetrically on both sides). A pasted URL/scheme
-/// (`https://aoe.example.com`) makes `norm_host` split at the scheme colon and
-/// keep the garbage host `"https"`, silently 403ing the requests it was meant
-/// to permit. Reject a value carrying `://` or an empty value at startup with
+/// strips it symmetrically on both sides), never a scheme or path. A pasted URL
+/// (`https://aoe.example.com`) or a path (`aoe.example.com/app`) leaves a
+/// value `norm_host` can never match, silently 403ing the requests it was meant
+/// to permit. Reject a value containing `/` or an empty value at startup with
 /// the corrected form instead of failing closed at runtime (#2735).
 fn validate_allowed_hosts(allowed_hosts: &[String]) -> Result<()> {
     for host in allowed_hosts {
         let trimmed = host.trim();
-        if trimmed.is_empty() || trimmed.contains("://") {
+        if trimmed.is_empty() || trimmed.contains('/') {
             bail!(
                 "--allowed-host {host:?} must be a bare hostname or IP \
-                 (optionally host:port), not a URL.\n\
+                 (optionally host:port), without a scheme or path.\n\
                  The DNS-rebinding gate compares it against the request's Host \
-                 header, which carries no scheme, so a URL or empty value can \
-                 never match and would reject the requests it should allow. \
-                 Example:\n  \
+                 header, which carries neither, so such a value can never match \
+                 and would reject the requests it should allow. Example:\n  \
                  aoe serve --host 0.0.0.0 --allowed-host aoe.example.com"
             );
         }
@@ -1559,13 +1565,20 @@ mod tests {
     }
 
     #[test]
+    fn path_bearing_allowed_origin_errors_at_startup() {
+        assert!(validate_allowed_origins(&["https://aoe.example.com/app".to_string()]).is_err());
+    }
+
+    #[test]
     fn scheme_qualified_allowed_origin_ok() {
         validate_allowed_origins(&[
             "https://aoe.example.com:8443".to_string(),
             "http://localhost:3000".to_string(),
             "HTTPS://aoe.example.com".to_string(),
+            "https://aoe.example.com/".to_string(),
+            "https://[::1]".to_string(),
         ])
-        .expect("full scheme://host[:port] origins are accepted (scheme case-insensitive)");
+        .expect("full scheme://host[:port] origins (incl. IPv6, trailing slash) are accepted");
     }
 
     #[test]
@@ -1581,10 +1594,9 @@ mod tests {
     }
 
     #[test]
-    fn allowed_hosts_reject_pasted_url() {
-        let err = validate_allowed_hosts(&["https://aoe.example.com".to_string()])
-            .expect_err("a pasted URL must be rejected at startup");
-        assert!(err.to_string().contains("not a URL"));
+    fn allowed_hosts_reject_pasted_url_or_path() {
+        assert!(validate_allowed_hosts(&["https://aoe.example.com".to_string()]).is_err());
+        assert!(validate_allowed_hosts(&["aoe.example.com/app".to_string()]).is_err());
     }
 
     #[test]
