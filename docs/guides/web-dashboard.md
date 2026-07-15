@@ -99,7 +99,7 @@ Requires `cloudflared` on the host:
 | `--auth` | `token` | Auth mode: `token` (URL token), `passphrase` (passphrase login wall only), `none` (no auth, loopback only unless `--behind-proxy`) |
 | `--passphrase` | | Passphrase for the login wall. Valid with `--auth=token` (token + passphrase) and `--auth=passphrase`. Also reads `AOE_SERVE_PASSPHRASE` |
 | `--behind-proxy` | off | Server sits behind an external reverse proxy that terminates TLS. Sets `; Secure` cookies and trusts `X-Forwarded-For` / `cf-connecting-ip` from loopback peers; does NOT spawn a tunnel. Requires at least one `--allowed-host` |
-| `--allowed-host` | | Extra `Host` value the DNS-rebinding gate accepts (repeatable). Add the public hostname behind a reverse proxy or custom tunnel, or the LAN IP/name when binding `0.0.0.0`. `--remote` tunnel hosts are added automatically |
+| `--allowed-host` | | Extra `Host` value the DNS-rebinding gate accepts (repeatable). Add the public hostname behind a reverse proxy or custom tunnel, or a hostname/mDNS name when binding `0.0.0.0` (routable IP literals are trusted automatically). `--remote` tunnel hosts are added automatically |
 | `--allowed-origin` | | Extra browser `Origin` to accept (repeatable, full origin `scheme://host[:port]`). Needed only for a reverse proxy on a nonstandard port; standard 80/443 origins for `--allowed-host` entries are derived automatically |
 | `--no-auth` | off | Alias for `--auth=none` (kept for backwards compatibility) |
 | `--remote` | off | Expose over HTTPS tunnel (Tailscale Funnel if available, else Cloudflare quick tunnel) |
@@ -163,14 +163,15 @@ The server also sets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
 The allowlist is derived automatically:
 
 - `localhost`, `127.0.0.1`, and `::1` are always accepted, plus the value of `--host` when it is a concrete (non-wildcard) address.
+- Any routable **IP literal** `Host`/`Origin` (LAN, tailnet `100.x`, ULA, global) is accepted unconditionally: an IP is dialed directly and never DNS-resolved, so it cannot be rebound. The unspecified address (`0.0.0.0` / `::`), link-local (`169.254.0.0/16`, `fe80::/10`), and multicast are excluded and still need an explicit entry.
 - `--remote` tunnels (Cloudflare and Tailscale) inject their public hostname and its `https://` origin, so remote dashboards and the live terminal WebSocket work with no extra flag.
 - `--allowed-host` / `--allowed-origin` add operator-declared entries (see below).
 
-Because a wildcard bind (`--host 0.0.0.0` / `::`) is reachable under any name that resolves to the machine, only the loopback trio is trusted by default in that mode. To reach such a server by its LAN IP, hostname, or VPN/Tailscale address, add it with `--allowed-host`:
+A wildcard bind (`--host 0.0.0.0` / `::`) is therefore reachable by its LAN/tailnet **IP** with no extra flag. Only reaching it by a **hostname** (mDNS `.local`, Tailscale MagicDNS name, custom DNS) needs an explicit `--allowed-host`, because a hostname is what a DNS-rebinding attacker controls:
 
 ```bash
-# LAN / VPN access to a 0.0.0.0 bind
-aoe serve --host 0.0.0.0 --allowed-host 192.168.1.5 --allowed-host my-box.tailnet.ts.net
+# By IP works with no flag; add a NAME only to use one:
+aoe serve --host 0.0.0.0 --allowed-host my-box.tailnet.ts.net
 ```
 
 ### `--allowed-host` for a reverse proxy or custom tunnel
@@ -194,7 +195,7 @@ Both flags are repeatable and are replayed across `aoe serve --restart`, so a re
 
 - **Localhost** (`aoe serve`): same security as the TUI.
 - **Remote via tunnel** (`aoe serve --remote`): encrypted via HTTPS. Recommended for phone access.
-- **Over Tailscale/WireGuard** (`aoe serve --host 0.0.0.0`): the VPN encrypts traffic.
+- **Over Tailscale/WireGuard** (`aoe serve --host 0.0.0.0`): the VPN encrypts traffic; reach it directly at `http://<tailnet-or-lan-ip>:8080` (by-IP needs no `--allowed-host`).
 - **Behind a reverse proxy** (`--auth=passphrase --behind-proxy`): TLS terminated upstream; passphrase is the only human gate.
 - **Read-only** (`aoe serve --remote --read-only`): monitor without input.
 

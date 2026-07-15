@@ -68,10 +68,11 @@ pub struct ServeArgs {
     pub behind_proxy: bool,
 
     /// Extra `Host` header value to accept (repeatable). The DNS-rebinding
-    /// gate answers only to loopback plus a non-wildcard `--host` by default;
-    /// add the public hostname when serving behind a reverse proxy or a custom
-    /// tunnel, or the LAN IP/name when binding `0.0.0.0`. Auto-injected tunnel
-    /// hosts (`--remote`) need no flag.
+    /// gate trusts loopback, any routable IP literal (LAN/tailnet IPs can't be
+    /// rebound), and a non-wildcard `--host` by default; add a HOSTNAME or mDNS
+    /// name here when serving behind a reverse proxy, a custom tunnel, or by
+    /// name when binding `0.0.0.0` (access by IP needs no flag). Auto-injected
+    /// tunnel hosts (`--remote`) need no flag.
     #[arg(long = "allowed-host", value_name = "HOST")]
     pub allowed_host: Vec<String>,
 
@@ -804,19 +805,18 @@ pub async fn run(profile: &str, args: ServeArgs) -> Result<()> {
             eprintln!("  Read-only mode is ON: terminal input is disabled.");
             eprintln!();
         }
-        // A wildcard bind is reachable under any name that resolves to this
-        // host, so the DNS-rebinding gate trusts only loopback by default: the
-        // LAN/VPN URLs printed below return 403 until the reachable name is
-        // allowlisted. A concrete bind (--host 192.168.1.5) allowlists itself
-        // and needs no hint. See #2735.
+        // A wildcard bind trusts loopback + any routable IP literal (which
+        // cannot be DNS-rebound), so the by-IP URLs printed below work as-is.
+        // Only access by a HOSTNAME/mDNS name still needs an allowlist entry.
+        // See #2735.
         if crate::server::is_wildcard_bind(&args.host) && args.allowed_host.is_empty() {
-            let msg = "Wildcard bind: LAN/VPN URLs are rejected (403) until you \
-                       allowlist the reachable name. Re-run with \
-                       --allowed-host <ip-or-hostname> (repeatable), e.g. \
-                       --allowed-host 192.168.1.5. Loopback still works.";
+            let msg = "Wildcard bind: the LAN/VPN IP URLs above work as-is. \
+                       To reach this server by a HOSTNAME or mDNS name \
+                       (e.g. my-box.local), re-run with --allowed-host <name> \
+                       (repeatable).";
             eprintln!("  {msg}");
             eprintln!();
-            tracing::warn!(target: "serve", "{msg}");
+            tracing::info!(target: "serve", "{msg}");
         }
         eprintln!("==========================================================");
         eprintln!();

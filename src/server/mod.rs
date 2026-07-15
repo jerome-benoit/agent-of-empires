@@ -1916,6 +1916,36 @@ pub(crate) fn norm_host(host: &str) -> String {
     bare.strip_suffix('.').unwrap_or(bare).to_ascii_lowercase()
 }
 
+/// True when a `norm_host`'d value is a routable IP literal we trust
+/// unconditionally. An IP literal is dialed directly and never DNS-resolved, so
+/// it cannot be the target of DNS rebinding: a browser only sends an IP as
+/// `Host`/`Origin` when the user navigated straight to that address. Trusting
+/// it restores `aoe serve --host 0.0.0.0` reachability by LAN/tailnet IP with
+/// no `--allowed-host` (Vite's "Pattern A"). Hostnames are NOT trusted here and
+/// still require an explicit allowlist entry. See #2735.
+///
+/// The excluded ranges are hygiene, not rebinding-necessity (IPs can't be
+/// rebound): the unspecified address (`0.0.0.0` / `::`, also a Linux/macOS
+/// rebinding bypass), multicast, and link-local (v4 `169.254.0.0/16`, which
+/// contains the `169.254.169.254` cloud-metadata address; v6 `fe80::/10`) are
+/// never a legitimate dashboard endpoint. Routable IPs (LAN, tailnet
+/// `100.64.0.0/10`, ULA, global unicast) are trusted.
+fn is_trusted_ip_literal(host: &str) -> bool {
+    use std::net::IpAddr;
+    let Ok(ip) = host.parse::<IpAddr>() else {
+        return false;
+    };
+    if ip.is_unspecified() || ip.is_multicast() {
+        return false;
+    }
+    match ip {
+        IpAddr::V4(v4) => !v4.is_link_local(),
+        // `Ipv6Addr::is_unicast_link_local` is unstable; match `fe80::/10` by
+        // hand (top 10 bits `1111111010`).
+        IpAddr::V6(v6) => (v6.segments()[0] & 0xffc0) != 0xfe80,
+    }
+}
+
 /// Wrap an IPv6 literal in brackets for use inside an origin authority;
 /// hostnames and IPv4 literals pass through unchanged.
 fn bracket_if_ipv6(host: &str) -> String {
@@ -2055,11 +2085,12 @@ enum AccessDecision {
     DenyOrigin,
 }
 
-/// Pure DNS-rebinding decision: reject a missing/unlisted `Host`, reject a
-/// present-but-unlisted `Origin`, and exempt requests with no `Origin`
-/// (curl / native TUI / non-browser WS). Comparisons are case-insensitive on
-/// the host and on the whole origin (scheme + host are case-insensitive; the
-/// port is digits). See #2735.
+/// Pure DNS-rebinding decision: reject a missing `Host`; accept a `Host` that
+/// is allowlisted or a routable IP literal (IPs can't be rebound, see
+/// `is_trusted_ip_literal`); exempt requests with no `Origin` (curl / native
+/// TUI / non-browser WS); reject a present `Origin` that is neither allowlisted
+/// nor a routable IP literal. Comparisons are case-insensitive on the host and
+/// on the whole origin. See #2735.
 fn evaluate_access(
     host_header: Option<&str>,
     origin_header: Option<&str>,
@@ -2070,12 +2101,18 @@ fn evaluate_access(
         return AccessDecision::DenyMissingHost;
     };
     let host = norm_host(raw_host);
-    if !allowed_hosts.contains(&host) {
+    if !allowed_hosts.contains(&host) && !is_trusted_ip_literal(&host) {
         return AccessDecision::DenyHost;
     }
     if let Some(origin) = origin_header {
         let origin = norm_origin(origin);
-        if !allowed_origins.contains(&origin) {
+        // A by-IP dashboard (`http://<ip>:port`) sends `Origin: http://<ip>:port`
+        // on its own fetch/WS; trust an IP-literal origin on the same basis as
+        // the Host (an attacker page always carries a hostname origin, which
+        // won't parse as an IP). `host_from_url` strips scheme/port/brackets.
+        let origin_is_trusted_ip =
+            host_from_url(&origin).is_some_and(|h| is_trusted_ip_literal(&h));
+        if !allowed_origins.contains(&origin) && !origin_is_trusted_ip {
             return AccessDecision::DenyOrigin;
         }
     }
@@ -5245,10 +5282,104 @@ mod tests {
     #[test]
     fn wildcard_bind_defaults_to_localhost_trio() {
         let (h, _o) = resolve_access_policy("0.0.0.0", 8080, &[], &[], None);
+        // The static allowlist is still just the trio; a wildcard bind adds no
+        // routable *name*. A HOSTNAME is still denied without --allowed-host.
         assert_eq!(h, vecs(&["localhost", "127.0.0.1", "::1"]));
         assert_eq!(
-            evaluate_access(Some("192.168.1.5"), None, &h, &[]),
+            evaluate_access(Some("my-box.local"), None, &h, &[]),
             AccessDecision::DenyHost
+        );
+        // But a LAN IP literal is trusted unconditionally (Pattern A: an IP
+        // cannot be DNS-rebound), so by-IP access works with no flag.
+        assert_eq!(
+            evaluate_access(Some("192.168.1.5"), None, &h, &[]),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn is_trusted_ip_literal_accepts_routable_rejects_special() {
+        for good in [
+            "127.0.0.1",
+            "192.168.1.5",
+            "10.0.0.9",
+            "100.68.123.45", // tailnet CGNAT
+            "::1",
+            "2001:db8::1",
+            "fd00::1", // ULA
+        ] {
+            assert!(is_trusted_ip_literal(good), "{good} should be trusted");
+        }
+        for bad in [
+            "0.0.0.0",
+            "::",
+            "169.254.169.254", // cloud metadata (v4 link-local)
+            "fe80::1",         // v6 link-local
+            "224.0.0.1",       // multicast
+            "ff02::1",
+            "example.com",
+            "my-box",
+            "",
+        ] {
+            assert!(!is_trusted_ip_literal(bad), "{bad} must not be trusted");
+        }
+    }
+
+    #[test]
+    fn ip_literal_host_allowed_without_flag() {
+        let allow = vecs(&["localhost"]);
+        assert_eq!(
+            evaluate_access(Some("192.168.1.5:8080"), None, &allow, &[]),
+            AccessDecision::Allow
+        );
+        assert_eq!(
+            evaluate_access(Some("[2001:db8::5]:8080"), None, &allow, &[]),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn ip_literal_origin_allowed_without_flag() {
+        let allow = vecs(&["localhost"]);
+        assert_eq!(
+            evaluate_access(
+                Some("192.168.1.5:8080"),
+                Some("http://192.168.1.5:8080"),
+                &allow,
+                &[]
+            ),
+            AccessDecision::Allow
+        );
+        assert_eq!(
+            evaluate_access(
+                Some("[2001:db8::5]:8080"),
+                Some("http://[2001:db8::5]:8080"),
+                &allow,
+                &[]
+            ),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn excluded_ip_literals_still_denied() {
+        let allow = vecs(&["localhost"]);
+        for bad in ["0.0.0.0", "169.254.169.254", "fe80::1"] {
+            assert_eq!(
+                evaluate_access(Some(bad), None, &allow, &[]),
+                AccessDecision::DenyHost,
+                "{bad}"
+            );
+        }
+        // An unlisted hostname origin must not slip through the IP exemption.
+        assert_eq!(
+            evaluate_access(
+                Some("192.168.1.5"),
+                Some("https://evil.com"),
+                &allow,
+                &vecs(&["http://localhost:8080"])
+            ),
+            AccessDecision::DenyOrigin
         );
     }
 
