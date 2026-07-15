@@ -163,7 +163,7 @@ The server also sets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
 The allowlist is derived automatically:
 
 - `localhost`, `127.0.0.1`, and `::1` are always accepted, plus the value of `--host` when it is a concrete (non-wildcard) address.
-- Any routable **IP literal** `Host`/`Origin` (LAN, tailnet `100.x`, ULA, global) is accepted unconditionally: an IP is dialed directly and never DNS-resolved, so it cannot be rebound. The unspecified address (`0.0.0.0` / `::`), link-local (`169.254.0.0/16`, `fe80::/10`), and multicast are excluded and still need an explicit entry.
+- Any routable **IP literal** `Host`/`Origin` (LAN, tailnet `100.x`, ULA, global) is accepted unconditionally: an IP is dialed directly and never DNS-resolved, so it cannot be rebound. The unspecified address (`0.0.0.0` / `::`), link-local (`169.254.0.0/16`, `fe80::/10`), and multicast are excluded from this automatic trust and cannot be allowlisted at all: `--allowed-host` / `--allowed-origin` reject them at startup, since allowlisting one would reopen the hole the gate closes.
 - `--remote` tunnels (Cloudflare and Tailscale) inject their public hostname and its `https://` origin, so remote dashboards and the live terminal WebSocket work with no extra flag.
 - `--allowed-host` / `--allowed-origin` add operator-declared entries (see below).
 
