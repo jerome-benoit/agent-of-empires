@@ -291,30 +291,31 @@ fn validate_behind_proxy_allowlist(
 }
 
 /// A browser `Origin` is always `scheme://host[:port]` with no path, so a
-/// schemeless (`aoe.example.com:8443`), hostless (`https://`), or path-bearing
-/// (`https://x/app`) `--allowed-origin` normalizes to a value no `Origin`
-/// header can ever equal: it would silently 403 the very requests it was meant
-/// to permit. Reject it at startup with the corrected form instead of failing
-/// closed at runtime (#2735).
+/// schemeless (`aoe.example.com:8443`), hostless (`https://`, `https://:8443`),
+/// path/query/userinfo-bearing (`https://x/app`, `https://x?y`, `https://u@x`)
+/// `--allowed-origin` normalizes to a value no `Origin` header can ever equal:
+/// it would silently 403 the very requests it was meant to permit. Reject it at
+/// startup with the corrected form instead of failing closed at runtime (#2735).
 fn validate_allowed_origins(allowed_origins: &[String]) -> Result<()> {
     for origin in allowed_origins {
         let lower = origin.trim().to_ascii_lowercase();
         let host = lower
             .strip_prefix("https://")
             .or_else(|| lower.strip_prefix("http://"));
-        // A purely trailing slash is harmless (`norm_origin` strips it); a slash
-        // that survives the trim is a real path the gate can never match.
+        // A purely trailing slash is harmless (`norm_origin` strips it). Reject
+        // a host that carries a path/query/userinfo or normalizes to nothing
+        // (e.g. `:8443`), since none can equal a browser `Origin`.
         let valid = host.is_some_and(|h| {
             let h = h.trim_end_matches('/');
-            !h.is_empty() && !h.contains('/')
+            !h.contains(['/', '?', '#', '@']) && !crate::server::norm_host(h).is_empty()
         });
         if !valid {
             bail!(
                 "--allowed-origin {origin:?} must be a full origin of the form \
                  scheme://host[:port].\n\
                  A browser Origin always carries a scheme and a host and no path, \
-                 so a schemeless, hostless, or path-bearing value can never match \
-                 and would reject the requests it should allow. Example:\n  \
+                 query, or userinfo, so any other value can never match and would \
+                 reject the requests it should allow. Example:\n  \
                  aoe serve --allowed-origin https://aoe.example.com:8443"
             );
         }
@@ -323,21 +324,25 @@ fn validate_allowed_origins(allowed_origins: &[String]) -> Result<()> {
 }
 
 /// A `--allowed-host` is a bare `Host` value (a port is harmless: `norm_host`
-/// strips it symmetrically on both sides), never a scheme or path. A pasted URL
-/// (`https://aoe.example.com`) or a path (`aoe.example.com/app`) leaves a
-/// value `norm_host` can never match, silently 403ing the requests it was meant
-/// to permit. Reject a value containing `/` or an empty value at startup with
-/// the corrected form instead of failing closed at runtime (#2735).
+/// strips it symmetrically on both sides), never a scheme, path, query, or
+/// userinfo. A pasted URL (`https://aoe.example.com`), a path
+/// (`aoe.example.com/app`), or a port-only value (`:8080`, which `norm_host`
+/// collapses to nothing yet satisfies `--behind-proxy`'s non-empty check) leaves
+/// a value the gate can never match, silently 403ing the requests it was meant
+/// to permit. Reject such values at startup instead of failing closed at
+/// runtime (#2735).
 fn validate_allowed_hosts(allowed_hosts: &[String]) -> Result<()> {
     for host in allowed_hosts {
         let trimmed = host.trim();
-        if trimmed.is_empty() || trimmed.contains('/') {
+        if trimmed.contains(['/', '?', '#', '@']) || crate::server::norm_host(trimmed).is_empty() {
             bail!(
                 "--allowed-host {host:?} must be a bare hostname or IP \
-                 (optionally host:port), without a scheme or path.\n\
+                 (optionally host:port), without a scheme, path, query, or \
+                 userinfo.\n\
                  The DNS-rebinding gate compares it against the request's Host \
-                 header, which carries neither, so such a value can never match \
-                 and would reject the requests it should allow. Example:\n  \
+                 header, so a value that carries any of those or normalizes to \
+                 nothing (e.g. \":8080\") can never match and would reject the \
+                 requests it should allow. Example:\n  \
                  aoe serve --host 0.0.0.0 --allowed-host aoe.example.com"
             );
         }
@@ -1562,11 +1567,14 @@ mod tests {
     fn hostless_allowed_origin_errors_at_startup() {
         assert!(validate_allowed_origins(&["https://".to_string()]).is_err());
         assert!(validate_allowed_origins(&["https:///".to_string()]).is_err());
+        assert!(validate_allowed_origins(&["https://:8443".to_string()]).is_err());
     }
 
     #[test]
-    fn path_bearing_allowed_origin_errors_at_startup() {
+    fn malformed_allowed_origin_errors_at_startup() {
         assert!(validate_allowed_origins(&["https://aoe.example.com/app".to_string()]).is_err());
+        assert!(validate_allowed_origins(&["https://aoe.example.com?x".to_string()]).is_err());
+        assert!(validate_allowed_origins(&["https://user@aoe.example.com".to_string()]).is_err());
     }
 
     #[test]
@@ -1594,9 +1602,16 @@ mod tests {
     }
 
     #[test]
-    fn allowed_hosts_reject_pasted_url_or_path() {
+    fn allowed_hosts_reject_malformed_authorities() {
+        // pasted URL / path / query / userinfo
         assert!(validate_allowed_hosts(&["https://aoe.example.com".to_string()]).is_err());
         assert!(validate_allowed_hosts(&["aoe.example.com/app".to_string()]).is_err());
+        assert!(validate_allowed_hosts(&["aoe.example.com?x".to_string()]).is_err());
+        assert!(validate_allowed_hosts(&["user@aoe.example.com".to_string()]).is_err());
+        // port-only: satisfies --behind-proxy's non-empty check but normalizes
+        // to nothing, silently allowlisting no host (the #2735 guard defeat).
+        assert!(validate_allowed_hosts(&[":8080".to_string()]).is_err());
+        assert!(validate_allowed_hosts(&[":".to_string()]).is_err());
     }
 
     #[test]

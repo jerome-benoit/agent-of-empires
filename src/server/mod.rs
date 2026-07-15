@@ -1909,8 +1909,9 @@ fn strip_host_port(host: &str) -> &str {
 /// ASCII-lowercased (DNS is case-insensitive), with a single trailing FQDN
 /// root dot stripped so `example.com.` and `example.com` compare equal. Runs
 /// on both the incoming `Host` and every allowlist entry, so the two stay
-/// symmetric.
-fn norm_host(host: &str) -> String {
+/// symmetric. `pub(crate)` so the CLI `--allowed-host` validator can reject an
+/// entry that normalizes to nothing (e.g. `:8080`).
+pub(crate) fn norm_host(host: &str) -> String {
     let bare = strip_host_port(host);
     bare.strip_suffix('.').unwrap_or(bare).to_ascii_lowercase()
 }
@@ -1939,6 +1940,15 @@ fn push_unique(list: &mut Vec<String>, item: String) {
 /// every request. See #2735.
 fn norm_origin(origin: &str) -> String {
     let o = origin.trim().trim_end_matches('/').to_ascii_lowercase();
+    // Strip a single trailing FQDN root dot from the host so
+    // `https://example.com.` == `https://example.com`, mirroring `norm_host`.
+    // The dot sits at the authority end or just before `:port`; IPv6
+    // authorities are bracketed (`]` precedes any port), so a `.` / `.:` here
+    // is only ever the root dot.
+    let o = match o.strip_suffix('.') {
+        Some(rest) => rest.to_string(),
+        None => o.replacen(".:", ":", 1),
+    };
     for (scheme, default_port) in [("http://", ":80"), ("https://", ":443")] {
         if let Some(host) = o
             .strip_prefix(scheme)
@@ -5320,6 +5330,27 @@ mod tests {
     }
 
     #[test]
+    fn norm_origin_strips_trailing_fqdn_dot() {
+        assert_eq!(norm_origin("https://example.com."), "https://example.com");
+        assert_eq!(
+            norm_origin("https://example.com.:443"),
+            "https://example.com"
+        );
+        assert_eq!(norm_origin("http://example.com.:80"), "http://example.com");
+        assert_eq!(
+            norm_origin("https://example.com.:8443"),
+            "https://example.com:8443"
+        );
+        // IPv6 brackets and dot-free hosts are untouched.
+        assert_eq!(norm_origin("https://[::1]:443"), "https://[::1]");
+        // Symmetric with the Host gate.
+        assert_eq!(
+            norm_origin("https://example.com."),
+            format!("https://{}", norm_host("example.com."))
+        );
+    }
+
+    #[test]
     fn origin_default_port_matches_portless_allowlist() {
         let (_h, o) =
             resolve_access_policy("127.0.0.1", 8080, &vecs(&["proxy.example.com"]), &[], None);
@@ -5348,6 +5379,20 @@ mod tests {
         assert!(h.contains(&"aoe.example.com".to_string()));
         assert_eq!(
             evaluate_access(Some("aoe.example.com."), None, &h, &[]),
+            AccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn trailing_dot_origin_matches_allowlist() {
+        let (h, o) = resolve_access_policy("0.0.0.0", 8080, &vecs(&["aoe.example.com"]), &[], None);
+        assert_eq!(
+            evaluate_access(
+                Some("aoe.example.com."),
+                Some("https://aoe.example.com."),
+                &h,
+                &o
+            ),
             AccessDecision::Allow
         );
     }
