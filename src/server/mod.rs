@@ -1567,6 +1567,7 @@ fn build_router(state: Arc<AppState>) -> Router {
             patch(api::set_worktree_name),
         )
         .route("/api/sessions/{id}/pin", patch(api::update_session_pin))
+        .route("/api/sessions/{id}/color", patch(api::update_session_color))
         .route(
             "/api/sessions/{id}/archive",
             patch(api::update_session_archive),
@@ -3638,12 +3639,110 @@ fn decide_passive_transition(
 #[derive(Default)]
 struct PassiveTransitionWrites {
     /// Keyed by instance id for O(1) lookup inside the persist closure.
-    /// [`crate::session::PassiveStatusPatch::from_instance`] keeps
-    /// `patch.id == inst.id`, so the map key and the value's `id` field
-    /// stay in sync by construction; the redundancy is intentional and
-    /// used by the closure's `.get(&inst.id)` at the flush site below.
+    /// The patch value carries no id of its own; the flush site reads the
+    /// map key (via `get_key_value`) and threads it into
+    /// [`crate::session::Instance::merge_passive_status_patch`].
     patches: std::collections::HashMap<String, crate::session::PassiveStatusPatch>,
     unread_ids: Vec<String>,
+}
+
+/// Flush one tick's per-profile passive-status writes: persist each bundle,
+/// then mirror its unread marks into the live `instances` slice ONLY for the
+/// bundles whose durable write returned `Ok`.
+///
+/// The ordering is load-bearing. `instances` is the vec that
+/// `reload_state_instances_from_disk` folds straight into `state.instances`,
+/// so a mark applied here is what makes the unread indicator visible this
+/// tick. Marking before the flock write landed stranded that mark on a failed
+/// persist: disk stayed unmarked, the next tick reloaded the unmarked row,
+/// and the `prev == inst.status` short-circuit blocked any re-mark, so a
+/// Running -> Idle transition whose write failed silently lost its unread
+/// indicator with no user-visible recovery path. Deferring the in-memory mark
+/// to a persisted `Ok` keeps memory and disk in lockstep: on failure neither
+/// is marked. See #2755 (follow-up to #2729).
+async fn flush_passive_transition_writes(
+    file_watch: std::sync::Arc<crate::file_watch::FileWatchService>,
+    instances: &mut [Instance],
+    bundles: std::collections::HashMap<String, PassiveTransitionWrites>,
+) {
+    for (
+        profile,
+        PassiveTransitionWrites {
+            patches,
+            unread_ids,
+        },
+    ) in bundles
+    {
+        // The closure moves `unread_ids`; keep a copy to mirror into the live
+        // vec once the write is durable.
+        let unread_ids_for_local = unread_ids.clone();
+        let patch_count = patches.len();
+        let unread_count = unread_ids.len();
+        let persisted = api::persist_session_update(
+            profile.clone(),
+            "passive-status",
+            file_watch.clone(),
+            move |insts| {
+                for inst in insts.iter_mut() {
+                    if let Some((id, patch)) = patches.get_key_value(&inst.id) {
+                        inst.merge_passive_status_patch(id, patch);
+                    }
+                    if unread_ids.contains(&inst.id) {
+                        inst.mark_unread();
+                    }
+                }
+            },
+        )
+        .await;
+        // Per-tick roll-up of the passive-status batch this flush persisted.
+        // `merge_passive_status_patch` only logs when it drops a stale
+        // `last_accessed_at`, so without this there is no per-tick anchor for
+        // "why did N rows change on this tick". `ok` reports the durable
+        // write's outcome; on a failure the counts are what was attempted, not
+        // what landed, and the unread mirror below is skipped. See #2760.
+        tracing::debug!(
+            target: "session.store",
+            profile = %profile,
+            patches = patch_count,
+            unread = unread_count,
+            ok = persisted.is_ok(),
+            "persisted passive-status batch"
+        );
+        if persisted.is_ok() {
+            for inst in instances.iter_mut() {
+                if unread_ids_for_local.contains(&inst.id) {
+                    inst.mark_unread();
+                }
+            }
+        }
+    }
+}
+
+/// Drop entries whose session id is no longer live from the persistent
+/// per-session reconciler maps the status loop owns. Without this sweep a
+/// long-uptime daemon accumulates one entry per ever-observed instance id in
+/// each map, so the footprint grows with lifetime-observed sessions rather than
+/// with the live-session count (#2758).
+///
+/// The reconciler also retains these maps, but against its resume-eligible
+/// subset (structured, not archived / snoozed / trashed / idle-dormant) and
+/// only when the tmux scrape succeeds and the reconciler runs. This sweep runs
+/// at the top of every tick against the full live-instance set, so deletion GC
+/// is guaranteed even on a tick whose scrape fails, and entries for a session
+/// that is merely paused (archived / snoozed / idle-dormant) are not needed to
+/// be re-derived here.
+#[cfg(feature = "serve")]
+fn gc_reconciler_session_maps(
+    live_ids: &std::collections::HashSet<&str>,
+    attempted: &mut std::collections::HashSet<String>,
+    respawn_history: &mut std::collections::HashMap<String, Vec<std::time::Instant>>,
+    parked: &mut std::collections::HashSet<String>,
+    capacity_deferred: &mut std::collections::HashSet<String>,
+) {
+    attempted.retain(|id| live_ids.contains(id.as_str()));
+    respawn_history.retain(|id, _| live_ids.contains(id.as_str()));
+    parked.retain(|id| live_ids.contains(id.as_str()));
+    capacity_deferred.retain(|id| live_ids.contains(id.as_str()));
 }
 
 /// Background task that periodically refreshes session statuses. On each
@@ -3689,6 +3788,24 @@ async fn status_poll_loop(state: Arc<AppState>) {
             let instances = state.instances.read().await;
             instances.iter().map(|i| (i.id.clone(), i.status)).collect()
         };
+
+        // GC the reconciler's persistent per-session maps against the live
+        // instance set (keyed by `prev`, the full snapshot above) so a
+        // long-uptime daemon's footprint stays bounded by live-session count,
+        // not by lifetime-observed sessions (#2758). Above the scrape guard so
+        // the sweep still runs on a tick whose tmux scrape fails.
+        #[cfg(feature = "serve")]
+        {
+            let live_ids: std::collections::HashSet<&str> =
+                prev.keys().map(String::as_str).collect();
+            gc_reconciler_session_maps(
+                &live_ids,
+                &mut attempted_acp_spawns,
+                &mut acp_respawn_history,
+                &mut acp_parked,
+                &mut acp_capacity_deferred,
+            );
+        }
 
         // Snapshot suppression BEFORE `batch_pane_metadata()` so a worker
         // that unmarks between the scrape and the per-instance decision
@@ -3740,7 +3857,7 @@ async fn status_poll_loop(state: Arc<AppState>) {
             // #2690.
             let mut bundles: std::collections::HashMap<String, PassiveTransitionWrites> =
                 std::collections::HashMap::new();
-            for inst in &mut instances {
+            for inst in &instances {
                 let Some(old) = prev.get(&inst.id) else {
                     continue;
                 };
@@ -3760,43 +3877,18 @@ async fn status_poll_loop(state: Arc<AppState>) {
                 }
                 let bundle = bundles.entry(inst.source_profile.clone()).or_default();
                 if let Some(patch) = decision.patch {
-                    bundle.patches.insert(patch.id.clone(), patch);
+                    bundle.patches.insert(inst.id.clone(), patch);
                 }
                 if decision.mark_unread {
-                    inst.mark_unread();
+                    // Record the id only; the in-memory mark on `instances`
+                    // is deferred to `flush_passive_transition_writes` so it
+                    // fires only after the durable write returns Ok. See
+                    // #2755.
                     bundle.unread_ids.push(inst.id.clone());
                 }
             }
-            for (
-                profile,
-                PassiveTransitionWrites {
-                    patches,
-                    unread_ids,
-                },
-            ) in bundles
-            {
-                let _ = api::persist_session_update(
-                    profile,
-                    "passive-status",
-                    state.file_watch.clone(),
-                    move |insts| {
-                        for inst in insts.iter_mut() {
-                            if let Some(patch) = patches.get(&inst.id) {
-                                debug_assert_eq!(
-                                    patch.id, inst.id,
-                                    "PassiveStatusPatch::from_instance keeps `patch.id == inst.id`; \
-                                     if this fires, the map key or the patch's `id` field has drifted"
-                                );
-                                inst.merge_passive_status_patch(patch);
-                            }
-                            if unread_ids.contains(&inst.id) {
-                                inst.mark_unread();
-                            }
-                        }
-                    },
-                )
+            flush_passive_transition_writes(state.file_watch.clone(), &mut instances, bundles)
                 .await;
-            }
 
             reload_state_instances_from_disk(
                 &state,
@@ -3806,51 +3898,7 @@ async fn status_poll_loop(state: Arc<AppState>) {
             )
             .await;
 
-            // Drain poller observations into sessions.json so daemon-only
-            // sessions (no attached TUI) persist post-`/clear` sids (#2291).
-            // Snapshot + spawn_blocking + reapply, never holding AppState
-            // across the flock or tmux exec, per storage.rs:46.
-            let snapshot = state.instances.read().await.clone();
-            let drain_state = state.clone();
-            match tokio::task::spawn_blocking(move || {
-                let mut snapshot = snapshot;
-                let outcome = crate::session::sync::drain_and_persist_session_ids(
-                    &mut snapshot,
-                    &drain_state.file_watch,
-                );
-                (outcome, snapshot)
-            })
-            .await
-            {
-                Ok((outcome, mutated)) if outcome.touched() => {
-                    // Reapply only for ids the helper actually touched, so a
-                    // peer that wrote `agent_session_id` (e.g. the restart-
-                    // completion path) on the live state during the
-                    // spawn_blocking window is not silently reverted.
-                    let touched: std::collections::HashSet<&str> = outcome
-                        .applied
-                        .iter()
-                        .chain(outcome.rolled_back.iter())
-                        .map(String::as_str)
-                        .collect();
-                    if !touched.is_empty() {
-                        let mut guard = state.instances.write().await;
-                        for src in mutated.iter().filter(|i| touched.contains(i.id.as_str())) {
-                            if let Some(dst) = guard.iter_mut().find(|i| i.id == src.id) {
-                                dst.agent_session_id = src.agent_session_id.clone();
-                                dst.resume_probe_failed_sid = src.resume_probe_failed_sid.clone();
-                            }
-                        }
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::error!(
-                        target: "session.sync",
-                        "drain_and_persist task failed: {e}",
-                    );
-                }
-            }
+            drain_session_id_updates_in_state(&state).await;
 
             #[cfg(feature = "serve")]
             acp_reconciler::reconcile_acp_workers(
@@ -4975,6 +5023,50 @@ pub(crate) fn derive_acp_status(event: &crate::acp::Event) -> Option<StatusInten
     }
 }
 
+async fn drain_session_id_updates_in_state(state: &Arc<AppState>) {
+    // Drain poller observations into sessions.json so daemon-only sessions
+    // persist post-`/clear` sids (#2291). Snapshot + spawn_blocking + reapply,
+    // never holding AppState across the flock or tmux exec, per storage.rs:46.
+    let snapshot = state.instances.read().await.clone();
+    let file_watch = state.file_watch.clone();
+    match tokio::task::spawn_blocking(move || {
+        let mut snapshot = snapshot;
+        let outcome =
+            crate::session::sync::drain_and_persist_session_ids(&mut snapshot, &file_watch);
+        (outcome, snapshot)
+    })
+    .await
+    {
+        Ok((outcome, mutated)) if outcome.touched() => {
+            // Reapply only for ids the helper actually touched, so a peer that
+            // wrote `agent_session_id` on the live state during spawn_blocking
+            // is not silently reverted.
+            let touched: std::collections::HashSet<&str> = outcome
+                .applied
+                .iter()
+                .chain(outcome.rolled_back.iter())
+                .map(String::as_str)
+                .collect();
+            if !touched.is_empty() {
+                let mut guard = state.instances.write().await;
+                for src in mutated.iter().filter(|i| touched.contains(i.id.as_str())) {
+                    if let Some(dst) = guard.iter_mut().find(|i| i.id == src.id) {
+                        dst.agent_session_id = src.agent_session_id.clone();
+                        dst.resume_probe_failed_sid = src.resume_probe_failed_sid.clone();
+                    }
+                }
+            }
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!(
+                target: "session.sync",
+                "drain_and_persist task failed: {e}",
+            );
+        }
+    }
+}
+
 /// Test-only constructors that integration tests in `tests/` need to drive
 /// `reload_state_instances_from_disk` and the dynamic-profile-rewire helpers
 /// without going through the full daemon. Mirrors the pattern at
@@ -5067,6 +5159,33 @@ pub mod test_support {
             disk_changed: Arc::new(tokio::sync::Notify::new()),
             disk_watch_handles: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         })
+    }
+
+    pub async fn drain_session_id_updates_for_test(state: &Arc<AppState>) {
+        super::drain_session_id_updates_in_state(state).await;
+    }
+
+    pub fn attach_session_id_update_for_test(inst: &mut Instance, sid: &str) {
+        let poller = crate::session::poller::SessionPoller::new(format!("test-tmux-{}", inst.id));
+        poller.inject_test_update(&inst.id, sid);
+        inst.session_id_poller = Some(Arc::new(std::sync::Mutex::new(poller)));
+    }
+
+    pub fn seed_instances_on_disk_for_test(profile: &str, insts: Vec<Instance>) {
+        let storage = Storage::new_unwatched(profile).expect("storage");
+        storage
+            .update(move |instances, _groups| {
+                *instances = insts;
+                Ok(())
+            })
+            .expect("seed sessions.json");
+    }
+
+    pub fn load_instances_from_disk_for_test(profile: &str) -> Vec<Instance> {
+        Storage::new_unwatched(profile)
+            .expect("storage")
+            .load()
+            .expect("load sessions.json")
     }
 
     pub async fn has_disk_watch_handle(state: &Arc<AppState>, profile: &str) -> bool {
@@ -5776,6 +5895,80 @@ mod tests {
         assert_eq!(resp.status(), axum::http::StatusCode::FORBIDDEN);
     }
 
+    /// #2758: the reconciler's persistent per-session maps must be swept
+    /// against the live instance set every tick, so a deleted session's id
+    /// does not linger and grow the daemon's footprint over its uptime.
+    #[cfg(feature = "serve")]
+    #[test]
+    fn gc_reconciler_session_maps_drops_deleted_session_ids() {
+        use std::collections::{HashMap, HashSet};
+        use std::time::Instant;
+
+        let mut attempted: HashSet<String> = HashSet::new();
+        let mut respawn_history: HashMap<String, Vec<Instant>> = HashMap::new();
+        let mut parked: HashSet<String> = HashSet::new();
+        let mut capacity_deferred: HashSet<String> = HashSet::new();
+
+        // A session that has been spawn-attempted, parked (crash-loop), has
+        // respawn history, and is capacity-deferred.
+        let doomed = "sess-deleted".to_string();
+        let kept = "sess-live".to_string();
+        for id in [&doomed, &kept] {
+            attempted.insert(id.clone());
+            respawn_history.insert(id.clone(), vec![Instant::now()]);
+            parked.insert(id.clone());
+            capacity_deferred.insert(id.clone());
+        }
+
+        // Tick with both sessions live: nothing is swept.
+        let mut live: HashSet<&str> = HashSet::new();
+        live.insert(doomed.as_str());
+        live.insert(kept.as_str());
+        gc_reconciler_session_maps(
+            &live,
+            &mut attempted,
+            &mut respawn_history,
+            &mut parked,
+            &mut capacity_deferred,
+        );
+        assert!(attempted.contains(&doomed) && attempted.contains(&kept));
+        assert!(parked.contains(&doomed) && parked.contains(&kept));
+
+        // Delete the session (drops out of the live set), then tick: every
+        // map must forget it while the surviving session's entries remain.
+        live.remove(doomed.as_str());
+        gc_reconciler_session_maps(
+            &live,
+            &mut attempted,
+            &mut respawn_history,
+            &mut parked,
+            &mut capacity_deferred,
+        );
+
+        assert!(
+            !attempted.contains(&doomed),
+            "attempted must forget the deleted session id"
+        );
+        assert!(
+            !respawn_history.contains_key(&doomed),
+            "respawn_history must forget the deleted session id"
+        );
+        assert!(
+            !parked.contains(&doomed),
+            "parked must forget the deleted session id"
+        );
+        assert!(
+            !capacity_deferred.contains(&doomed),
+            "capacity_deferred must forget the deleted session id"
+        );
+
+        // The still-live session is untouched.
+        assert!(attempted.contains(&kept));
+        assert!(respawn_history.contains_key(&kept));
+        assert!(parked.contains(&kept));
+        assert!(capacity_deferred.contains(&kept));
+    }
+
     #[test]
     fn decide_passive_transition_skips_patch_for_structured_session() {
         // Locks the CI regression from #2697: structured/ACP sessions
@@ -5804,7 +5997,6 @@ mod tests {
         let decision = decide_passive_transition(&inst, Status::Running, false);
 
         let patch = decision.patch.expect("plain tmux session must get a patch");
-        assert_eq!(patch.id, inst.id);
         assert_eq!(patch.status, Status::Idle);
         assert_eq!(patch.idle_entered_at, inst.idle_entered_at);
         assert_eq!(patch.last_accessed_at, inst.last_accessed_at);
@@ -5846,6 +6038,112 @@ mod tests {
         assert!(
             !decision.mark_unread,
             "already-unread sessions must not re-mark"
+        );
+    }
+
+    // #2755 (follow-up to #2729): the poller must not strand an in-memory
+    // unread mark on a persist that never landed. `flush_passive_transition_writes`
+    // applies the mark to the live vec only after `persist_session_update`
+    // returns Ok; on failure the row stays unmarked so memory and disk agree,
+    // rather than showing a phantom unread that the next reload silently drops.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn flush_passive_transition_defers_unread_until_persist_ok() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        // SAFETY: serialized test; no other test mutates HOME concurrently.
+        unsafe { std::env::set_var("HOME", temp.path()) };
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+        }
+
+        let profile = "flush-persist-failure";
+        // Force the flock write to fail: making `sessions.json` a directory
+        // makes the store's read-modify-write error out during `update`.
+        let dir = crate::session::get_profile_dir(profile).expect("profile dir");
+        std::fs::create_dir_all(dir.join("sessions.json")).expect("sessions.json dir");
+
+        let mut inst = Instance::new("idle-session", "/tmp/idle");
+        inst.source_profile = profile.to_string();
+        let id = inst.id.clone();
+        let mut instances = vec![inst];
+
+        let mut bundles: std::collections::HashMap<String, PassiveTransitionWrites> =
+            std::collections::HashMap::new();
+        bundles
+            .entry(profile.to_string())
+            .or_default()
+            .unread_ids
+            .push(id.clone());
+
+        flush_passive_transition_writes(
+            crate::file_watch::FileWatchService::noop(),
+            &mut instances,
+            bundles,
+        )
+        .await;
+
+        assert!(
+            !instances[0].unread,
+            "a failed persist must not leave a phantom in-memory unread mark (see #2755)"
+        );
+    }
+
+    // The success path: once the write is durable, the mark lands on both the
+    // live vec (which feeds `state.instances`) and disk.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn flush_passive_transition_applies_unread_after_persist_ok() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        // SAFETY: serialized test; no other test mutates HOME concurrently.
+        unsafe { std::env::set_var("HOME", temp.path()) };
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
+        }
+
+        let profile = "flush-persist-success";
+        let mut inst = Instance::new("idle-session", "/tmp/idle");
+        inst.source_profile = profile.to_string();
+        let id = inst.id.clone();
+
+        // Seed the row on disk so the persist closure has a matching id to mark.
+        let seed = inst.clone();
+        crate::session::Storage::new_unwatched(profile)
+            .expect("storage")
+            .update(move |instances, _groups| {
+                *instances = vec![seed];
+                Ok(())
+            })
+            .expect("seed write");
+
+        let mut instances = vec![inst];
+        let mut bundles: std::collections::HashMap<String, PassiveTransitionWrites> =
+            std::collections::HashMap::new();
+        bundles
+            .entry(profile.to_string())
+            .or_default()
+            .unread_ids
+            .push(id.clone());
+
+        flush_passive_transition_writes(
+            crate::file_watch::FileWatchService::noop(),
+            &mut instances,
+            bundles,
+        )
+        .await;
+
+        assert!(
+            instances[0].unread,
+            "a durable persist must mirror the unread mark into the live vec"
+        );
+        let disk = crate::session::Storage::new_unwatched(profile)
+            .expect("storage")
+            .load()
+            .expect("load");
+        assert!(
+            disk.iter().find(|i| i.id == id).expect("seeded row").unread,
+            "the unread mark must be durable on disk"
         );
     }
 

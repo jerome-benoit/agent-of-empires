@@ -504,6 +504,7 @@
       "components": [
         "web/src/components/TerminalSettings.tsx",
         "web/src/components/TerminalSessionStack.tsx",
+        "web/src/components/WorkspaceSidebar.tsx",
         "web/src/lib/fontDetect.ts"
       ]
     },
@@ -929,6 +930,13 @@
       "kind": "vitest",
       "risk": "high",
       "specs": ["src/components/__tests__/ForkSessionAction.test.tsx"],
+      "components": ["web/src/components/WorkspaceSidebar.tsx"]
+    },
+    {
+      "id": "sidebar.session-color",
+      "kind": "vitest",
+      "risk": "low",
+      "specs": ["src/components/__tests__/SessionRowTriage.test.tsx"],
       "components": ["web/src/components/WorkspaceSidebar.tsx"]
     },
     {
@@ -1759,6 +1767,13 @@
       ]
     },
     {
+      "id": "acp.mode-switch-tmux-teardown",
+      "kind": "live-playwright",
+      "risk": "high",
+      "specs": ["tests/live/mode-switch-kills-tmux.spec.ts"],
+      "components": ["src/server/api/acp.rs"]
+    },
+    {
       "id": "acp.tool-output-media",
       "kind": "vitest",
       "risk": "medium",
@@ -2149,7 +2164,12 @@
       "kind": "mocked-playwright",
       "risk": "low",
       "specs": ["tests/shortcuts.spec.ts"],
-      "components": ["web/src/components/ContentSplit.tsx", "web/src/hooks/useKeyboardShortcuts.ts"]
+      "components": [
+        "web/src/App.tsx",
+        "web/src/lib/paneLayout.ts",
+        "web/src/components/ContentSplit.tsx",
+        "web/src/hooks/useKeyboardShortcuts.ts"
+      ]
     },
     {
       "id": "story.shortcut-escape-closes-palette",
