@@ -170,7 +170,7 @@ The allowlist is derived automatically:
 A wildcard bind (`--host 0.0.0.0` / `::`) is therefore reachable by its LAN/tailnet **IP** with no extra flag. Only reaching it by a **hostname** (mDNS `.local`, Tailscale MagicDNS name, custom DNS) needs an explicit `--allowed-host`, because a hostname is what a DNS-rebinding attacker controls:
 
 ```bash
-# By IP works with no flag; add a NAME only to use one:
+# Add a NAME only to reach it by hostname:
 aoe serve --host 0.0.0.0 --allowed-host my-box.tailnet.ts.net
 ```
 
@@ -194,7 +194,7 @@ Both flags are repeatable and are replayed across `aoe serve --restart`, so a re
 
 - **Localhost** (`aoe serve`): same security as the TUI.
 - **Remote via tunnel** (`aoe serve --remote`): encrypted via HTTPS. Recommended for phone access.
-- **Over Tailscale/WireGuard** (`aoe serve --host 0.0.0.0`): the VPN encrypts traffic; reach it directly at `http://<tailnet-or-lan-ip>:8080` (by-IP needs no `--allowed-host`).
+- **Over Tailscale/WireGuard** (`aoe serve --host 0.0.0.0`): the VPN encrypts traffic; reach it directly at `http://<tailnet-or-lan-ip>:8080`.
 - **Behind a reverse proxy** (`--auth=passphrase --behind-proxy`): TLS terminated upstream; passphrase is the only human gate.
 - **Read-only** (`aoe serve --remote --read-only`): monitor without input.
 
