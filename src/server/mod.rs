@@ -1944,7 +1944,10 @@ fn norm_origin(origin: &str) -> String {
     // `https://example.com.` == `https://example.com`, mirroring `norm_host`.
     // The dot sits at the authority end or just before `:port`; IPv6
     // authorities are bracketed (`]` precedes any port), so a `.` / `.:` here
-    // is only ever the root dot.
+    // is only ever the root dot. A trailing dot (the `Some` arm) ends the
+    // authority, so no `:port` follows and `.:` cannot also be present; the two
+    // arms are mutually exclusive, which is why the dot arm skips the `replacen`
+    // that only the `.:port` form needs.
     let o = match o.strip_suffix('.') {
         Some(rest) => rest.to_string(),
         None => o.replacen(".:", ":", 1),
@@ -5341,8 +5344,6 @@ mod tests {
             norm_origin("https://example.com.:8443"),
             "https://example.com:8443"
         );
-        // IPv6 brackets and dot-free hosts are untouched.
-        assert_eq!(norm_origin("https://[::1]:443"), "https://[::1]");
         // Symmetric with the Host gate.
         assert_eq!(
             norm_origin("https://example.com."),

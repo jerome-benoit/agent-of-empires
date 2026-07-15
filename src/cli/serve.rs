@@ -290,6 +290,12 @@ fn validate_behind_proxy_allowlist(
     Ok(())
 }
 
+/// Characters a bare `Host` value or an `Origin` authority can never contain:
+/// their presence means a path, query, fragment, or userinfo crept in, so the
+/// value can never equal a browser-sent `Host`/`Origin`. Shared by both
+/// allowlist validators so the two lists cannot drift (#2735).
+const FORBIDDEN_AUTHORITY_CHARS: [char; 4] = ['/', '?', '#', '@'];
+
 /// A browser `Origin` is always `scheme://host[:port]` with no path, so a
 /// schemeless (`aoe.example.com:8443`), hostless (`https://`, `https://:8443`),
 /// path/query/userinfo-bearing (`https://x/app`, `https://x?y`, `https://u@x`)
@@ -307,7 +313,7 @@ fn validate_allowed_origins(allowed_origins: &[String]) -> Result<()> {
         // (e.g. `:8443`), since none can equal a browser `Origin`.
         let valid = host.is_some_and(|h| {
             let h = h.trim_end_matches('/');
-            !h.contains(['/', '?', '#', '@']) && !crate::server::norm_host(h).is_empty()
+            !h.contains(FORBIDDEN_AUTHORITY_CHARS) && !crate::server::norm_host(h).is_empty()
         });
         if !valid {
             bail!(
@@ -334,7 +340,9 @@ fn validate_allowed_origins(allowed_origins: &[String]) -> Result<()> {
 fn validate_allowed_hosts(allowed_hosts: &[String]) -> Result<()> {
     for host in allowed_hosts {
         let trimmed = host.trim();
-        if trimmed.contains(['/', '?', '#', '@']) || crate::server::norm_host(trimmed).is_empty() {
+        if trimmed.contains(FORBIDDEN_AUTHORITY_CHARS)
+            || crate::server::norm_host(trimmed).is_empty()
+        {
             bail!(
                 "--allowed-host {host:?} must be a bare hostname or IP \
                  (optionally host:port), without a scheme, path, query, or \
