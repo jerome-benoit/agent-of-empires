@@ -5312,7 +5312,8 @@ mod tests {
             "100.68.123.45", // tailnet CGNAT
             "::1",
             "2001:db8::1",
-            "fd00::1", // ULA
+            "fd00::1",            // ULA
+            "::ffff:192.168.1.5", // IPv4-mapped routable: canonicalized, then trusted
         ] {
             assert!(is_trusted_ip_literal(good), "{good} should be trusted");
         }
