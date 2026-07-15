@@ -1949,6 +1949,18 @@ fn is_trusted_ip_literal(host: &str) -> bool {
     }
 }
 
+/// True when a `norm_host`'d value parses as an IP literal the gate refuses to
+/// trust: unspecified (`0.0.0.0` / `::`), link-local, or multicast. A hostname
+/// is not an IP literal and returns false, so the CLI validators still accept
+/// `aoe.example.com`. This is the inverse of `is_trusted_ip_literal` over the
+/// values that actually parse as an IP; sharing the one predicate keeps the
+/// `--allowed-host` / `--allowed-origin` validators from ever admitting an entry
+/// that the gate's trust check excludes (the exact ordering bypass where an
+/// allowlist match wins before `is_trusted_ip_literal` runs). See #2735.
+pub(crate) fn is_untrusted_ip_literal(host: &str) -> bool {
+    host.parse::<std::net::IpAddr>().is_ok() && !is_trusted_ip_literal(host)
+}
+
 /// Wrap an IPv6 literal in brackets for use inside an origin authority;
 /// hostnames and IPv4 literals pass through unchanged.
 fn bracket_if_ipv6(host: &str) -> String {
@@ -5332,6 +5344,41 @@ mod tests {
             "",
         ] {
             assert!(!is_trusted_ip_literal(bad), "{bad} must not be trusted");
+        }
+    }
+
+    #[test]
+    fn is_untrusted_ip_literal_flags_only_excluded_literals() {
+        for excluded in [
+            "0.0.0.0",
+            "::",
+            "169.254.169.254",
+            "fe80::1",
+            "224.0.0.1",
+            "ff02::1",
+            "::ffff:169.254.169.254",
+        ] {
+            assert!(
+                is_untrusted_ip_literal(excluded),
+                "{excluded} is an IP literal the gate excludes"
+            );
+        }
+        // Routable/loopback literals pass, and hostnames are not IP literals at
+        // all, so both must clear the validators.
+        for allowed in [
+            "127.0.0.1",
+            "::1",
+            "192.168.1.5",
+            "100.68.123.45",
+            "2001:db8::1",
+            "aoe.example.com",
+            "my-box",
+            "",
+        ] {
+            assert!(
+                !is_untrusted_ip_literal(allowed),
+                "{allowed} must not be flagged as an untrusted IP literal"
+            );
         }
     }
 

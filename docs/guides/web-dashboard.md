@@ -190,7 +190,6 @@ aoe serve --host 127.0.0.1 --behind-proxy \
 
 Both flags are repeatable and are replayed across `aoe serve --restart`, so a restart preserves the posture.
 
-
 ### Safe usage patterns
 
 - **Localhost** (`aoe serve`): same security as the TUI.

@@ -326,6 +326,21 @@ fn validate_allowed_origins(allowed_origins: &[String]) -> Result<()> {
                  aoe serve --allowed-origin https://aoe.example.com:8443"
             );
         }
+        if let Some(h) = host {
+            if crate::server::is_untrusted_ip_literal(&crate::server::norm_host(
+                h.trim_end_matches('/'),
+            )) {
+                bail!(
+                    "--allowed-origin {origin:?} resolves to an unspecified \
+                     (0.0.0.0, ::), link-local, or multicast host the DNS-rebinding \
+                     gate never trusts.\n\
+                     Browsers can send an IP-literal Origin (e.g. http://0.0.0.0), so \
+                     allowlisting one would reopen the hole the gate closes. Use the \
+                     machine's routable hostname or IP instead. Example:\n  \
+                     aoe serve --allowed-origin https://aoe.example.com:8443"
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -341,9 +356,8 @@ fn validate_allowed_origins(allowed_origins: &[String]) -> Result<()> {
 fn validate_allowed_hosts(allowed_hosts: &[String]) -> Result<()> {
     for host in allowed_hosts {
         let trimmed = host.trim();
-        if trimmed.contains(FORBIDDEN_AUTHORITY_CHARS)
-            || crate::server::norm_host(trimmed).is_empty()
-        {
+        let normalized = crate::server::norm_host(trimmed);
+        if trimmed.contains(FORBIDDEN_AUTHORITY_CHARS) || normalized.is_empty() {
             bail!(
                 "--allowed-host {host:?} must be a bare hostname or IP \
                  (optionally host:port), without a scheme, path, query, or \
@@ -352,6 +366,19 @@ fn validate_allowed_hosts(allowed_hosts: &[String]) -> Result<()> {
                  header, so a value that carries any of those or normalizes to \
                  nothing (e.g. \":8080\") can never match and would reject the \
                  requests it should allow. Example:\n  \
+                 aoe serve --host 0.0.0.0 --allowed-host aoe.example.com"
+            );
+        }
+        if crate::server::is_untrusted_ip_literal(&normalized) {
+            bail!(
+                "--allowed-host {host:?} is an unspecified (0.0.0.0, ::), \
+                 link-local, or multicast address the DNS-rebinding gate never \
+                 trusts.\n\
+                 A wildcard bind means \"all interfaces\", not a name a client \
+                 sends, and link-local reaches cloud metadata (169.254.169.254), \
+                 so allowlisting one would reopen the hole the gate closes. Reach \
+                 a wildcard-bound server by its routable LAN or tailnet IP, which \
+                 needs no --allowed-host, or allow its hostname. Example:\n  \
                  aoe serve --host 0.0.0.0 --allowed-host aoe.example.com"
             );
         }
@@ -1605,8 +1632,53 @@ mod tests {
             "192.168.1.5".to_string(),
             "2001:db8::1".to_string(),
             "[::1]:8080".to_string(),
+            "127.0.0.1".to_string(),
+            "::1".to_string(),
         ])
-        .expect("a bare host or host:port (incl. IPv6) is a valid --allowed-host");
+        .expect("a bare host or host:port (incl. IPv6 and loopback) is a valid --allowed-host");
+    }
+
+    #[test]
+    fn allowed_hosts_reject_untrusted_ip_literals() {
+        for host in [
+            "0.0.0.0",
+            "0.0.0.0:8080",
+            "::",
+            "[::]:8080",
+            "169.254.169.254",
+            "fe80::1",
+            "[fe80::1]:8080",
+            "::ffff:169.254.169.254",
+            "224.0.0.1",
+            "ff02::1",
+        ] {
+            assert!(
+                validate_allowed_hosts(&[host.to_string()]).is_err(),
+                "{host} must be rejected as an untrusted IP literal"
+            );
+        }
+    }
+
+    #[test]
+    fn allowed_origins_reject_untrusted_ip_literals() {
+        for origin in [
+            "http://0.0.0.0:8080",
+            "https://[::]",
+            "http://169.254.169.254",
+            "https://[fe80::1]:8443",
+            "http://224.0.0.1",
+        ] {
+            assert!(
+                validate_allowed_origins(&[origin.to_string()]).is_err(),
+                "{origin} must be rejected as an untrusted IP-literal origin"
+            );
+        }
+        validate_allowed_origins(&[
+            "http://127.0.0.1:3000".to_string(),
+            "https://[::1]".to_string(),
+            "https://192.168.1.5:8443".to_string(),
+        ])
+        .expect("loopback and routable IP-literal origins stay valid");
     }
 
     #[test]
