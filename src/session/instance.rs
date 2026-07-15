@@ -5103,9 +5103,10 @@ mod tests {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         std::env::set_var("XDG_CONFIG_HOME", tmp.path().join(".config"));
 
-        let mut global = crate::session::config::Config::default();
-        global.session.agent_status_hooks = false;
-        crate::session::config::save_config(&global).unwrap();
+        crate::session::config::update_config(|global| {
+            global.session.agent_status_hooks = false;
+        })
+        .unwrap();
 
         let profile_dir = crate::session::get_profile_dir("hooks-enabled").unwrap();
         std::fs::write(
@@ -10412,9 +10413,10 @@ mod tests {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
-            let mut cfg = crate::session::config::Config::default();
-            cfg.session.auto_resume_on_restart = false;
-            crate::session::config::save_config(&cfg).unwrap();
+            crate::session::config::update_config(|cfg| {
+                cfg.session.auto_resume_on_restart = false;
+            })
+            .unwrap();
 
             let storage = crate::session::storage::Storage::new_unwatched("fb-toggle-off").unwrap();
 
@@ -10480,9 +10482,10 @@ mod tests {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             std::env::set_var("XDG_CONFIG_HOME", temp.path().join(".config"));
 
-            let mut cfg = crate::session::config::Config::default();
-            cfg.session.auto_resume_on_restart = false;
-            crate::session::config::save_config(&cfg).unwrap();
+            crate::session::config::update_config(|cfg| {
+                cfg.session.auto_resume_on_restart = false;
+            })
+            .unwrap();
 
             let storage =
                 crate::session::storage::Storage::new_unwatched("fb-allow-ignores").unwrap();
