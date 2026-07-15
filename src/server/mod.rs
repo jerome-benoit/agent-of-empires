@@ -1929,12 +1929,15 @@ pub(crate) fn norm_host(host: &str) -> String {
 /// rebinding bypass), multicast, and link-local (v4 `169.254.0.0/16`, which
 /// contains the `169.254.169.254` cloud-metadata address; v6 `fe80::/10`) are
 /// never a legitimate dashboard endpoint. Routable IPs (LAN, tailnet
-/// `100.64.0.0/10`, ULA, global unicast) are trusted.
+/// `100.64.0.0/10`, ULA, global unicast) are trusted. IPv4-mapped IPv6 forms
+/// (`::ffff:a.b.c.d`) are canonicalized first so those exclusions also cover
+/// e.g. `::ffff:169.254.169.254`.
 fn is_trusted_ip_literal(host: &str) -> bool {
     use std::net::IpAddr;
     let Ok(ip) = host.parse::<IpAddr>() else {
         return false;
     };
+    let ip = ip.to_canonical();
     if ip.is_unspecified() || ip.is_multicast() {
         return false;
     }
@@ -2107,9 +2110,12 @@ fn evaluate_access(
     if let Some(origin) = origin_header {
         let origin = norm_origin(origin);
         // A by-IP dashboard (`http://<ip>:port`) sends `Origin: http://<ip>:port`
-        // on its own fetch/WS; trust an IP-literal origin on the same basis as
-        // the Host (an attacker page always carries a hostname origin, which
-        // won't parse as an IP). `host_from_url` strips scheme/port/brackets.
+        // on its own fetch/WS, so trust an IP-literal origin on the same basis
+        // as the Host. This is a deliberate relaxation: a cross-origin page
+        // served from a bare IP would also pass this check, but it cannot read
+        // the auth token, so auth remains the backstop; a per-origin allowlist
+        // is the deferred stricter posture. `host_from_url` strips
+        // scheme/port/brackets.
         let origin_is_trusted_ip =
             host_from_url(&origin).is_some_and(|h| is_trusted_ip_literal(&h));
         if !allowed_origins.contains(&origin) && !origin_is_trusted_ip {
@@ -5317,6 +5323,9 @@ mod tests {
             "fe80::1",         // v6 link-local
             "224.0.0.1",       // multicast
             "ff02::1",
+            "::ffff:169.254.169.254", // IPv4-mapped metadata: canonicalized, then excluded
+            "::ffff:0.0.0.0",         // IPv4-mapped unspecified
+            "::ffff:224.0.0.1",       // IPv4-mapped multicast
             "example.com",
             "my-box",
             "",
