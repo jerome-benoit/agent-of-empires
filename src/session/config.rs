@@ -589,6 +589,10 @@ fn default_auto_stop_idle_secs() -> u32 {
     0
 }
 
+fn default_prevent_sleep_idle_grace_minutes() -> u32 {
+    15
+}
+
 fn default_acp_auto_stop_idle_secs() -> u32 {
     3600
 }
@@ -1206,6 +1210,34 @@ pub struct SessionConfig {
     )]
     pub auto_stop_idle_secs: u32,
 
+    /// Hold an OS assertion preventing user-idle system sleep while any
+    /// session is active. Released once every session has been idle past
+    /// `prevent_sleep_idle_grace_minutes`. Global toggle, daemon only: the
+    /// `aoe serve` status loop owns the assertion, so a TUI-only user
+    /// without a running daemon gets no inhibition.
+    ///
+    /// `global_only`: the status loop reads only the global config to drive a
+    /// single process-wide assertion, so a per-profile override would be
+    /// silently ignored; keep the schema honest by scoping it global.
+    #[serde(default)]
+    #[setting(label = "Keep OS Awake While Active", widget = "toggle", global_only)]
+    pub prevent_sleep_when_active: bool,
+
+    /// Minutes a session must stay idle before the sleep-inhibit assertion
+    /// may be released. Only consulted when `prevent_sleep_when_active`.
+    /// `global_only` for the same reason as that toggle.
+    #[serde(default = "default_prevent_sleep_idle_grace_minutes")]
+    #[setting(
+        label = "Sleep-Inhibit Grace (min)",
+        widget = "number",
+        min = 0,
+        max = 240,
+        validate = "range:0:240",
+        global_only,
+        advanced
+    )]
+    pub prevent_sleep_idle_grace_minutes: u32,
+
     /// Text sent to the agent after a successful `aoe session restart` /
     /// `e`-keybind restart, once the post-restart readiness probe says the
     /// pane is alive. Restart re-execs the agent at a blank prompt; this
@@ -1550,6 +1582,8 @@ impl Default for SessionConfig {
             confirm_delete: false,
             trash_retention_days: default_trash_retention_days(),
             auto_stop_idle_secs: default_auto_stop_idle_secs(),
+            prevent_sleep_when_active: false,
+            prevent_sleep_idle_grace_minutes: default_prevent_sleep_idle_grace_minutes(),
             restart_wake_message: default_restart_wake_message(),
             row_tag: RowTagMode::default(),
             session_id_poller_max_threads: default_session_id_poller_max_threads(),
