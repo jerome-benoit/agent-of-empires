@@ -69,8 +69,9 @@ const SHIM_DEADLINE: Duration = Duration::from_secs(10);
 const SHIM_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// One session's setup: what the shim publishes, the id it publishes, and (when
-/// set) how far in the past its jsonl mtime is pinned, so a peer's file sorts as
-/// the most-recent candidate in another session's filesystem scan.
+/// set) how far in the past its jsonl mtime is pinned, fixing the relative sort
+/// order of the two co-located jsonls in a filesystem scan (deterministic, no
+/// sleep).
 struct SessionSpec {
     title: &'static str,
     sidecar: bool,
@@ -120,9 +121,9 @@ fn install_claude_shim(h: &mut TuiTestHarness) {
     let bin = h.install_path_command("claude");
     let aoe = env!("CARGO_BIN_EXE_aoe");
     // If AOE_INSTANCE_ID is unset the launch-env contract broke; fail loudly
-    // (exit 3 + marker) rather than silently pass. Spin-wait briefly for the
-    // role file, which the test writes once both `aoe session start` launches
-    // return.
+    // (exit 3 + marker) rather than silently pass. The test writes the role file
+    // before launching, so the shim normally finds it on the first check; the
+    // bounded spin-wait is a safety net.
     let script = format!(
         r#"#!/bin/sh
 if [ -z "$AOE_INSTANCE_ID" ]; then
@@ -380,11 +381,8 @@ fn wait_for_shim(h: &TuiTestHarness, instance_id: &str) {
     );
 }
 
-/// Create a session with `aoe add` (no launch), then launch its tmux pane with
-/// `aoe session start` (a deterministic, blocking CLI launch that, unlike
-/// `aoe add -l`, does not try to attach a controlling terminal). Returns the
-/// instance id.
-fn add_and_launch(h: &TuiTestHarness, project: &str, spec: &SessionSpec) -> String {
+/// Create a session with `aoe add` (no launch); returns the instance id.
+fn add_session(h: &TuiTestHarness, project: &str, spec: &SessionSpec) -> String {
     let add = h.run_cli(&["add", project, "-t", spec.title, "-c", "claude"]);
     assert!(
         add.status.success(),
@@ -393,16 +391,22 @@ fn add_and_launch(h: &TuiTestHarness, project: &str, spec: &SessionSpec) -> Stri
         String::from_utf8_lossy(&add.stdout),
         String::from_utf8_lossy(&add.stderr),
     );
-    let id = parse_session_id(&String::from_utf8_lossy(&add.stdout));
-    let start = h.run_cli(&["session", "start", &id]);
+    parse_session_id(&String::from_utf8_lossy(&add.stdout))
+}
+
+/// Launch a session's tmux pane with `aoe session start` (a deterministic,
+/// blocking CLI launch that, unlike `aoe add -l`, does not try to attach a
+/// controlling terminal). The role must already be on disk so the shim finds it
+/// on its first check.
+fn launch_session(h: &TuiTestHarness, instance_id: &str, title: &str) {
+    let start = h.run_cli(&["session", "start", instance_id]);
     assert!(
         start.status.success(),
         "aoe session start {} failed.\nstdout: {}\nstderr: {}",
-        spec.title,
+        title,
         String::from_utf8_lossy(&start.stdout),
         String::from_utf8_lossy(&start.stderr),
     );
-    id
 }
 
 /// Shared driver: launch two Claude sessions on the SAME project path, apply
@@ -435,27 +439,30 @@ fn run_shared_project_correlation(test_name: &str, spec_a: SessionSpec, spec_b: 
         .join("projects")
         .join(encode_project_path(&canonical.to_string_lossy()));
 
-    // Launch both sessions before writing roles: each shim spin-waits up to 10s
-    // for its role, so the two `aoe session start` launches plus the role writes
-    // land well inside that window even on a loaded box.
-    let id_a = add_and_launch(&h, &project_str, &spec_a);
-    let id_b = add_and_launch(&h, &project_str, &spec_b);
-
+    // Add both sessions (no launch) so their ids and sessions.json rows exist,
+    // and register cleanup BEFORE any launch can fail so a partial launch cannot
+    // leak a hook dir.
+    let id_a = add_session(&h, &project_str, &spec_a);
+    let id_b = add_session(&h, &project_str, &spec_b);
     let _hook_cleanup = HookDirCleanup::new(vec![id_a.clone(), id_b.clone()]);
 
+    // Write both roles BEFORE launching, so each shim finds its role on its first
+    // check with no dependency on the other session's launch time.
     write_role(&h, &id_a, &spec_a, &jsonl_dir, ref_a.as_deref());
     write_role(&h, &id_b, &spec_b, &jsonl_dir, ref_b.as_deref());
 
-    // Ensure both shims have written their sidecar/jsonl before the poller host
-    // starts, then seed any established peer so a filesystem-scan session excludes its
-    // id from its very first poll.
+    launch_session(&h, &id_a, spec_a.title);
+    launch_session(&h, &id_b, spec_b.title);
+
+    // Ensure both shims have published their sidecar/jsonl before the poller host
+    // starts, then seed any established peer so a filesystem-scan session excludes
+    // its id from its very first poll.
     wait_for_shim(&h, &id_a);
     wait_for_shim(&h, &id_b);
-    if spec_a.established_peer {
-        preset_agent_session_id(&h, &id_a, spec_a.uuid);
-    }
-    if spec_b.established_peer {
-        preset_agent_session_id(&h, &id_b, spec_b.uuid);
+    for (id, spec) in [(&id_a, &spec_a), (&id_b, &spec_b)] {
+        if spec.established_peer {
+            preset_agent_session_id(&h, id, spec.uuid);
+        }
     }
 
     // Attach the poller host (see the module docs for why the TUI, not a daemon).
@@ -502,8 +509,9 @@ fn claude_shared_project_correlation_variant1_sidecar_authoritative() {
 
 /// Variant 2 (guards #1744, the filesystem-scan exclusion): session A has NO
 /// sidecar and an OLDER jsonl; session B has a sidecar and a strictly NEWER
-/// jsonl. B captures via its sidecar and publishes its UUID to its tmux env, so
-/// A's filesystem scan must exclude B's UUID and return its own older jsonl.
+/// jsonl. Because B is seeded as an established peer, the poller host
+/// republishes B's captured UUID before any poller starts, so A's filesystem
+/// scan excludes it on the very first poll and returns A's own older jsonl.
 ///
 /// Load-bearing: revert the exclusion and A's scan picks the strictly-newer B
 /// file, which the sync guard refuses to adopt (B owns it), so `[A]` stays on
