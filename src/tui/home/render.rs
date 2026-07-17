@@ -18,7 +18,8 @@ use crate::session::config::{GroupByMode, RowTagMode, SortOrder};
 use crate::session::{Item, Status};
 use crate::tui::components::preview::{self, CachedPreview};
 use crate::tui::components::{
-    format_scroll_indicator, set_prefixed_input_cursor_position, HelpOverlay, Preview,
+    format_scroll_indicator, set_prefixed_input_cursor_position, truncate_to_width, HelpOverlay,
+    Preview,
 };
 use crate::tui::responsive;
 use crate::tui::styles::{has_min_contrast, Theme};
@@ -100,35 +101,6 @@ impl PaneLayout {
 /// reserve to decide when the captured window can no longer cover the
 /// requested scroll.
 const CAPTURE_BUFFER: u16 = 20;
-
-/// Trim `text` to fit within `max_width` display cells, appending '…'
-/// if anything was dropped. Used by the live-send banners so a long
-/// session title never pushes the exit-chord hint off-screen on a
-/// narrow terminal. Returns "" when max_width is 0 (the title gets
-/// sacrificed entirely so the fixed chord text wins).
-fn truncate_to_width(text: &str, max_width: usize) -> String {
-    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-    if max_width == 0 {
-        return String::new();
-    }
-    if UnicodeWidthStr::width(text) <= max_width {
-        return text.to_string();
-    }
-    // Reserve one cell for the ellipsis.
-    let budget = max_width.saturating_sub(1);
-    let mut out = String::new();
-    let mut w = 0;
-    for c in text.chars() {
-        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
-        if w + cw > budget {
-            break;
-        }
-        out.push(c);
-        w += cw;
-    }
-    out.push('\u{2026}');
-    out
-}
 
 /// Map a tmux pane cursor onto the preview's output rect for live-send.
 ///
@@ -729,7 +701,7 @@ impl HomeView {
         if self.show_help {
             let live_on_enter = self.help_live_on_enter().unwrap_or(matches!(
                 self.profile_default_attach_mode,
-                crate::session::NewSessionAttachMode::LiveSend
+                crate::session::AttachMode::LiveSend
             ));
             HelpOverlay::render(
                 frame,
@@ -1468,23 +1440,17 @@ impl HomeView {
                                     .map(|s| s.exists())
                                     .unwrap_or(false),
                             };
-                            // Sunk rows suppress the unread overlay in every
-                            // sort mode, same rule as the Agent-view path (#2571).
-                            let unread_overlay = crate::session::unread_enabled()
-                                && inst.is_unread()
-                                && !inst.is_archived()
-                                && !inst.is_snoozed();
+                            // Unread is an Agent-view concept: it means the agent
+                            // produced output the user hasn't looked at. The
+                            // paired terminal has no such notion, so Terminal
+                            // view never paints the unread dot; the row just
+                            // tracks whether its terminal pane is live.
                             let (mut icon, color) = if terminal_running {
                                 (spinner_running(&inst.created_at), theme.terminal_active)
-                            } else if unread_overlay {
-                                (ICON_UNREAD, theme.unread)
                             } else {
                                 (ICON_IDLE, theme.dimmed)
                             };
                             let mut style = Style::default().fg(color);
-                            if unread_overlay && !terminal_running {
-                                style = style.add_modifier(ratatui::style::Modifier::BOLD);
-                            }
                             if inst.is_archived() || inst.is_trashed() {
                                 // Archive/trash lifecycle override mirrors the
                                 // Agent-view path: dim color, stopped
@@ -3377,7 +3343,7 @@ impl HomeView {
                     (Some("Attach"), None)
                 } else if matches!(
                     self.default_attach_mode(id),
-                    Some(crate::session::NewSessionAttachMode::LiveSend)
+                    Some(crate::session::AttachMode::LiveSend)
                 ) {
                     (Some("Live"), Some("Attach"))
                 } else {
@@ -3746,33 +3712,6 @@ mod tests {
             map_live_preview_cursor(output, 24, 200, pane_cursor(80, 2, true, 24)),
             None,
         );
-    }
-
-    #[test]
-    fn truncate_to_width_passthrough_when_fits() {
-        assert_eq!(truncate_to_width("hello", 10), "hello");
-        assert_eq!(truncate_to_width("hello", 5), "hello");
-    }
-
-    #[test]
-    fn truncate_to_width_appends_ellipsis_when_overflow() {
-        // 5-char budget, 7-char input → 4 chars + ellipsis.
-        assert_eq!(truncate_to_width("abcdefg", 5), "abcd\u{2026}");
-    }
-
-    #[test]
-    fn truncate_to_width_zero_returns_empty() {
-        // Zero budget: title is sacrificed entirely so the fixed exit-
-        // chord text has space to render on very narrow terminals.
-        assert_eq!(truncate_to_width("anything", 0), "");
-    }
-
-    #[test]
-    fn truncate_to_width_respects_wide_chars() {
-        // East Asian wide char is 2 cells. Budget 3 should fit one wide
-        // char + ellipsis (2 + 1 = 3) — but we reserve 1 for ellipsis
-        // so budget for content is 2, fitting exactly one wide char.
-        assert_eq!(truncate_to_width("你好世界", 3), "你\u{2026}");
     }
 
     #[test]

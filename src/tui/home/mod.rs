@@ -464,7 +464,7 @@ pub struct HomeView {
     /// refreshed by `refresh_from_config` / `switch_profile`. The help
     /// overlay falls back to this when no session row is selected so the
     /// render path never touches disk for the Enter/Tab labels.
-    pub(super) profile_default_attach_mode: crate::session::NewSessionAttachMode,
+    pub(super) profile_default_attach_mode: crate::session::AttachMode,
     /// Collapsed state for project-mode groups (persists across rebuilds)
     pub(super) project_group_collapsed: HashMap<String, bool>,
     /// Merged project registry (global + active profile), refreshed on reload
@@ -630,6 +630,15 @@ pub struct HomeView {
     pub(super) pending_attach_after_warning: Option<String>,
     /// Session to stop after the confirmation dialog is accepted
     pub(super) pending_stop_session: Option<String>,
+    /// Paired terminal to kill after the Terminal-view "kill terminal" confirm
+    /// dialog is accepted. Carries the session id and which terminal (host vs
+    /// container) the row was showing, so the accept path kills exactly the
+    /// terminal the user was looking at without touching the agent session.
+    pub(super) pending_stop_terminal: Option<(String, TerminalMode)>,
+    /// Tool session to kill after the Tool-view "kill tool" confirm dialog is
+    /// accepted: session id plus the tool name the view was previewing. Same
+    /// contract as `pending_stop_terminal`, the agent session is untouched.
+    pub(super) pending_stop_tool: Option<(String, String)>,
     /// Sandbox image to pull after the "image update available" confirm dialog
     /// is accepted. Carries the image through the generic `ConfirmDialog`,
     /// which only knows its action string.
@@ -666,6 +675,10 @@ pub struct HomeView {
 
     // Performance: background stop (docker stop can block up to ~10s)
     pub(super) stop_poller: StopPoller,
+
+    // Performance: background trash prep (stops the sandbox container, so the
+    // same ~10s docker stop block as `stop_poller`, plus the worktree move)
+    pub(super) trash_poller: crate::tui::trash_poller::TrashPoller,
 
     // Performance: background restart (the start cascade shells out to docker
     // and runs the before_start host hook, which can block for seconds)
@@ -2130,6 +2143,8 @@ impl HomeView {
             pending_paste: None,
             pending_attach_after_warning: None,
             pending_stop_session: None,
+            pending_stop_terminal: None,
+            pending_stop_tool: None,
             pending_image_pull: None,
             pending_switch_view_session: None,
             pending_force_remove_session: None,
@@ -2144,6 +2159,7 @@ impl HomeView {
             pending_status_refresh: false,
             deletion_poller: DeletionPoller::new(),
             stop_poller: StopPoller::new(),
+            trash_poller: crate::tui::trash_poller::TrashPoller::new(),
             restart_poller: RestartPoller::new(),
             restart_in_flight: std::collections::HashSet::new(),
             purge_claimed: std::collections::HashSet::new(),
@@ -3072,6 +3088,74 @@ impl HomeView {
                     tracing::error!(target: "tui.home", "Failed to save after stop: {}", e);
                 }
                 true
+            }
+        }
+    }
+
+    /// Apply the result of a background trash prepare: persist the relocated
+    /// worktree path onto the (already-trashed) row. Returns true if an
+    /// instance was updated so the caller can trigger a redraw.
+    pub fn apply_trash_results(&mut self) -> bool {
+        use std::sync::mpsc::TryRecvError;
+
+        match self.trash_poller.try_recv_result() {
+            Ok(result) => {
+                let mut changed = false;
+                // Only persist the relocation if the row is still trashed. The
+                // teardown ran off-thread, so a fast restore or purge could have
+                // landed in between; applying the holding-area path to a row the
+                // user just restored would repoint a live session's worktree
+                // into `.aoe-trash/`. A purged row is gone from the map and this
+                // skips too. The relocation is best-effort regardless: a later
+                // reconcile pass heals a still-trashed row whose move was
+                // dropped here.
+                let still_trashed = self
+                    .instances
+                    .get(&result.session_id)
+                    .is_some_and(|i| i.is_trashed());
+                if let (true, Some(reloc)) = (still_trashed, result.relocation) {
+                    // The worktree moved into the holding area on the worker
+                    // thread; persist the repointed project_path (+ pre-trash
+                    // marker) onto the real row. `merge_user_action_diff`
+                    // carries both fields, mirroring the load-time reconcile.
+                    if let Err(e) = self.apply_user_action(&result.session_id, |inst| {
+                        inst.project_path = reloc.new_project_path.clone();
+                        inst.pre_trash_project_path = reloc.pre_trash_project_path.clone();
+                    }) {
+                        tracing::error!(
+                            target: "tui.home",
+                            session = %result.session_id,
+                            "failed to persist trash worktree relocation: {e}",
+                        );
+                    }
+                    changed = true;
+                }
+                if let Some(reason) = result.relocate_warning {
+                    tracing::warn!(
+                        target: "tui.session",
+                        session = %result.session_id,
+                        "trash worktree relocation skipped: {reason}",
+                    );
+                }
+                changed
+            }
+            Err(TryRecvError::Empty) => false,
+            Err(TryRecvError::Disconnected) => {
+                // The worker thread is gone (a panic in perform_trash dropped
+                // result_tx). The rows are already durably trashed, so no
+                // status surgery is needed; their worktrees just did not
+                // relocate. A later reconcile pass (`reconcile_trashed_location`
+                // at load) moves them, so this only logs which are deferred.
+                let stuck = self.trash_poller.take_pending();
+                if stuck.is_empty() {
+                    return false;
+                }
+                tracing::error!(
+                    target: "tui.home",
+                    rows = stuck.len(),
+                    "trash poller worker gone; worktree relocation deferred to next reconcile",
+                );
+                false
             }
         }
     }
@@ -6176,17 +6260,6 @@ impl HomeView {
         inst.tie_workdir_applies(tie)
     }
 
-    /// Resolve `new_session_attach_mode` for a freshly-created session.
-    /// See `resolve_session_config_for` for the profile-resolution and
-    /// structured view-bypass rules.
-    pub fn new_session_attach_mode(
-        &self,
-        session_id: &str,
-    ) -> Option<crate::session::NewSessionAttachMode> {
-        self.resolve_session_config_for(session_id)
-            .map(|s| s.new_session_attach_mode)
-    }
-
     /// Resolve `click_action` for an existing session row when the
     /// user single-clicks it in the Structured view. See
     /// `resolve_session_config_for` for resolution rules; `None`
@@ -6206,7 +6279,7 @@ impl HomeView {
     pub(super) fn default_attach_mode(
         &self,
         session_id: &str,
-    ) -> Option<crate::session::NewSessionAttachMode> {
+    ) -> Option<crate::session::AttachMode> {
         self.resolve_session_config_for(session_id)
             .map(|s| s.default_attach_mode)
     }
@@ -6229,10 +6302,7 @@ impl HomeView {
     pub(super) fn help_live_on_enter(&self) -> Option<bool> {
         let id = self.selected_session.as_deref()?;
         let mode = self.default_attach_mode(id)?;
-        Some(matches!(
-            mode,
-            crate::session::NewSessionAttachMode::LiveSend
-        ))
+        Some(matches!(mode, crate::session::AttachMode::LiveSend))
     }
 
     /// Pin selection to `session_id` and place the cursor on its row.
