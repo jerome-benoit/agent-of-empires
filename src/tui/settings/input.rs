@@ -872,6 +872,15 @@ impl SettingsView {
             if self.current_category() == SettingsCategory::Plugins {
                 self.plugins_fields_focus = true;
             }
+            // A click on a checkbox row toggles it in one action, like a
+            // real checkbox, instead of only selecting it and waiting for
+            // Space. Other field types keep select-only: their editors /
+            // cyclers open on Enter, so a stray click shouldn't mutate
+            // them.
+            if let FieldValue::Bool(ref mut value) = self.fields[idx].value {
+                *value = !*value;
+                self.apply_field_to_config(idx);
+            }
             return Some(SettingsAction::Continue);
         }
 
@@ -1439,6 +1448,80 @@ mod tests {
             view.handle_click(25, 9);
             assert_eq!(view.focus, crate::tui::settings::SettingsFocus::Fields);
             assert_eq!(view.selected_field, 1);
+        }
+
+        /// A click on a checkbox row toggles it in one action, like a
+        /// real checkbox, not just selecting it.
+        #[test]
+        #[serial]
+        fn click_on_bool_field_toggles_it() {
+            let (_t, _guard, mut view) = fresh_view();
+            let (idx, before) =
+                first_bool_field(&mut view).expect("some category should expose a toggle field");
+            view.field_rects.push((idx, Rect::new(20, 5, 50, 2)));
+            view.handle_click(25, 6);
+            assert_eq!(view.selected_field, idx, "the click selects the row");
+            match view.fields[idx].value {
+                FieldValue::Bool(after) => {
+                    assert_eq!(after, !before, "the checkbox flips on click");
+                }
+                _ => unreachable!("index came from a Bool match above"),
+            }
+        }
+
+        /// Select the first category (by tab order) that has a toggle
+        /// field and return its `(field index, current value)`, so mouse
+        /// tests don't depend on which fields the default tab happens to
+        /// carry. Leaves `view` parked on that category.
+        fn first_bool_field(
+            view: &mut crate::tui::settings::SettingsView,
+        ) -> Option<(usize, bool)> {
+            for cat in 0..view.categories.len() {
+                if !matches!(
+                    view.categories[cat],
+                    crate::tui::settings::CategoryRow::Tab(_)
+                ) {
+                    continue;
+                }
+                view.selected_category = cat;
+                view.rebuild_fields();
+                let found = view
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, f)| match f.value {
+                        FieldValue::Bool(b) => Some((i, b)),
+                        _ => None,
+                    });
+                if found.is_some() {
+                    return found;
+                }
+            }
+            None
+        }
+
+        /// A click on a non-boolean field selects it but must NOT mutate
+        /// it: its editor/cycler opens on Enter, so a stray click can't
+        /// change the value out from under the user.
+        #[test]
+        #[serial]
+        fn click_on_non_bool_field_only_selects() {
+            let (_t, _guard, mut view) = fresh_view();
+            let idx = view
+                .fields
+                .iter()
+                .position(|f| !matches!(f.value, FieldValue::Bool(_) | FieldValue::SectionHeader))
+                .expect("the default category should have a non-toggle field");
+            // FieldValue is Debug but not PartialEq; compare its rendering.
+            let before = format!("{:?}", view.fields[idx].value);
+            view.field_rects.push((idx, Rect::new(20, 5, 50, 2)));
+            view.handle_click(25, 6);
+            assert_eq!(view.selected_field, idx, "the click selects the row");
+            assert_eq!(
+                format!("{:?}", view.fields[idx].value),
+                before,
+                "a non-boolean field must not change on a plain click"
+            );
         }
 
         /// Clicking a hit row in the search popup jumps to that hit,
