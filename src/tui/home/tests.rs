@@ -6912,7 +6912,6 @@ fn apply_status_update_runs_status_hook_on_transition() {
     };
     env.view.status_hook_config = StatusHookConfig {
         enabled: true,
-        debounce_ms: 0,
         on_waiting: Some("notify-waiting".to_string()),
         on_change: Some("notify-change".to_string()),
         ..Default::default()
@@ -6951,7 +6950,6 @@ fn all_profiles_status_hook_lookup_uses_cache() {
         "cached".to_string(),
         StatusHookConfig {
             enabled: true,
-            debounce_ms: 0,
             on_waiting: Some("notify-cached".to_string()),
             ..Default::default()
         },
@@ -6979,7 +6977,6 @@ fn apply_status_update_does_not_run_status_hook_for_same_status() {
     };
     env.view.status_hook_config = StatusHookConfig {
         enabled: true,
-        debounce_ms: 0,
         on_change: Some("notify-change".to_string()),
         ..Default::default()
     };
@@ -7012,7 +7009,6 @@ fn apply_status_updates_without_hooks_does_not_run_status_hook() {
     };
     env.view.status_hook_config = StatusHookConfig {
         enabled: true,
-        debounce_ms: 0,
         on_waiting: Some("notify-waiting".to_string()),
         ..Default::default()
     };
@@ -7046,7 +7042,6 @@ fn set_instance_status_runs_status_hook_on_transition() {
     };
     env.view.status_hook_config = StatusHookConfig {
         enabled: true,
-        debounce_ms: 0,
         on_error: Some("notify-error".to_string()),
         ..Default::default()
     };
@@ -14366,15 +14361,16 @@ mod live_send_mode {
     }
 }
 
-/// Tests for the `new_session_attach_mode` setting that drives whether
-/// a freshly-created session enters tmux or live-send mode. The unit
-/// under test is `HomeView::new_session_attach_mode`, plus the
-/// invariant that the sync create path emits the routed action variant
-/// (so it doesn't bypass the setting the way `Action::AttachSession`
-/// would).
-mod new_session_attach_mode {
+/// Tests for the post-create half of the `default_attach_mode` setting:
+/// a freshly-created session enters tmux or live-send mode per the same
+/// resolver as Enter/double-click. The unit under test is
+/// `HomeView::default_attach_mode` as consumed by the post-create
+/// dispatch, plus the invariant that the sync create path emits the
+/// routed action variant (so it doesn't bypass the setting the way
+/// `Action::AttachSession` would).
+mod post_create_attach_mode {
     use super::*;
-    use crate::session::config::{update_config, NewSessionAttachMode};
+    use crate::session::config::{update_config, AttachMode};
 
     /// Add a session to the home view, return its id. The instance's
     /// `source_profile` is set to "test" so the resolver reads the
@@ -14390,9 +14386,9 @@ mod new_session_attach_mode {
     /// Write a global config.toml with the given attach mode so the
     /// resolver under test reads the user-configured value. Other
     /// fields stay at default.
-    fn write_global_attach_mode(mode: NewSessionAttachMode) {
+    fn write_global_attach_mode(mode: AttachMode) {
         update_config(|config| {
-            config.session.new_session_attach_mode = mode;
+            config.session.default_attach_mode = mode;
         })
         .unwrap();
     }
@@ -14406,10 +14402,10 @@ mod new_session_attach_mode {
         // user's UX on upgrade.
         let mut env = create_test_env_empty();
         let id = add_session(&mut env.view, "session-one");
-        let mode = env.view.new_session_attach_mode(&id);
+        let mode = env.view.default_attach_mode(&id);
         assert_eq!(
             mode,
-            Some(NewSessionAttachMode::Tmux),
+            Some(AttachMode::Tmux),
             "default must be Tmux to preserve existing UX"
         );
     }
@@ -14417,14 +14413,14 @@ mod new_session_attach_mode {
     #[test]
     #[serial]
     fn returns_live_send_when_globally_configured() {
-        // User saved `new_session_attach_mode = "live_send"` in their
+        // User saved `default_attach_mode = "live_send"` in their
         // global config. The resolver must pick it up so the dispatch
         // path in app.rs routes to live mode instead of tmux attach.
         let mut env = create_test_env_empty();
-        write_global_attach_mode(NewSessionAttachMode::LiveSend);
+        write_global_attach_mode(AttachMode::LiveSend);
         let id = add_session(&mut env.view, "session-one");
-        let mode = env.view.new_session_attach_mode(&id);
-        assert_eq!(mode, Some(NewSessionAttachMode::LiveSend));
+        let mode = env.view.default_attach_mode(&id);
+        assert_eq!(mode, Some(AttachMode::LiveSend));
     }
 
     #[test]
@@ -14435,7 +14431,7 @@ mod new_session_attach_mode {
         // signals the caller to fall back to the structured view-aware
         // attach_session path rather than try to attach to a ghost.
         let env = create_test_env_empty();
-        let mode = env.view.new_session_attach_mode("nonexistent-id");
+        let mode = env.view.default_attach_mode("nonexistent-id");
         assert!(mode.is_none());
     }
 
@@ -14448,12 +14444,12 @@ mod new_session_attach_mode {
         // dispatch picks the (no-op) fallback explicitly, regardless of
         // what the user configured globally.
         let mut env = create_test_env_empty();
-        write_global_attach_mode(NewSessionAttachMode::LiveSend);
+        write_global_attach_mode(AttachMode::LiveSend);
         let id = add_session(&mut env.view, "acp-one");
         env.view.mutate_instance(&id, |inst| {
             inst.view = crate::session::View::Structured;
         });
-        let mode = env.view.new_session_attach_mode(&id);
+        let mode = env.view.default_attach_mode(&id);
         assert!(mode.is_none(), "structured view sessions must return None");
     }
 
@@ -14491,7 +14487,7 @@ mod new_session_attach_mode {
     #[serial]
     fn sync_create_path_emits_attach_after_create_not_attach_session() {
         // Regression guard for the original bug. `Action::AttachSession`
-        // would skip the `new_session_attach_mode` dispatch; only
+        // would skip the attach-mode dispatch; only
         // `Action::AttachAfterCreate` routes through it. If a future
         // refactor flips this back, the live-mode setting silently
         // stops working on no-sandbox/no-hooks/no-worktree creates and
@@ -14516,7 +14512,7 @@ mod new_session_attach_mode {
 /// Structured view attaches to tmux or enters live-send mode.
 mod default_attach_mode {
     use super::*;
-    use crate::session::config::{update_config, NewSessionAttachMode};
+    use crate::session::config::{update_config, AttachMode};
 
     fn add_session(view: &mut HomeView, title: &str) -> String {
         let mut inst = Instance::new(title, "/tmp/test");
@@ -14526,7 +14522,7 @@ mod default_attach_mode {
         id
     }
 
-    fn write_global_default_attach_mode(mode: NewSessionAttachMode) {
+    fn write_global_default_attach_mode(mode: AttachMode) {
         update_config(|config| {
             config.session.default_attach_mode = mode;
         })
@@ -14542,7 +14538,7 @@ mod default_attach_mode {
         let mut env = create_test_env_empty();
         let id = add_session(&mut env.view, "session-one");
         let mode = env.view.default_attach_mode(&id);
-        assert_eq!(mode, Some(NewSessionAttachMode::Tmux));
+        assert_eq!(mode, Some(AttachMode::Tmux));
     }
 
     #[test]
@@ -14565,7 +14561,7 @@ mod default_attach_mode {
         // User opted into "Enter = live mode": activating an Agent-view
         // row must dispatch Action::EnterLiveSend instead of AttachSession.
         let mut env = create_test_env_empty();
-        write_global_default_attach_mode(NewSessionAttachMode::LiveSend);
+        write_global_default_attach_mode(AttachMode::LiveSend);
         let id = add_session(&mut env.view, "session-one");
         env.view.flat_items = env.view.build_flat_items();
         env.view.cursor = 0;
@@ -14586,7 +14582,7 @@ mod default_attach_mode {
         // back to a full tmux attach whenever they were previewing a
         // terminal.
         let mut env = create_test_env_empty();
-        write_global_default_attach_mode(NewSessionAttachMode::LiveSend);
+        write_global_default_attach_mode(AttachMode::LiveSend);
         let id = add_session(&mut env.view, "session-one");
         env.view.flat_items = env.view.build_flat_items();
         env.view.cursor = 0;
@@ -14625,7 +14621,7 @@ mod default_attach_mode {
         // escape hatch). Without this, the user would have no
         // single-key path to the underlying tmux session.
         let mut env = create_test_env_empty();
-        write_global_default_attach_mode(NewSessionAttachMode::LiveSend);
+        write_global_default_attach_mode(AttachMode::LiveSend);
         let id = add_session(&mut env.view, "session-one");
         env.view.flat_items = env.view.build_flat_items();
         env.view.cursor = 0;
@@ -14655,7 +14651,7 @@ mod default_attach_mode {
         // live-send, Tab in Terminal view attaches the paired terminal
         // pane rather than the agent pane.
         let mut env = create_test_env_empty();
-        write_global_default_attach_mode(NewSessionAttachMode::LiveSend);
+        write_global_default_attach_mode(AttachMode::LiveSend);
         let id = add_session(&mut env.view, "session-one");
         env.view.flat_items = env.view.build_flat_items();
         env.view.cursor = 0;
@@ -14776,7 +14772,7 @@ mod default_attach_mode {
         );
     }
 
-    fn write_live_send_on_view_switch(mode: NewSessionAttachMode, on_view_switch: bool) {
+    fn write_live_send_on_view_switch(mode: AttachMode, on_view_switch: bool) {
         update_config(|config| {
             config.session.default_attach_mode = mode;
             config.session.live_send_on_view_switch = on_view_switch;
@@ -14792,7 +14788,7 @@ mod default_attach_mode {
         // not just flip the preview to Terminal; it must also enter
         // live-send immediately, without a separate Enter/Tab/click.
         let mut env = create_test_env_empty();
-        write_live_send_on_view_switch(NewSessionAttachMode::LiveSend, true);
+        write_live_send_on_view_switch(AttachMode::LiveSend, true);
         let id = add_session(&mut env.view, "session-one");
         env.view.flat_items = env.view.build_flat_items();
         env.view.cursor = 0;
@@ -14813,7 +14809,7 @@ mod default_attach_mode {
         // LiveSend`, ToggleView must leave live-send alone and only
         // change the preview.
         let mut env = create_test_env_empty();
-        write_live_send_on_view_switch(NewSessionAttachMode::LiveSend, false);
+        write_live_send_on_view_switch(AttachMode::LiveSend, false);
         let _id = add_session(&mut env.view, "session-one");
         env.view.flat_items = env.view.build_flat_items();
         env.view.cursor = 0;
@@ -14834,7 +14830,7 @@ mod default_attach_mode {
         // default, ToggleView still auto-enters live-send when
         // `live_send_on_view_switch` is enabled.
         let mut env = create_test_env_empty();
-        write_live_send_on_view_switch(NewSessionAttachMode::Tmux, true);
+        write_live_send_on_view_switch(AttachMode::Tmux, true);
         let id = add_session(&mut env.view, "session-one");
         env.view.flat_items = env.view.build_flat_items();
         env.view.cursor = 0;
@@ -14855,7 +14851,7 @@ mod default_attach_mode {
         // opening a tool via its configured hotkey must apply the same
         // auto-entry check as ToggleView.
         let mut env = create_test_env_empty();
-        write_live_send_on_view_switch(NewSessionAttachMode::LiveSend, true);
+        write_live_send_on_view_switch(AttachMode::LiveSend, true);
         let id = add_session(&mut env.view, "session-one");
         env.view.flat_items = env.view.build_flat_items();
         env.view.cursor = 0;
@@ -14907,7 +14903,7 @@ mod default_attach_mode {
         // help_live_on_enter so the help overlay relabels Enter as
         // live mode and Tab as tmux attach.
         let mut env = create_test_env_empty();
-        write_global_default_attach_mode(NewSessionAttachMode::LiveSend);
+        write_global_default_attach_mode(AttachMode::LiveSend);
         let _id = add_session(&mut env.view, "session-one");
         env.view.flat_items = env.view.build_flat_items();
         env.view.cursor = 0;
@@ -14925,15 +14921,15 @@ mod default_attach_mode {
         let mut env = create_test_env_empty();
         assert_eq!(
             env.view.profile_default_attach_mode,
-            NewSessionAttachMode::Tmux,
+            AttachMode::Tmux,
             "cache should initialize to the historical Tmux default"
         );
-        write_global_default_attach_mode(NewSessionAttachMode::LiveSend);
+        write_global_default_attach_mode(AttachMode::LiveSend);
         env.view
             .refresh_from_config(ConfigRefreshOrigin::Interactive);
         assert_eq!(
             env.view.profile_default_attach_mode,
-            NewSessionAttachMode::LiveSend,
+            AttachMode::LiveSend,
             "refresh_from_config must pick up the saved LiveSend default"
         );
     }
@@ -14948,7 +14944,7 @@ mod default_attach_mode {
     #[serial]
     fn acp_session_ignores_default_attach_mode() {
         let mut env = create_test_env_empty();
-        write_global_default_attach_mode(NewSessionAttachMode::LiveSend);
+        write_global_default_attach_mode(AttachMode::LiveSend);
         let id = add_session(&mut env.view, "acp-one");
         env.view.mutate_instance(&id, |inst| {
             inst.view = crate::session::View::Structured;
@@ -15131,7 +15127,7 @@ mod default_attach_mode {
     #[serial]
     fn footer_advertises_tab_as_attach_when_default_is_live_send() {
         let mut env = create_test_env_empty();
-        write_global_default_attach_mode(NewSessionAttachMode::LiveSend);
+        write_global_default_attach_mode(AttachMode::LiveSend);
         let _id = add_session(&mut env.view, "session-one");
         env.view.flat_items = env.view.build_flat_items();
         env.view.cursor = 0;
