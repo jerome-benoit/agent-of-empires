@@ -238,6 +238,14 @@ serve = [
 
 [dev-dependencies]
 serial_test = "3.4"
+# Test-only: captures `tracing` events so a test can assert a log fired.
+# Used to prove `merge_passive_status_patch`'s equal-timestamp guard drop
+# branch executed (#2756, I4); it bundles its own `tracing-subscriber`. The
+# guard log uses a custom `target: "session.store"`, which the default
+# per-crate env filter (`agent_of_empires=trace`) rejects, so `no-env-filter`
+# is required for the event to reach the capture buffer; the test scopes to
+# its own span and matches the message substring, so wider capture is safe.
+tracing-test = { version = "0.2", features = ["no-env-filter"] }
 # Integration tests are separate crates and don't inherit the normal
 # `serde_json` dependency; the acp-runner orphan test parses a worker
 # registry record to mutate its pid structurally.
