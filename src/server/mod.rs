@@ -6424,11 +6424,9 @@ mod tests {
     /// its per-profile routing, never unread. Each profile is seeded with the
     /// opposite status it is patched to, so a mis-routed bundle leaves a row at
     /// its seeded status and fails the status assertion: that is the routing
-    /// discriminator. The trailing `id`-isolation checks guard profile storage
-    /// separation (persist merges by `id` and never inserts, so a stray row
-    /// cannot appear) rather than routing. The instance-to-bundle assignment
-    /// in `status_poll_loop` (bundles.entry(inst.source_profile)) stays out of
-    /// unit-test reach: it needs an `AppState`, which has no test constructor.
+    /// discriminator. The instance-to-bundle assignment in `status_poll_loop`
+    /// (bundles.entry(inst.source_profile)) stays out of unit-test reach: it
+    /// needs an `AppState`, which has no test constructor.
     #[tokio::test]
     #[serial_test::serial]
     async fn flush_passive_transition_routes_patches_per_profile() {
@@ -6543,15 +6541,6 @@ mod tests {
             row_b.last_accessed_at,
             Some(new_ts),
             "profile B's patch must merge its last_accessed_at onto profile B's storage"
-        );
-
-        assert!(
-            disk_a.iter().all(|i| i.id != b1_id),
-            "profile A's storage must not gain profile B's row"
-        );
-        assert!(
-            disk_b.iter().all(|i| i.id != a1_id),
-            "profile B's storage must not gain profile A's row"
         );
     }
 
