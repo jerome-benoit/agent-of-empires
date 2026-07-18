@@ -3148,26 +3148,95 @@ impl HomeView {
                 // skips too. The relocation is best-effort regardless: a later
                 // reconcile pass heals a still-trashed row whose move was
                 // dropped here.
-                let still_trashed = self
-                    .instances
-                    .get(&result.session_id)
-                    .is_some_and(|i| i.is_trashed());
-                if let (true, Some(reloc)) = (still_trashed, result.relocation) {
-                    // The worktree moved into the holding area on the worker
-                    // thread; persist the repointed project_path (+ pre-trash
-                    // marker) onto the real row. `merge_user_action_diff`
-                    // carries both fields, mirroring the load-time reconcile.
-                    if let Err(e) = self.apply_user_action(&result.session_id, |inst| {
-                        inst.project_path = reloc.new_project_path.clone();
-                        inst.pre_trash_project_path = reloc.pre_trash_project_path.clone();
-                    }) {
+                if let Some(reloc) = result.relocation {
+                    // Atomic durable check-and-commit under the storage flock.
+                    // The worker's pre-move re-check leaves a window before
+                    // this drain in which a restore or purge (local or from a
+                    // peer process) can supersede the teardown; deciding
+                    // against the in-memory map would re-open that window
+                    // cross-process, so the decision is re-taken on the
+                    // durable row instead, serialized with the restore/purge
+                    // commits. Superseded means such a peer won: the disk move
+                    // is undone (a same-filesystem rename, the same tick-loop
+                    // trade `restore_selected_from_trash` makes). A row absent
+                    // from the map was purged locally and is skipped; its
+                    // holding dir falls to the purge teardown.
+                    // The decision travels through this captured slot rather
+                    // than the closure's return value, so it survives an
+                    // update that decided Superseded and then failed its
+                    // final write; the undo below keys off the decision
+                    // alone, since the durable row was already restored in
+                    // that case and skipping the undo would strand its
+                    // worktree in the holding area.
+                    let mut decided: Option<(
+                        crate::session::claim::RelocationCommit,
+                        Option<crate::session::Instance>,
+                    )> = None;
+                    let update_result = self
+                        .instances
+                        .get(&result.session_id)
+                        .map(|i| i.source_profile.clone())
+                        .and_then(|profile| self.storages.get(&profile))
+                        .map(|storage| {
+                            storage.update(|insts, _groups| {
+                                let commit = crate::session::claim::commit_trash_relocation(
+                                    insts,
+                                    &result.session_id,
+                                    &reloc,
+                                    chrono::Utc::now(),
+                                );
+                                let row = insts.iter().find(|i| i.id == result.session_id).cloned();
+                                decided = Some((commit, row));
+                                Ok(())
+                            })
+                        });
+                    if let Some(Err(e)) = &update_result {
+                        // A Persisted decision whose write failed needs no
+                        // repair here: the durable row is still trashed at its
+                        // old path and the load-time reconcile repoints it to
+                        // the holding area.
                         tracing::error!(
                             target: "tui.home",
                             session = %result.session_id,
                             "failed to persist trash worktree relocation: {e}",
                         );
                     }
-                    changed = true;
+                    use crate::session::claim::RelocationCommit;
+                    match decided {
+                        Some((RelocationCommit::Persisted, _))
+                            if matches!(update_result, Some(Ok(()))) =>
+                        {
+                            if let Some(inst) = self.instances.get_mut(&result.session_id) {
+                                inst.project_path = reloc.new_project_path.clone();
+                                inst.pre_trash_project_path = reloc.pre_trash_project_path.clone();
+                            }
+                            changed = true;
+                        }
+                        Some((RelocationCommit::Superseded, row)) => {
+                            let undo_with =
+                                row.or_else(|| self.instances.get(&result.session_id).cloned());
+                            if let Some(live) = undo_with {
+                                match crate::session::trash::undo_raced_relocation(&live, &reloc) {
+                                    crate::session::trash::RestoreOutcome::Failed { reason } => {
+                                        tracing::warn!(
+                                            target: "tui.session",
+                                            session = %result.session_id,
+                                            "could not move a superseded trash relocation back ({reason}); worktree remains at {}",
+                                            reloc.new_project_path,
+                                        );
+                                    }
+                                    outcome => {
+                                        tracing::info!(
+                                            target: "tui.session",
+                                            session = %result.session_id,
+                                            "trash relocation superseded by a restore/claim; undone ({outcome:?})",
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
                 }
                 if let Some(reason) = result.relocate_warning {
                     tracing::warn!(
