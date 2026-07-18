@@ -6631,15 +6631,25 @@ mod tests {
         assert_eq!(disk.last_accessed_at, Some(ts));
     }
 
+    /// Count the guard's drop-event log lines. `logs_assert` hands us lines
+    /// already scoped to the calling test's span, and the message is unique to
+    /// the drop branch, so matching the substring cannot be inflated by other
+    /// `session.store` events.
+    fn drop_log_count(lines: &[&str]) -> usize {
+        lines
+            .iter()
+            .filter(|l| l.contains("dropped passive status patch's last_accessed_at as a no-op"))
+            .count()
+    }
+
     /// Closes I4 from #2756: the equal-timestamp guard's observability gap.
     /// Under `disk == incoming` the drop branch and the write branch leave the
-    /// same observable `last_accessed_at`, so the boundary_equal test above
+    /// same observable `last_accessed_at`, so `boundary_equal_is_a_noop` above
     /// cannot prove the drop branch ran. Here `disk == incoming` must fire the
-    /// `session.store` drop log exactly once, matched on the message substring
-    /// so unrelated `session.store` events cannot inflate the count.
+    /// `session.store` drop log exactly once.
     #[traced_test]
     #[test]
-    fn test_merge_passive_status_patch_equal_ts_logs_drop_event() {
+    fn test_merge_passive_status_patch_last_accessed_at_boundary_equal_logs_drop_event() {
         let mut disk = Instance::new("session", "/tmp/test");
         let ts = Utc::now();
         disk.last_accessed_at = Some(ts);
@@ -6651,18 +6661,9 @@ mod tests {
         };
         disk.merge_passive_status_patch(&disk.id.clone(), &patch);
 
-        logs_assert(|lines: &[&str]| {
-            let n = lines
-                .iter()
-                .filter(|l| {
-                    l.contains("dropped passive status patch's last_accessed_at as a no-op")
-                })
-                .count();
-            if n == 1 {
-                Ok(())
-            } else {
-                Err(format!("expected 1 drop event, got {n}"))
-            }
+        logs_assert(|lines: &[&str]| match drop_log_count(lines) {
+            1 => Ok(()),
+            n => Err(format!("expected 1 drop event, got {n}")),
         });
     }
 
@@ -6674,7 +6675,7 @@ mod tests {
     /// `boundary_newer_applies` does) to avoid a same-instant flake.
     #[traced_test]
     #[test]
-    fn test_merge_passive_status_patch_newer_ts_no_drop_event() {
+    fn test_merge_passive_status_patch_last_accessed_at_boundary_newer_no_drop_event() {
         let mut disk = Instance::new("session", "/tmp/test");
         let older = Utc::now() - chrono::Duration::minutes(1);
         let newer = Utc::now();
@@ -6687,18 +6688,9 @@ mod tests {
         };
         disk.merge_passive_status_patch(&disk.id.clone(), &patch);
 
-        logs_assert(|lines: &[&str]| {
-            let n = lines
-                .iter()
-                .filter(|l| {
-                    l.contains("dropped passive status patch's last_accessed_at as a no-op")
-                })
-                .count();
-            if n == 0 {
-                Ok(())
-            } else {
-                Err(format!("expected 0 drop events, got {n}"))
-            }
+        logs_assert(|lines: &[&str]| match drop_log_count(lines) {
+            0 => Ok(()),
+            n => Err(format!("expected 0 drop events, got {n}")),
         });
         assert_eq!(disk.last_accessed_at, Some(newer));
     }
