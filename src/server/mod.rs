@@ -6421,7 +6421,12 @@ mod tests {
     /// bundle must merge onto that profile's own storage and nowhere else. The
     /// two adjacent tests above already cover the `unread_ids` mirror, so this
     /// test asserts only the `patches` write (status / last_accessed_at) and
-    /// its per-profile routing, never unread. The instance-to-bundle assignment
+    /// its per-profile routing, never unread. Each profile is seeded with the
+    /// opposite status it is patched to, so a mis-routed bundle leaves a row at
+    /// its seeded status and fails the status assertion: that is the routing
+    /// discriminator. The trailing `id`-isolation checks guard profile storage
+    /// separation (persist merges by `id` and never inserts, so a stray row
+    /// cannot appear) rather than routing. The instance-to-bundle assignment
     /// in `status_poll_loop` (bundles.entry(inst.source_profile)) stays out of
     /// unit-test reach: it needs an `AppState`, which has no test constructor.
     #[tokio::test]
