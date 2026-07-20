@@ -376,9 +376,11 @@ mod serve {
         // A summary reads the whole transcript and can run a bigger model turn
         // (see SUMMARY_TIMEOUT), so it uses the CLI default model rather than
         // the cheap alias smart-rename titles pin.
-        let Some(argv) =
-            crate::session::smart_rename::build_oneshot_argv(agent, &prompt, OneshotModel::Default)
-        else {
+        let Some(argv) = crate::session::smart_rename::build_oneshot_argv(
+            agent,
+            &prompt,
+            OneshotModel::CliDefault,
+        ) else {
             return;
         };
 

@@ -1608,6 +1608,25 @@ mod tests {
     }
 
     #[test]
+    fn value_binding_oneshot_flags_take_no_model_args() {
+        // `build_oneshot_argv` puts model args before the prompt, which is safe
+        // only when the one-shot flag does not bind the following token as its
+        // value. A non-empty `oneshot_trailing_args` marks such a value-binding
+        // flag (e.g. copilot `-p`, whose value IS the prompt); pinning model
+        // args there would make the flag swallow `--model` as the prompt. Guard
+        // that the two never coexist.
+        for agent in AGENTS {
+            if !agent.oneshot_trailing_args().is_empty() {
+                assert!(
+                    agent.oneshot_model_args().is_empty(),
+                    "agent '{}' has a value-binding one-shot flag, so it must not pin model args",
+                    agent.name
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_get_agent_known() {
         assert_eq!(get_agent("claude").unwrap().binary, "claude");
         assert_eq!(get_agent("opencode").unwrap().binary, "opencode");

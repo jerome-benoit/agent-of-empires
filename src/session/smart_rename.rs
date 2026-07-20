@@ -249,15 +249,15 @@ pub fn build_prompt(user_message: &str) -> String {
 
 /// Which model a one-shot argv targets. `Cheap` pins the agent's static cheap
 /// alias (e.g. claude `--model haiku`) for a throwaway smart-rename title;
-/// `Default` leaves model selection to the CLI so a whole-transcript
-/// conversation summary can run the agent's normal (bigger) model. There is no
-/// `Default` trait impl on purpose: every call site states its intent, so a
-/// title cannot silently bill the frontier model and a summary cannot silently
-/// be downgraded to the cheap tier.
+/// `CliDefault` leaves model selection to the CLI so a whole-transcript
+/// conversation summary can run the agent's normal (bigger) model. There is
+/// deliberately no zero-value: every call site states its intent, so a title
+/// cannot silently bill the frontier model and a summary cannot silently be
+/// downgraded to the cheap tier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OneshotModel {
     Cheap,
-    Default,
+    CliDefault,
 }
 
 /// Build the argv for a one-shot title or summary call, or `None` when the
@@ -1402,12 +1402,29 @@ mod tests {
     #[test]
     fn argv_summary_model_uses_cli_default_not_cheap() {
         // conversation_summary reads the whole transcript and may need a bigger
-        // model turn, so OneshotModel::Default must NOT inject the cheap alias:
-        // the argv is exactly the pre-#3009 shape.
-        let argv = build_oneshot_argv(claude(), "name this", OneshotModel::Default)
+        // model turn, so OneshotModel::CliDefault must NOT inject the cheap
+        // alias: the argv is exactly the pre-#3009 shape.
+        let argv = build_oneshot_argv(claude(), "name this", OneshotModel::CliDefault)
             .expect("claude one-shot");
         assert!(!argv.iter().any(|a| a == "--model" || a == "haiku"));
         assert_eq!(argv, vec!["claude", "-p", "name this"]);
+    }
+
+    #[test]
+    fn argv_cli_default_omits_only_the_cheap_model_args() {
+        // Across every one-shot agent, CliDefault yields exactly the Cheap argv
+        // minus the model slot: the enum's sole effect is the cheap-model pin.
+        for agent in agents::AGENTS.iter().filter(|a| a.oneshot_flag.is_some()) {
+            let cheap =
+                build_oneshot_argv(agent, "name this", OneshotModel::Cheap).expect("one-shot");
+            let default =
+                build_oneshot_argv(agent, "name this", OneshotModel::CliDefault).expect("one-shot");
+            assert!(!default.iter().any(|a| a == "--model" || a == "-m"));
+            assert_eq!(
+                default.len(),
+                cheap.len() - agent.oneshot_model_args().len()
+            );
+        }
     }
 
     #[test]
