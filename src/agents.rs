@@ -1193,6 +1193,36 @@ impl AgentDef {
         }
     }
 
+    /// Static argv tokens that select a cheap model for a one-shot
+    /// (smart-rename or conversation-summary) title call. They are inserted
+    /// between the one-shot flag and the prompt, ahead of `oneshot_extra_args`,
+    /// so they parse as options both for flag-value one-shots (e.g. claude
+    /// `-p`) and for positional-prompt one-shots (e.g. codex `exec`): the
+    /// prompt stays the final positional element, so the no-injection contract
+    /// (untrusted user text is never read as an argument) still holds.
+    ///
+    /// A throwaway three-to-five-word title must not bill the CLI's default
+    /// frontier model, so we pin the cheapest capable model. Only a STABLE,
+    /// non-dated alias may be hardcoded here: AoE pins no CLI version (it
+    /// detects via `which` / `--version`), so a dated id (e.g.
+    /// `claude-haiku-4-5-20250101`) would rotate or expire out from under us.
+    ///
+    /// Any agent without a verified stable alias returns `&[]`, i.e. the CLI's
+    /// own default: fail-closed and identical to the prior behavior. If a model
+    /// is somehow unknown or refused, the one-shot exits non-zero, which
+    /// `run_oneshot` already maps to "keep the generated name".
+    pub fn oneshot_model_args(&self) -> &'static [&'static str] {
+        match self.name {
+            // Verified 2026-07-20: `haiku` is Anthropic's stable, non-dated
+            // alias for the cheap Claude tier, accepted by `claude -p --model`.
+            // Fail-closed rationale: under `-p` an unknown id makes claude
+            // SILENTLY fall back to the default (frontier) model, so we pin the
+            // never-dating alias rather than a rotating dated id.
+            "claude" => &["--model", "haiku"],
+            _ => &[],
+        }
+    }
+
     /// The base launch token(s) for the default (non-overridden) command:
     /// the binary, plus any `launch_subcommand` (e.g. `"kiro-cli chat"`). All
     /// subsequent flags (extra args, yolo, resume) are appended after this, so
@@ -1540,8 +1570,9 @@ mod tests {
             // The same single-token, no-interpolation contract applies to the
             // static args inserted before and after the prompt.
             for extra in agent
-                .oneshot_extra_args()
+                .oneshot_model_args()
                 .iter()
+                .chain(agent.oneshot_extra_args())
                 .chain(agent.oneshot_trailing_args())
             {
                 assert!(

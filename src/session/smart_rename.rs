@@ -248,15 +248,19 @@ pub fn build_prompt(user_message: &str) -> String {
 }
 
 /// Build the argv for a one-shot title call, or `None` when the agent has no
-/// known one-shot mode. Shape is `[binary, oneshot_token, extra.., prompt,
-/// trailing..]`: the prompt is a single argv element passed straight to the
-/// process, never interpolated into a shell string, so untrusted user text
+/// known one-shot mode. Shape is `[binary, oneshot_token, model.., extra..,
+/// prompt, trailing..]`: the prompt is a single argv element passed straight to
+/// the process, never interpolated into a shell string, so untrusted user text
 /// cannot inject arguments. `oneshot_trailing_args` is only populated for
 /// flag-value one-shots (e.g. copilot `-p`), where the CLI binds the prompt to
 /// the flag, so trailing flags after it stay unambiguous.
 pub fn build_oneshot_argv(agent: &agents::AgentDef, prompt: &str) -> Option<Vec<String>> {
     let token = agent.oneshot_flag?;
     let mut argv = vec![agent.binary.to_string(), token.to_string()];
+    // Static cheap-model selector (e.g. claude `--model haiku`) goes first,
+    // right after the one-shot token, so a throwaway title never bills the CLI's
+    // default frontier model. Empty for agents with no verified stable alias.
+    argv.extend(agent.oneshot_model_args().iter().map(|s| s.to_string()));
     // Static per-agent flags (e.g. codex `--skip-git-repo-check`) go between the
     // one-shot token and the prompt; the prompt stays directly after them so
     // untrusted user text can never be read as an argument.
@@ -1245,7 +1249,7 @@ mod tests {
     #[test]
     fn argv_is_binary_token_prompt() {
         let argv = build_oneshot_argv(claude(), "hello").expect("claude has one-shot");
-        assert_eq!(argv, vec!["claude", "-p", "hello"]);
+        assert_eq!(argv, vec!["claude", "-p", "--model", "haiku", "hello"]);
     }
 
     #[test]
@@ -1309,16 +1313,19 @@ mod tests {
         // codex `exec` refuses to run outside a git repo without this flag, so a
         // scratch-session one-shot would exit non-zero. The flag goes between
         // the token and the prompt; the prompt stays the final element.
+        // codex has no verified stable cheap-model alias, so it takes no model
+        // args: still [binary, flag, skip-git-repo-check, prompt].
         let argv = build_oneshot_argv(agents::get_agent("codex").unwrap(), "name this")
             .expect("codex one-shot");
         assert_eq!(
             argv,
             vec!["codex", "exec", "--skip-git-repo-check", "name this"]
         );
-        // claude takes no extra args: still [binary, flag, prompt].
+        // claude pins the cheap `haiku` alias between the flag and the prompt;
+        // the prompt stays the final element.
         assert_eq!(
             build_oneshot_argv(claude(), "name this").unwrap(),
-            vec!["claude", "-p", "name this"]
+            vec!["claude", "-p", "--model", "haiku", "name this"]
         );
     }
 
@@ -1341,6 +1348,56 @@ mod tests {
                 "--no-ask-user"
             ]
         );
+    }
+
+    #[test]
+    fn argv_claude_injects_cheap_model_before_prompt() {
+        let argv = build_oneshot_argv(claude(), "name this").expect("claude one-shot");
+        let model_idx = argv.iter().position(|a| a == "--model").expect("--model");
+        assert_eq!(argv[model_idx + 1], "haiku");
+        let prompt_idx = argv.iter().position(|a| a == "name this").expect("prompt");
+        assert!(
+            model_idx < prompt_idx,
+            "model args must precede the prompt, got {argv:?}"
+        );
+        assert_eq!(
+            prompt_idx,
+            argv.len() - 1,
+            "prompt must be the last element"
+        );
+    }
+
+    #[test]
+    fn argv_unverified_agents_take_no_model_args() {
+        for name in ["opencode", "kimi"] {
+            let agent = agents::get_agent(name).unwrap();
+            let argv =
+                build_oneshot_argv(agent, "name this").unwrap_or_else(|| panic!("{name} one-shot"));
+            assert!(
+                !argv.iter().any(|a| a == "--model" || a == "-m"),
+                "{name} has no verified stable alias, so its argv must carry no model flag: {argv:?}"
+            );
+            assert_eq!(*argv.last().unwrap(), "name this");
+        }
+    }
+
+    #[test]
+    fn argv_model_args_never_follow_prompt() {
+        for agent in agents::AGENTS.iter().filter(|a| a.oneshot_flag.is_some()) {
+            let argv = build_oneshot_argv(agent, "the prompt").expect("one-shot");
+            let prompt_idx = argv.iter().position(|a| a == "the prompt").expect("prompt");
+            for token in agent.oneshot_model_args() {
+                let idx = argv
+                    .iter()
+                    .position(|a| a == token)
+                    .unwrap_or_else(|| panic!("model token {token} missing from argv {argv:?}"));
+                assert!(
+                    idx < prompt_idx,
+                    "model token {token} must precede the prompt for {}: {argv:?}",
+                    agent.name
+                );
+            }
+        }
     }
 
     #[test]
