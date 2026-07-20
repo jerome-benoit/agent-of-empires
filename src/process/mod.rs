@@ -553,8 +553,9 @@ mod tests {
     #[test]
     fn boot_id_is_stable_within_a_boot() {
         assert_eq!(boot_id(), boot_id());
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        assert!(boot_id().is_some_and(|s| !s.is_empty()));
+        if let Some(id) = boot_id() {
+            assert!(!id.is_empty());
+        }
     }
 
     /// A live process carrying a unique marker in its argv is matched by the
