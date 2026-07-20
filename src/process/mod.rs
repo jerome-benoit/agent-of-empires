@@ -25,6 +25,22 @@ mod macos;
 #[cfg(feature = "serve")]
 pub mod worker;
 
+/// On-disk registry of detached ACP worker subprocesses (pid, socket path,
+/// build version, `stored_acp_session_id`). Colocated here with the
+/// protocol-agnostic `worker` substrate it builds on, so the plugin host can
+/// reuse that substrate directly. Dependency direction is one-way: consumers
+/// point down to `process`, never to each other. Serve-gated to match its
+/// consumers.
+#[cfg(feature = "serve")]
+pub mod worker_registry;
+
+/// The `aoe __acp-runner` shim: owns a detached ACP agent subprocess and
+/// outlives `aoe serve`. Colocated with `worker_registry` and the
+/// protocol-agnostic `worker` substrate they build on; serve-gated to match
+/// its consumers.
+#[cfg(feature = "serve")]
+pub mod runner;
+
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 /// Wait for `child` to exit, killing and reaping it if it outlives `timeout`.
