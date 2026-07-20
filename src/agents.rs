@@ -1193,31 +1193,28 @@ impl AgentDef {
         }
     }
 
-    /// Static argv tokens that select a cheap model for a one-shot
-    /// (smart-rename or conversation-summary) title call. They are inserted
-    /// between the one-shot flag and the prompt, ahead of `oneshot_extra_args`,
-    /// so they parse as options both for flag-value one-shots (e.g. claude
-    /// `-p`) and for positional-prompt one-shots (e.g. codex `exec`): the
-    /// prompt stays the final positional element, so the no-injection contract
-    /// (untrusted user text is never read as an argument) still holds.
+    /// Static argv tokens that pin a cheap model for a smart-rename title
+    /// one-shot. `build_oneshot_argv` inserts them between the one-shot flag and
+    /// the prompt (only for `OneshotModel::Cheap`), so they parse as options and
+    /// the prompt stays the final positional element, keeping the no-injection
+    /// contract intact. This placement is safe only for one-shot flags that do
+    /// not bind the following token as their value; today only claude's `-p` (a
+    /// boolean print flag with a positional prompt) receives them.
     ///
     /// A throwaway three-to-five-word title must not bill the CLI's default
     /// frontier model, so we pin the cheapest capable model. Only a STABLE,
-    /// non-dated alias may be hardcoded here: AoE pins no CLI version (it
-    /// detects via `which` / `--version`), so a dated id (e.g.
-    /// `claude-haiku-4-5-20250101`) would rotate or expire out from under us.
-    ///
-    /// Any agent without a verified stable alias returns `&[]`, i.e. the CLI's
-    /// own default: fail-closed and identical to the prior behavior. If a model
-    /// is somehow unknown or refused, the one-shot exits non-zero, which
-    /// `run_oneshot` already maps to "keep the generated name".
+    /// non-dated alias may be hardcoded: AoE pins no CLI version (it detects via
+    /// `which` / `--version`), so a dated id (e.g. `claude-haiku-4-5-20250101`)
+    /// would rotate or expire out from under us. Agents with no verified stable
+    /// alias return `&[]`, i.e. the CLI's own default, unchanged from before.
     pub fn oneshot_model_args(&self) -> &'static [&'static str] {
         match self.name {
             // Verified 2026-07-20: `haiku` is Anthropic's stable, non-dated
             // alias for the cheap Claude tier, accepted by `claude -p --model`.
-            // Fail-closed rationale: under `-p` an unknown id makes claude
-            // SILENTLY fall back to the default (frontier) model, so we pin the
-            // never-dating alias rather than a rotating dated id.
+            // If the alias were ever unknown, claude under `-p` falls back to
+            // its default model rather than erroring, so a stale id would only
+            // lose the saving (no cost regression); pinning the never-dating
+            // alias avoids that.
             "claude" => &["--model", "haiku"],
             _ => &[],
         }
@@ -1587,6 +1584,24 @@ mod tests {
                     "agent '{}' one-shot arg '{}' must be exactly one argv token",
                     agent.name,
                     extra
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_claude_pins_a_oneshot_model() {
+        // The cheap-model pin is fail-closed: exactly one agent has a
+        // cross-validated stable alias. Any future addition must be a deliberate
+        // edit here, so a stray model flag on another agent trips this.
+        for agent in AGENTS {
+            if agent.name == "claude" {
+                assert_eq!(agent.oneshot_model_args(), &["--model", "haiku"]);
+            } else {
+                assert!(
+                    agent.oneshot_model_args().is_empty(),
+                    "agent '{}' must not pin a one-shot model without a verified stable alias",
+                    agent.name
                 );
             }
         }

@@ -247,20 +247,42 @@ pub fn build_prompt(user_message: &str) -> String {
     format!("{INSTRUCTION}\n\nTask:\n{capped}")
 }
 
-/// Build the argv for a one-shot title call, or `None` when the agent has no
-/// known one-shot mode. Shape is `[binary, oneshot_token, model.., extra..,
-/// prompt, trailing..]`: the prompt is a single argv element passed straight to
-/// the process, never interpolated into a shell string, so untrusted user text
-/// cannot inject arguments. `oneshot_trailing_args` is only populated for
-/// flag-value one-shots (e.g. copilot `-p`), where the CLI binds the prompt to
-/// the flag, so trailing flags after it stay unambiguous.
-pub fn build_oneshot_argv(agent: &agents::AgentDef, prompt: &str) -> Option<Vec<String>> {
+/// Which model a one-shot argv targets. `Cheap` pins the agent's static cheap
+/// alias (e.g. claude `--model haiku`) for a throwaway smart-rename title;
+/// `Default` leaves model selection to the CLI so a whole-transcript
+/// conversation summary can run the agent's normal (bigger) model. There is no
+/// `Default` trait impl on purpose: every call site states its intent, so a
+/// title cannot silently bill the frontier model and a summary cannot silently
+/// be downgraded to the cheap tier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OneshotModel {
+    Cheap,
+    Default,
+}
+
+/// Build the argv for a one-shot title or summary call, or `None` when the
+/// agent has no known one-shot mode. Shape is `[binary, oneshot_token, model..,
+/// extra.., prompt, trailing..]`, where `model..` is present only for
+/// `OneshotModel::Cheap`; `Default` omits it and uses the CLI's own model. The
+/// prompt is a single argv element passed straight to the process, never
+/// interpolated into a shell string, so untrusted user text cannot inject
+/// arguments. `oneshot_trailing_args` is only populated for flag-value
+/// one-shots (e.g. copilot `-p`), where the CLI binds the prompt to the flag,
+/// so trailing flags after it stay unambiguous.
+pub fn build_oneshot_argv(
+    agent: &agents::AgentDef,
+    prompt: &str,
+    model: OneshotModel,
+) -> Option<Vec<String>> {
     let token = agent.oneshot_flag?;
     let mut argv = vec![agent.binary.to_string(), token.to_string()];
-    // Static cheap-model selector (e.g. claude `--model haiku`) goes first,
-    // right after the one-shot token, so a throwaway title never bills the CLI's
-    // default frontier model. Empty for agents with no verified stable alias.
-    argv.extend(agent.oneshot_model_args().iter().map(|s| s.to_string()));
+    // Cheap-model selector (e.g. claude `--model haiku`) is pinned only for
+    // title one-shots; it sits right after the one-shot token, before the
+    // prompt, so a throwaway title never bills the CLI's default frontier model.
+    // Empty for agents with no verified stable alias.
+    if model == OneshotModel::Cheap {
+        argv.extend(agent.oneshot_model_args().iter().map(|s| s.to_string()));
+    }
     // Static per-agent flags (e.g. codex `--skip-git-repo-check`) go between the
     // one-shot token and the prompt; the prompt stays directly after them so
     // untrusted user text can never be read as an argument.
@@ -800,7 +822,7 @@ pub async fn run_terminal_rename(profile: &str, session_id: &str) -> anyhow::Res
 
     let baseline = extract_echo_baseline(&context);
     let prompt = build_prompt(&context);
-    let Some(argv) = build_oneshot_argv(agent, &prompt) else {
+    let Some(argv) = build_oneshot_argv(agent, &prompt, OneshotModel::Cheap) else {
         return Ok(());
     };
     let Some(raw) = run_oneshot(session_id, &argv, &project_path, ONESHOT_TIMEOUT).await else {
@@ -956,7 +978,7 @@ mod serve {
         }
 
         let prompt = build_prompt(&input.context);
-        let Some(argv) = build_oneshot_argv(agent, &prompt) else {
+        let Some(argv) = build_oneshot_argv(agent, &prompt, OneshotModel::Cheap) else {
             return;
         };
 
@@ -1248,14 +1270,15 @@ mod tests {
 
     #[test]
     fn argv_is_binary_token_prompt() {
-        let argv = build_oneshot_argv(claude(), "hello").expect("claude has one-shot");
+        let argv = build_oneshot_argv(claude(), "hello", OneshotModel::Cheap)
+            .expect("claude has one-shot");
         assert_eq!(argv, vec!["claude", "-p", "--model", "haiku", "hello"]);
     }
 
     #[test]
     fn argv_none_for_agent_without_oneshot() {
         let cursor = agents::get_agent("cursor").expect("cursor agent exists");
-        assert!(build_oneshot_argv(cursor, "hello").is_none());
+        assert!(build_oneshot_argv(cursor, "hello", OneshotModel::Cheap).is_none());
     }
 
     #[test]
@@ -1315,8 +1338,12 @@ mod tests {
         // the token and the prompt; the prompt stays the final element.
         // codex has no verified stable cheap-model alias, so it takes no model
         // args: still [binary, flag, skip-git-repo-check, prompt].
-        let argv = build_oneshot_argv(agents::get_agent("codex").unwrap(), "name this")
-            .expect("codex one-shot");
+        let argv = build_oneshot_argv(
+            agents::get_agent("codex").unwrap(),
+            "name this",
+            OneshotModel::Cheap,
+        )
+        .expect("codex one-shot");
         assert_eq!(
             argv,
             vec!["codex", "exec", "--skip-git-repo-check", "name this"]
@@ -1324,7 +1351,7 @@ mod tests {
         // claude pins the cheap `haiku` alias between the flag and the prompt;
         // the prompt stays the final element.
         assert_eq!(
-            build_oneshot_argv(claude(), "name this").unwrap(),
+            build_oneshot_argv(claude(), "name this", OneshotModel::Cheap).unwrap(),
             vec!["claude", "-p", "--model", "haiku", "name this"]
         );
     }
@@ -1335,8 +1362,12 @@ mod tests {
         // silent flags follow the prompt. Without them a non-interactive title
         // call can block on a permission prompt or print stats that pollute the
         // title; with them stdout is just the final answer.
-        let argv = build_oneshot_argv(agents::get_agent("copilot").unwrap(), "name this")
-            .expect("copilot one-shot");
+        let argv = build_oneshot_argv(
+            agents::get_agent("copilot").unwrap(),
+            "name this",
+            OneshotModel::Cheap,
+        )
+        .expect("copilot one-shot");
         assert_eq!(
             argv,
             vec![
@@ -1352,7 +1383,8 @@ mod tests {
 
     #[test]
     fn argv_claude_injects_cheap_model_before_prompt() {
-        let argv = build_oneshot_argv(claude(), "name this").expect("claude one-shot");
+        let argv = build_oneshot_argv(claude(), "name this", OneshotModel::Cheap)
+            .expect("claude one-shot");
         let model_idx = argv.iter().position(|a| a == "--model").expect("--model");
         assert_eq!(argv[model_idx + 1], "haiku");
         let prompt_idx = argv.iter().position(|a| a == "name this").expect("prompt");
@@ -1368,11 +1400,22 @@ mod tests {
     }
 
     #[test]
+    fn argv_summary_model_uses_cli_default_not_cheap() {
+        // conversation_summary reads the whole transcript and may need a bigger
+        // model turn, so OneshotModel::Default must NOT inject the cheap alias:
+        // the argv is exactly the pre-#3009 shape.
+        let argv = build_oneshot_argv(claude(), "name this", OneshotModel::Default)
+            .expect("claude one-shot");
+        assert!(!argv.iter().any(|a| a == "--model" || a == "haiku"));
+        assert_eq!(argv, vec!["claude", "-p", "name this"]);
+    }
+
+    #[test]
     fn argv_unverified_agents_take_no_model_args() {
         for name in ["opencode", "kimi"] {
             let agent = agents::get_agent(name).unwrap();
-            let argv =
-                build_oneshot_argv(agent, "name this").unwrap_or_else(|| panic!("{name} one-shot"));
+            let argv = build_oneshot_argv(agent, "name this", OneshotModel::Cheap)
+                .unwrap_or_else(|| panic!("{name} one-shot"));
             assert!(
                 !argv.iter().any(|a| a == "--model" || a == "-m"),
                 "{name} has no verified stable alias, so its argv must carry no model flag: {argv:?}"
@@ -1384,7 +1427,8 @@ mod tests {
     #[test]
     fn argv_model_args_never_follow_prompt() {
         for agent in agents::AGENTS.iter().filter(|a| a.oneshot_flag.is_some()) {
-            let argv = build_oneshot_argv(agent, "the prompt").expect("one-shot");
+            let argv =
+                build_oneshot_argv(agent, "the prompt", OneshotModel::Cheap).expect("one-shot");
             let prompt_idx = argv.iter().position(|a| a == "the prompt").expect("prompt");
             for token in agent.oneshot_model_args() {
                 let idx = argv
@@ -1538,15 +1582,30 @@ mod tests {
     #[test]
     fn argv_per_agent_tokens() {
         assert_eq!(
-            build_oneshot_argv(agents::get_agent("codex").unwrap(), "x").unwrap()[1],
+            build_oneshot_argv(
+                agents::get_agent("codex").unwrap(),
+                "x",
+                OneshotModel::Cheap
+            )
+            .unwrap()[1],
             "exec"
         );
         assert_eq!(
-            build_oneshot_argv(agents::get_agent("opencode").unwrap(), "x").unwrap()[1],
+            build_oneshot_argv(
+                agents::get_agent("opencode").unwrap(),
+                "x",
+                OneshotModel::Cheap
+            )
+            .unwrap()[1],
             "run"
         );
         assert_eq!(
-            build_oneshot_argv(agents::get_agent("gemini").unwrap(), "x").unwrap()[1],
+            build_oneshot_argv(
+                agents::get_agent("gemini").unwrap(),
+                "x",
+                OneshotModel::Cheap
+            )
+            .unwrap()[1],
             "-p"
         );
     }
