@@ -21,6 +21,7 @@ use super::mcp::McpCommands;
 use super::plugin::PluginCommands;
 use super::profile::ProfileCommands;
 use super::project::ProjectCommands;
+use super::ps::PsArgs;
 use super::remove::RemoveArgs;
 use super::send::SendArgs;
 #[cfg(feature = "serve")]
@@ -80,6 +81,10 @@ pub enum Commands {
     /// List all sessions
     #[command(alias = "ls")]
     List(ListArgs),
+
+    /// Show a substrate-agnostic runtime view of in-flight sessions
+    /// (tmux agent panes and ACP structured-view workers), one row each.
+    Ps(PsArgs),
 
     /// View the configured AoE log file with a pretty viewer
     Logs(LogsArgs),
@@ -244,6 +249,7 @@ pub const CLI_COMMAND_NAMES: &[&str] = &[
     "agents",
     "init",
     "list",
+    "ps",
     "logs",
     "log_level",
     "remove",
@@ -286,6 +292,7 @@ pub fn command_name(command: &Commands) -> Option<&'static str> {
         Commands::Agents => "agents",
         Commands::Init(_) => "init",
         Commands::List(_) => "list",
+        Commands::Ps(_) => "ps",
         Commands::Logs(_) => "logs",
         #[cfg(feature = "serve")]
         Commands::LogLevel(_) => "log_level",

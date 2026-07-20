@@ -574,6 +574,15 @@ pub fn session_exists_from_cache(name: &str) -> Option<bool> {
     cache.data.as_ref().map(|m| m.contains_key(name))
 }
 
+/// Cached tmux `#{session_activity}` epoch (seconds) for `name`, else `None`.
+/// Read-only view over [`SESSION_CACHE`]; caller refreshes first if needed.
+/// Ignores the snapshot TTL on purpose: this is a best-effort AGE hint for
+/// `aoe ps`, not a liveness decision.
+pub fn session_activity(name: &str) -> Option<i64> {
+    let cache = SESSION_CACHE.read().ok()?;
+    cache.data.as_ref()?.get(name).copied()
+}
+
 /// Tri-state result of probing whether an aoe tmux session exists, per
 /// [`probe_session_existence`]. Unlike a plain `bool`, this keeps "the tmux
 /// server itself was unreachable" distinct from "the server answered and the

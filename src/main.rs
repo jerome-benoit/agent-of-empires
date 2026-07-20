@@ -344,6 +344,7 @@ async fn main() -> Result<()> {
     let result = match cli.command {
         Some(Commands::Add(args)) => cli::add::run(&profile, *args).await,
         Some(Commands::List(args)) => cli::list::run(&profile, args).await,
+        Some(Commands::Ps(args)) => cli::ps::run(&profile, profile_explicit, args).await,
         Some(Commands::Remove(args)) => cli::remove::run(&profile, args).await,
         Some(Commands::Send(args)) => cli::send::run(&profile, args).await,
         Some(Commands::Status(args)) => cli::status::run(&profile, args).await,
