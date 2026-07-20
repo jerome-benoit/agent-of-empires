@@ -23,6 +23,7 @@ const COL_SUBSTRATE: usize = 9;
 const COL_STATE: usize = 9;
 const COL_PID: usize = 8;
 const COL_AGE: usize = 6;
+const COL_AGENT: usize = 14;
 const TITLE_BUDGET: usize = 20;
 
 #[derive(Args)]
@@ -37,7 +38,7 @@ pub struct PsArgs {
 
     /// Show only ACP (structured-view) workers
     #[arg(long, conflicts_with = "tmux")]
-    cockpit: bool,
+    acp: bool,
 
     /// Include dead sessions and orphaned substrate entries (hidden by default)
     #[arg(long)]
@@ -74,14 +75,19 @@ enum SubstrateFilter {
 }
 
 /// Canonical session identity from storage: the join key for both substrates.
+/// `created_at_epoch` (Unix seconds) is the single uniform AGE source, so a
+/// matched row's AGE means the same thing (session age) regardless of substrate.
 struct InstanceRow {
     id: String,
     title: String,
+    created_at_epoch: u64,
 }
 
 /// A tmux substrate probe. `session_name` is the full tmux name, which embeds
 /// only the 8-char truncated id suffix (`{PREFIX}{title}_{id8}`), so the merge
 /// joins it back to an `InstanceRow` by that suffix, not the full id.
+/// `activity_epoch` is only the AGE fallback for orphans (a matched row's AGE
+/// comes from the instance's `created_at`).
 struct TmuxState {
     session_name: String,
     status: Status,
@@ -93,6 +99,7 @@ struct TmuxState {
 /// An acp substrate probe. `state` is pre-normalized by `normalize_acp_state`
 /// (serve-gated) so this struct carries no serve-only types and the merge stays
 /// feature-independent. `session_id` is the full id (`== Instance.id`).
+/// `started_at` is only the AGE fallback for orphans (see `TmuxState`).
 struct AcpState {
     session_id: String,
     pid: u32,
@@ -101,6 +108,9 @@ struct AcpState {
     started_at: u64,
 }
 
+/// One output row. `id` is the full session id for a matched row; for an orphan
+/// it is the best identity available (the tmux 8-char id suffix, or the
+/// registry `session_id`), since no matching instance exists.
 struct Row {
     id: String,
     title: String,
@@ -122,9 +132,12 @@ fn normalize_tmux_state(status: Status) -> &'static str {
     }
 }
 
-/// The acp state ladder, reused verbatim from `aoe acp ps`: dead when the
-/// runner is not live; detached when it has detached and has not re-attached
-/// since; attached otherwise.
+/// The acp state ladder: dead when the runner is not live; detached when it has
+/// detached and has not re-attached since; attached otherwise. This mirrors the
+/// inline ladder in `aoe acp ps` (src/cli/acp.rs). The two are intentionally not
+/// yet factored into one helper: its natural home is `worker_registry`, which is
+/// off-limits here (under active churn), so dedup is deferred to the `aoe acp ps`
+/// unification follow-up that will touch acp.rs anyway. Keep them in sync.
 #[cfg(feature = "serve")]
 fn normalize_acp_state(
     rec: &crate::process::worker_registry::WorkerRecord,
@@ -175,17 +188,21 @@ fn merge_rows(
         let suffix = tmux_id_suffix(&st.session_name);
         let matched =
             suffix.and_then(|s| instances.iter().find(|i| super::truncate_id(&i.id, 8) == s));
-        let (id, title, is_orphan) = match matched {
-            Some(i) => (i.id.clone(), i.title.clone(), false),
+        let (id, title, is_orphan, age_secs) = match matched {
+            Some(i) => (
+                i.id.clone(),
+                i.title.clone(),
+                false,
+                Some(now.saturating_sub(i.created_at_epoch)),
+            ),
             None => (
                 suffix.unwrap_or(&st.session_name).to_string(),
                 String::new(),
                 true,
+                st.activity_epoch
+                    .map(|epoch| now.saturating_sub(epoch.max(0) as u64)),
             ),
         };
-        let age_secs = st
-            .activity_epoch
-            .map(|epoch| now.saturating_sub(epoch.max(0) as u64));
         rows.push(Row {
             id,
             title,
@@ -200,9 +217,19 @@ fn merge_rows(
 
     for st in acp_states {
         let matched = instances.iter().find(|i| i.id == st.session_id);
-        let (id, title, is_orphan) = match matched {
-            Some(i) => (i.id.clone(), i.title.clone(), false),
-            None => (st.session_id.clone(), String::new(), true),
+        let (id, title, is_orphan, age_secs) = match matched {
+            Some(i) => (
+                i.id.clone(),
+                i.title.clone(),
+                false,
+                now.saturating_sub(i.created_at_epoch),
+            ),
+            None => (
+                st.session_id.clone(),
+                String::new(),
+                true,
+                now.saturating_sub(st.started_at),
+            ),
         };
         rows.push(Row {
             id,
@@ -210,7 +237,7 @@ fn merge_rows(
             substrate: Substrate::Acp,
             state: st.state,
             pid: Some(st.pid),
-            age_secs: Some(now.saturating_sub(st.started_at)),
+            age_secs: Some(age_secs),
             agent: st.agent.clone(),
             is_orphan,
         });
@@ -241,6 +268,8 @@ fn filter_rows(rows: Vec<Row>, filter: SubstrateFilter, include_dead: bool) -> V
     out
 }
 
+/// Stable JSON schema for one row. `session` is the full id for a matched row,
+/// else the orphan's best-available identity (see [`Row`]).
 #[derive(Serialize)]
 struct RowJson {
     session: String,
@@ -251,9 +280,11 @@ struct RowJson {
     agent: String,
 }
 
-fn render_json(rows: &[Row]) -> Result<String> {
-    let out: Vec<RowJson> = rows
-        .iter()
+/// Project rows into the serializable schema. Kept separate from the print so
+/// the schema is unit-testable and `run` can route through the shared
+/// `output::print_json` helper.
+fn rows_json(rows: &[Row]) -> Vec<RowJson> {
+    rows.iter()
         .map(|r| RowJson {
             session: r.id.clone(),
             substrate: r.substrate.as_str(),
@@ -262,8 +293,7 @@ fn render_json(rows: &[Row]) -> Result<String> {
             age_secs: r.age_secs,
             agent: r.agent.clone(),
         })
-        .collect();
-    Ok(serde_json::to_string_pretty(&out)?)
+        .collect()
 }
 
 /// The SESSION cell: short id plus a truncated title (id only for orphans).
@@ -292,6 +322,11 @@ fn render_table(rows: &[Row]) -> String {
         cst = COL_STATE,
         cp = COL_PID,
         ca = COL_AGE,
+    );
+    let _ = writeln!(
+        out,
+        "{}",
+        "-".repeat(COL_SESSION + COL_SUBSTRATE + COL_STATE + COL_PID + COL_AGE + COL_AGENT + 5)
     );
     for r in rows {
         let pid = r
@@ -430,18 +465,22 @@ fn collect_acp_states() -> Vec<AcpState> {
 #[tracing::instrument(target = "cli.ps", skip_all, fields(profile = %profile))]
 pub async fn run(profile: &str, profile_explicit: bool, args: PsArgs) -> Result<()> {
     #[cfg(not(feature = "serve"))]
-    if args.cockpit {
-        anyhow::bail!("--cockpit requires a build with the serve feature");
+    if args.acp {
+        anyhow::bail!("--acp requires a build with the serve feature");
     }
 
     let filter = if args.tmux {
         SubstrateFilter::Tmux
-    } else if args.cockpit {
+    } else if args.acp {
         SubstrateFilter::Acp
     } else {
         SubstrateFilter::All
     };
 
+    // `--profile` scopes only the instance load: an explicit profile lists that
+    // one, otherwise every profile. The worker registry is global (no profile
+    // field), so acp workers whose session belongs to an unlisted profile fail
+    // the id-join and surface as orphans, hidden unless `--dead`.
     let mut instances = load_instances(profile, profile_explicit);
     let now = now_secs();
 
@@ -453,6 +492,7 @@ pub async fn run(profile: &str, profile_explicit: bool, args: PsArgs) -> Result<
         .map(|i| InstanceRow {
             id: i.id.clone(),
             title: i.title.clone(),
+            created_at_epoch: i.created_at.timestamp().max(0) as u64,
         })
         .collect();
 
@@ -466,7 +506,7 @@ pub async fn run(profile: &str, profile_explicit: bool, args: PsArgs) -> Result<
     );
 
     if args.json {
-        println!("{}", render_json(&rows)?);
+        super::output::print_json(&rows_json(&rows))?;
     } else if rows.is_empty() {
         println!("No running sessions.");
     } else {
@@ -480,10 +520,17 @@ pub async fn run(profile: &str, profile_explicit: bool, args: PsArgs) -> Result<
 mod tests {
     use super::*;
 
+    // A fixed session creation epoch so AGE assertions are deterministic; kept
+    // distinct from the tmux activity epoch below to prove matched rows take
+    // their AGE from `created_at`, not the substrate-native fallback.
+    const CREATED_AT: u64 = 1000;
+    const ACTIVITY: i64 = 1500;
+
     fn inst(id: &str, title: &str) -> InstanceRow {
         InstanceRow {
             id: id.to_string(),
             title: title.to_string(),
+            created_at_epoch: CREATED_AT,
         }
     }
 
@@ -492,8 +539,18 @@ mod tests {
             session_name: name.to_string(),
             status,
             pid: Some(42),
-            activity_epoch: Some(1000),
+            activity_epoch: Some(ACTIVITY),
             agent: "claude".to_string(),
+        }
+    }
+
+    fn acp_state(session_id: &str, state: &'static str, started_at: u64) -> AcpState {
+        AcpState {
+            session_id: session_id.to_string(),
+            pid: 7,
+            agent: "claude-agent-acp".to_string(),
+            state,
+            started_at,
         }
     }
 
@@ -539,6 +596,7 @@ mod tests {
         assert_eq!(rows[0].title, "My Session");
         assert!(!rows[0].is_orphan);
         assert_eq!(rows[0].state, "running");
+        // AGE is now - created_at (1000), NOT now - activity (1500).
         assert_eq!(rows[0].age_secs, Some(1000));
     }
 
@@ -551,40 +609,33 @@ mod tests {
         assert_eq!(shown.len(), 1);
         assert!(shown[0].is_orphan);
         assert_eq!(shown[0].id, "99999999");
+        // Orphans have no instance, so AGE falls back to tmux activity (1500).
+        assert_eq!(shown[0].age_secs, Some(500));
     }
 
     #[test]
     fn merge_matches_acp_by_full_session_id() {
         let instances = vec![inst("full-session-id-1234", "Structured")];
-        let acp = vec![AcpState {
-            session_id: "full-session-id-1234".to_string(),
-            pid: 7,
-            agent: "claude-agent-acp".to_string(),
-            state: "attached",
-            started_at: 500,
-        }];
-        let rows = merge_rows(&instances, &[], &acp, 900, SubstrateFilter::All, false);
+        let acp = vec![acp_state("full-session-id-1234", "attached", 500)];
+        let rows = merge_rows(&instances, &[], &acp, 2000, SubstrateFilter::All, false);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].substrate, Substrate::Acp);
         assert_eq!(rows[0].title, "Structured");
         assert!(!rows[0].is_orphan);
         assert_eq!(rows[0].pid, Some(7));
-        assert_eq!(rows[0].age_secs, Some(400));
+        // AGE is now - created_at (1000), NOT now - started_at (1500).
+        assert_eq!(rows[0].age_secs, Some(1000));
     }
 
     #[test]
     fn merge_flags_acp_record_without_instance_as_orphan() {
-        let acp = vec![AcpState {
-            session_id: "gone".to_string(),
-            pid: 7,
-            agent: "a".to_string(),
-            state: "attached",
-            started_at: 0,
-        }];
+        let acp = vec![acp_state("gone", "attached", 500)];
         assert!(merge_rows(&[], &[], &acp, 1, SubstrateFilter::All, false).is_empty());
-        let shown = merge_rows(&[], &[], &acp, 1, SubstrateFilter::All, true);
+        let shown = merge_rows(&[], &[], &acp, 2000, SubstrateFilter::All, true);
         assert_eq!(shown.len(), 1);
         assert!(shown[0].is_orphan);
+        // Orphans fall back to the worker's started_at (500).
+        assert_eq!(shown[0].age_secs, Some(1500));
     }
 
     #[test]
@@ -603,13 +654,7 @@ mod tests {
     fn filter_by_substrate_selects_one_side() {
         let instances = vec![inst("abcd1234ef567890", "T"), inst("acp-id-1", "A")];
         let tmux = vec![tmux_state("aoe_T_abcd1234", Status::Running)];
-        let acp = vec![AcpState {
-            session_id: "acp-id-1".to_string(),
-            pid: 1,
-            agent: "x".to_string(),
-            state: "attached",
-            started_at: 0,
-        }];
+        let acp = vec![acp_state("acp-id-1", "attached", 0)];
         let only_tmux = merge_rows(&instances, &tmux, &acp, 0, SubstrateFilter::Tmux, false);
         assert_eq!(only_tmux.len(), 1);
         assert_eq!(only_tmux[0].substrate, Substrate::Tmux);
@@ -619,12 +664,37 @@ mod tests {
     }
 
     #[test]
-    fn render_json_emits_stable_schema() {
+    fn acp_filter_with_dead_reveals_dead_acp_orphan() {
+        let acp = vec![acp_state("gone", "dead", 0)];
+        assert!(
+            merge_rows(&[], &[], &acp, 0, SubstrateFilter::Acp, false).is_empty(),
+            "a dead acp orphan is hidden under --acp without --dead"
+        );
+        let shown = merge_rows(&[], &[], &acp, 0, SubstrateFilter::Acp, true);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].substrate, Substrate::Acp);
+        assert_eq!(shown[0].state, "dead");
+    }
+
+    #[test]
+    fn merge_sorts_tmux_before_acp() {
+        let instances = vec![inst("abcd1234ef567890", "Zeta"), inst("acp-id-1", "Alpha")];
+        let tmux = vec![tmux_state("aoe_Zeta_abcd1234", Status::Running)];
+        let acp = vec![acp_state("acp-id-1", "attached", 0)];
+        let rows = merge_rows(&instances, &tmux, &acp, 0, SubstrateFilter::All, false);
+        assert_eq!(rows.len(), 2);
+        // tmux sorts ahead of acp even though its title ("Zeta") sorts after
+        // the acp row's title ("Alpha"): substrate is the primary sort key.
+        assert_eq!(rows[0].substrate, Substrate::Tmux);
+        assert_eq!(rows[1].substrate, Substrate::Acp);
+    }
+
+    #[test]
+    fn render_json_projects_stable_schema() {
         let instances = vec![inst("abcd1234ef567890", "My Session")];
         let tmux = vec![tmux_state("aoe_My_Session_abcd1234", Status::Running)];
         let rows = merge_rows(&instances, &tmux, &[], 2000, SubstrateFilter::All, false);
-        let json = render_json(&rows).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let v = serde_json::to_value(rows_json(&rows)).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 1);
         let row = &arr[0];
@@ -634,25 +704,68 @@ mod tests {
         assert_eq!(row["pid"], 42);
         assert_eq!(row["age_secs"], 1000);
         assert_eq!(row["agent"], "claude");
+        // Exactly the six documented keys, no more.
+        assert_eq!(row.as_object().unwrap().len(), 6);
     }
 
     #[test]
     fn render_json_empty_is_array() {
-        assert_eq!(render_json(&[]).unwrap(), "[]");
+        assert!(rows_json(&[]).is_empty());
+        assert_eq!(serde_json::to_string(&rows_json(&[])).unwrap(), "[]");
     }
 
     #[test]
-    fn render_table_has_header_and_row() {
+    fn render_table_has_header_underline_and_row() {
         let instances = vec![inst("abcd1234ef567890", "My Session")];
         let tmux = vec![tmux_state("aoe_My_Session_abcd1234", Status::Running)];
         let rows = merge_rows(&instances, &tmux, &[], 2000, SubstrateFilter::All, false);
         let table = render_table(&rows);
         assert!(table.contains("SESSION"));
         assert!(table.contains("SUBSTRATE"));
+        assert!(table.contains("----"), "header underline present");
         assert!(table.contains("abcd1234"));
         assert!(table.contains("tmux"));
         assert!(table.contains("running"));
         assert!(table.contains("claude"));
+    }
+
+    #[test]
+    fn session_cell_truncates_long_title() {
+        let row = Row {
+            id: "abcd1234ef567890".to_string(),
+            title: "A very long session title that exceeds the budget".to_string(),
+            substrate: Substrate::Tmux,
+            state: "running",
+            pid: None,
+            age_secs: None,
+            agent: String::new(),
+            is_orphan: false,
+        };
+        let cell = session_cell(&row);
+        assert!(cell.starts_with("abcd1234 "));
+        assert!(
+            cell.contains("..."),
+            "long title is truncated with an ellipsis"
+        );
+        assert!(
+            !cell.contains("exceeds the budget"),
+            "the tail of an over-budget title is dropped"
+        );
+    }
+
+    #[test]
+    fn session_cell_omits_title_for_orphan() {
+        let row = Row {
+            id: "99999999".to_string(),
+            title: String::new(),
+            substrate: Substrate::Tmux,
+            state: "running",
+            pid: None,
+            age_secs: None,
+            agent: String::new(),
+            is_orphan: true,
+        };
+        assert_eq!(session_cell(&row), "99999999");
     }
 
     #[cfg(feature = "serve")]

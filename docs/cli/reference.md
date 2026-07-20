@@ -242,7 +242,7 @@ Show a substrate-agnostic runtime view of in-flight sessions (tmux agent panes a
 
 * `--json` — Output as JSON
 * `--tmux` — Show only tmux-backed sessions
-* `--cockpit` — Show only ACP (structured-view) workers
+* `--acp` — Show only ACP (structured-view) workers
 * `--dead` — Include dead sessions and orphaned substrate entries (hidden by default)
 
 
