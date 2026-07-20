@@ -1,4 +1,4 @@
-//! `aoe ps` -- a substrate-agnostic runtime view of in-flight sessions.
+//! `aoe ps`: a substrate-agnostic runtime view of in-flight sessions.
 //!
 //! One row per running session across two substrates: `tmux` (agent panes
 //! tracked through the tmux session cache and pane metadata) and `acp` (the
@@ -687,6 +687,27 @@ mod tests {
         // the acp row's title ("Alpha"): substrate is the primary sort key.
         assert_eq!(rows[0].substrate, Substrate::Tmux);
         assert_eq!(rows[1].substrate, Substrate::Acp);
+    }
+
+    #[test]
+    fn merge_sort_tiebreaks_by_title_then_id() {
+        // Same substrate: title is the secondary key, id the tertiary. Two rows
+        // share the title "Same" to force the id tiebreak.
+        let instances = vec![
+            inst("2222aaaabbbbcccc", "Same"),
+            inst("1111aaaabbbbcccc", "Same"),
+            inst("3333ffff00001111", "Alpha"),
+        ];
+        let tmux = vec![
+            tmux_state("aoe_Same_2222aaaa", Status::Running),
+            tmux_state("aoe_Same_1111aaaa", Status::Running),
+            tmux_state("aoe_Alpha_3333ffff", Status::Running),
+        ];
+        let rows = merge_rows(&instances, &tmux, &[], 0, SubstrateFilter::All, false);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].title, "Alpha");
+        assert_eq!(rows[1].id, "1111aaaabbbbcccc");
+        assert_eq!(rows[2].id, "2222aaaabbbbcccc");
     }
 
     #[test]
