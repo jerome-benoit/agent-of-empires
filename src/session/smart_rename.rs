@@ -263,7 +263,7 @@ pub enum OneshotModel {
 /// Build the argv for a one-shot title or summary call, or `None` when the
 /// agent has no known one-shot mode. Shape is `[binary, oneshot_token, model..,
 /// extra.., prompt, trailing..]`, where `model..` is present only for
-/// `OneshotModel::Cheap`; `Default` omits it and uses the CLI's own model. The
+/// `OneshotModel::Cheap`; `CliDefault` omits it and uses the CLI's own model. The
 /// prompt is a single argv element passed straight to the process, never
 /// interpolated into a shell string, so untrusted user text cannot inject
 /// arguments. `oneshot_trailing_args` is only populated for flag-value
