@@ -35,6 +35,47 @@ fn build_children_map() -> HashMap<u32, Vec<u32>> {
     children_map
 }
 
+/// One `ps -A -ww -E -o command=` fork deciding, for each candidate `i`,
+/// whether a live process belongs to it: a whitespace-delimited token exactly
+/// equals `env_needles[i]` (anchored, matching the `KEY=VAL` env tokens `-E`
+/// appends), or the line contains `cmdline_needles[i]`. `-ww` disables column
+/// truncation; `-E` appends each owner-owned process's environment. If a `ps`
+/// build rejects `-E`, the call fails closed to all `false` and recovery falls
+/// back to the ledger. Best-effort: a failed `ps` yields all `false`.
+pub(super) fn processes_matching(
+    env_needles: &[String],
+    cmdline_needles: &[Option<String>],
+) -> Vec<bool> {
+    let n = env_needles.len();
+    let mut found = vec![false; n];
+    let Ok(output) = Command::new("ps")
+        .args(["-A", "-ww", "-E", "-o", "command="])
+        .output()
+    else {
+        return found;
+    };
+    if !output.status.success() {
+        return found;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        let tokens: std::collections::HashSet<&str> = line.split_whitespace().collect();
+        for i in 0..n {
+            if found[i] {
+                continue;
+            }
+            let env_hit = !env_needles[i].is_empty() && tokens.contains(env_needles[i].as_str());
+            let cmd_hit = cmdline_needles[i]
+                .as_deref()
+                .is_some_and(|s| !s.is_empty() && line.contains(s));
+            if env_hit || cmd_hit {
+                found[i] = true;
+            }
+        }
+    }
+    found
+}
+
 /// Get the foreground process group leader for a shell PID
 pub fn get_foreground_pid(shell_pid: u32) -> Option<u32> {
     // Use ps to get the foreground process group

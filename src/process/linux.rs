@@ -45,6 +45,60 @@ fn build_children_map() -> HashMap<u32, Vec<u32>> {
     children_map
 }
 
+/// One `/proc` walk deciding, for each candidate `i`, whether a live process
+/// belongs to it: an `/proc/<pid>/environ` *entry* exactly equals
+/// `env_needles[i]` (NUL-delimited, so no prefix-collision), or
+/// `/proc/<pid>/cmdline` contains `cmdline_needles[i]`. `environ` is owner-only,
+/// so only same-uid processes (our agent children among them) contribute an
+/// environment match. Skips entries that vanish or are unreadable mid-scan;
+/// stops early once every candidate is matched. Best-effort: an unreadable
+/// `/proc` yields all `false`.
+pub(super) fn processes_matching(
+    env_needles: &[String],
+    cmdline_needles: &[Option<String>],
+) -> Vec<bool> {
+    let n = env_needles.len();
+    let mut found = vec![false; n];
+    let mut remaining = n;
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        if remaining == 0 {
+            break;
+        }
+        let name = entry.file_name();
+        if name.to_string_lossy().parse::<u32>().is_err() {
+            continue;
+        }
+        let dir = entry.path();
+
+        let environ_raw = fs::read(dir.join("environ")).unwrap_or_default();
+        let environ = String::from_utf8_lossy(&environ_raw);
+        let env_entries: std::collections::HashSet<&str> =
+            environ.split('\0').filter(|s| !s.is_empty()).collect();
+
+        let cmd_raw = fs::read(dir.join("cmdline")).unwrap_or_default();
+        let cmdline = String::from_utf8_lossy(&cmd_raw).replace('\0', " ");
+
+        for i in 0..n {
+            if found[i] {
+                continue;
+            }
+            let env_hit =
+                !env_needles[i].is_empty() && env_entries.contains(env_needles[i].as_str());
+            let cmd_hit = cmdline_needles[i]
+                .as_deref()
+                .is_some_and(|s| !s.is_empty() && cmdline.contains(s));
+            if env_hit || cmd_hit {
+                found[i] = true;
+                remaining -= 1;
+            }
+        }
+    }
+    found
+}
+
 /// Get the foreground process group leader for a shell PID
 /// Walks the process tree to find the actual foreground process
 pub fn get_foreground_pid(shell_pid: u32) -> Option<u32> {

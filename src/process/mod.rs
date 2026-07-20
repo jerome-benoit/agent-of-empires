@@ -218,6 +218,47 @@ pub fn get_pane_pid(session_name: &str) -> Option<u32> {
     pid
 }
 
+/// For a single pass over the process table, decide for each candidate `i`
+/// whether a live process belongs to it. A process belongs to candidate `i`
+/// when an environment *entry* exactly equals `env_needles[i]` (anchored, so a
+/// longer id cannot prefix-collide) **or** the command line contains
+/// `cmdline_needles[i]` (when `Some`). The two slices must have equal length;
+/// the result has one `bool` per candidate. An empty env needle never matches.
+/// Best-effort: an unreadable process table yields all `false`.
+///
+/// Startup recovery uses this to detect an agent session a *prior* recovery
+/// pass already resumed on a tmux server this process can no longer see, e.g.
+/// the socket's `/tmp` dir was wiped mid-crash and the old server was orphaned
+/// (#2994). Two identity signals are checked so the match survives an agent
+/// that rewrites its own argv or process title:
+/// - `AOE_INSTANCE_ID=<id>` in the agent's environment (aoe-injected for
+///   hook-enabled agents; `/proc/<pid>/environ` is immune to argv rewrites),
+/// - the `agent_session_id` in the launch command line (fallback for non-hook
+///   agents; the host `docker exec` argv carries it for sandboxed sessions).
+///
+/// Batching keeps this to one `/proc` walk (or one `ps` fork) regardless of
+/// candidate count. Callers on an async runtime must wrap it in
+/// `tokio::task::spawn_blocking`.
+pub fn processes_matching(env_needles: &[String], cmdline_needles: &[Option<String>]) -> Vec<bool> {
+    debug_assert_eq!(env_needles.len(), cmdline_needles.len());
+    let n = env_needles.len().min(cmdline_needles.len());
+    if n == 0 {
+        return Vec::new();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux::processes_matching(&env_needles[..n], &cmdline_needles[..n])
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos::processes_matching(&env_needles[..n], &cmdline_needles[..n])
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        vec![false; n]
+    }
+}
+
 /// Get the foreground process group leader PID for a given shell PID
 /// This finds the actual process that has the terminal foreground
 pub fn get_foreground_pid(shell_pid: u32) -> Option<u32> {
@@ -484,6 +525,108 @@ fn signal_process_tree(pid: u32, signal: Signal) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn processes_matching_empty_input_is_empty() {
+        assert!(processes_matching(&[], &[]).is_empty());
+    }
+
+    /// A live process carrying a unique marker in its argv is matched by the
+    /// cmdline needle; a marker no process carries is not. Backs the #2994
+    /// orphan guard's fallback signal for non-hook agents.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn processes_matching_detects_live_process_by_cmdline() {
+        let marker = format!("aoe_orphan_scan_marker_{}", std::process::id());
+        let absent = format!("aoe_absent_scan_marker_{}", std::process::id());
+
+        // The marker rides as `$0` of a `sh` running a compound list, so sh
+        // does not exec-optimize away and stays alive (with the marker in
+        // argv) for the sleep.
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30; true")
+            .arg(&marker)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn marker process");
+
+        // env slot empty, cmdline slot carries the needle. Two candidates: the
+        // live marker and an absent one, testing both outcomes in one pass.
+        let env = vec![String::new(), String::new()];
+        let cmd = vec![Some(marker.clone()), Some(absent.clone())];
+
+        // Poll until the child's argv is observable (spawn returns before the
+        // kernel necessarily populates cmdline).
+        let mut flags = vec![false, false];
+        for _ in 0..100 {
+            flags = processes_matching(&env, &cmd);
+            if flags[0] {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(
+            flags[0],
+            "a live process carrying the marker in argv must match"
+        );
+        assert!(!flags[1], "a marker no live process carries must not match");
+    }
+
+    /// The environment signal: a live process with `AOE_INSTANCE_ID=<marker>`
+    /// in its environment is matched by the anchored env needle even when the
+    /// marker is absent from argv. This is the argv-rewrite-proof identity
+    /// signal the #2994 guard relies on for hook-enabled agents. Linux-only:
+    /// `/proc/<pid>/environ` is a stable probe; macOS `ps -E` env visibility is
+    /// hardening-dependent and not asserted here.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn processes_matching_detects_live_process_by_env_entry() {
+        let marker = format!("aoe_env_marker_{}", std::process::id());
+
+        // `sleep` keeps the process alive; the marker is only in the env, never
+        // in argv, so a match must come from the environ scan.
+        let key = crate::tmux::env::AOE_INSTANCE_ID_KEY;
+        let mut child = Command::new("sleep")
+            .arg("30")
+            .env(key, &marker)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn env-marker process");
+
+        let env = vec![format!("{key}={marker}")];
+        // A prefix of the real value must NOT match (anchored entry, not prefix).
+        let env_prefix = vec![format!("{key}={}", &marker[..marker.len() - 1])];
+        let cmd = vec![None];
+
+        let mut found = false;
+        let mut prefix_hit = true;
+        for _ in 0..100 {
+            found = processes_matching(&env, &cmd)[0];
+            prefix_hit = processes_matching(&env_prefix, &cmd)[0];
+            if found {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(found, "AOE_INSTANCE_ID in the environment must be matched");
+        assert!(
+            !prefix_hit,
+            "a prefix of the env value must not match (anchored entry, not substring)"
+        );
+    }
 
     /// Restores the pre-test SIGINT/SIGQUIT disposition on drop. `#[serial]`
     /// only keeps these tests from racing each other; it does nothing to
