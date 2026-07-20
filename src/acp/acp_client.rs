@@ -2434,7 +2434,9 @@ impl AcpClient {
             .map_err(|_| AcpError::AgentExited)
     }
 
-    /// Switch the active session mode via ACP `session/set_mode`.
+    /// Switch the active session mode through the mode channel advertised
+    /// by the adapter. Config-option mode takes precedence over the legacy
+    /// `session/set_mode` channel when both are present.
     pub async fn set_mode(&self, mode_id: &str) -> Result<(), AcpError> {
         let cmd_tx = self.cmd_tx.as_ref().ok_or(AcpError::NotRunning)?;
         cmd_tx
@@ -4274,19 +4276,62 @@ fn config_options_event(
     })
 }
 
-/// Route a `SetConfigOption` command to `session/set_config_option` and
-/// emit the resulting UI update. claude-agent-acp returns the full
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigOptionDispatchPurpose {
+    Generic,
+    Mode,
+}
+
+fn config_option_success_events(
+    options: Vec<agent_client_protocol::schema::v1::SessionConfigOption>,
+    value: String,
+    purpose: ConfigOptionDispatchPurpose,
+) -> Vec<Event> {
+    let mut events = config_options_event(Some(options))
+        .into_iter()
+        .collect::<Vec<_>>();
+    if purpose == ConfigOptionDispatchPurpose::Mode {
+        events.push(Event::CurrentModeChanged {
+            current_mode_id: value,
+        });
+    }
+    events
+}
+
+fn config_option_failure_event(
+    config_id: String,
+    value: String,
+    reason: String,
+    purpose: ConfigOptionDispatchPurpose,
+) -> Event {
+    match purpose {
+        ConfigOptionDispatchPurpose::Generic => Event::ConfigOptionSwitchFailed {
+            config_id,
+            value,
+            reason,
+        },
+        ConfigOptionDispatchPurpose::Mode => Event::ModeSwitchFailed {
+            mode_id: value,
+            reason,
+        },
+    }
+}
+
+/// Route a config-option change to `session/set_config_option` and emit
+/// the resulting UI update. claude-agent-acp returns the full
 /// updated config_options list in the response but does NOT emit a
 /// follow-up `config_option_update` notification (see
 /// acp-agent.js:1358-1410), so the success path re-emits a
 /// `ConfigOptionsUpdated` snapshot from the response and the frontend
-/// reducer clears pending state. The round-trip is spawned detached so
-/// the command loop never blocks on it. See #1403.
+/// reducer clears pending state. Mode changes also preserve the semantic
+/// mode events consumed by the native structured view. The round-trip is
+/// spawned detached so the command loop never blocks on it. See #1403.
 fn dispatch_set_config_option(
     connection: &ConnectionTo<Agent>,
     acp_session_id: &SessionId,
     config_id: String,
     value: String,
+    purpose: ConfigOptionDispatchPurpose,
     event_tx: mpsc::Sender<Event>,
 ) {
     info!(
@@ -4301,7 +4346,7 @@ fn dispatch_set_config_option(
     tokio::spawn(async move {
         match sent.block_task().await {
             Ok(resp) => {
-                if let Some(event) = config_options_event(Some(resp.config_options)) {
+                for event in config_option_success_events(resp.config_options, value, purpose) {
                     let _ = event_tx.send(event).await;
                 }
             }
@@ -4311,13 +4356,8 @@ fn dispatch_set_config_option(
                     target: "cockpit.acp",
                     "session/set_config_option failed: {reason}"
                 );
-                let _ = event_tx
-                    .send(Event::ConfigOptionSwitchFailed {
-                        config_id,
-                        value,
-                        reason,
-                    })
-                    .await;
+                let event = config_option_failure_event(config_id, value, reason, purpose);
+                let _ = event_tx.send(event).await;
             }
         }
     });
@@ -4858,29 +4898,103 @@ fn truncate_for_log(s: &str, max_bytes: usize) -> String {
     out
 }
 
-/// Whether the agent advertised the given mode ID in its session modes
-/// or config-option mode category.
-///
-/// Returns `false` (skip) when:
-/// - `available_mode_ids` is `Some` and the normalized mode_id is not in the list, or
-/// - `available_mode_ids` is `None` and the agent uses config-option modes
-///   (session/set_mode won't work for arbitrary mode IDs).
-///
-/// Returns `true` (allow) only when there is no mode information at all
-/// (e.g. the test shim, which handles all set_mode requests).
-fn is_mode_advertised(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModeSetTarget<'a> {
+    ConfigOption(&'a str),
+    SessionMode,
+}
+
+/// Pick the protocol method for a requested mode. Config-option modes
+/// take precedence because adapters that advertise both channels report
+/// their authoritative current value through config options. With no mode
+/// metadata, retain the legacy set_mode fallback for older adapters.
+fn resolve_mode_set_target<'a>(
     mode_id: &str,
     available_mode_ids: &Option<Vec<String>>,
-    has_config_option_mode: bool,
-) -> bool {
+    mode_config_option_id: Option<&'a str>,
+) -> Option<ModeSetTarget<'a>> {
+    if let Some(config_id) = mode_config_option_id {
+        return Some(ModeSetTarget::ConfigOption(config_id));
+    }
+
     match available_mode_ids {
         Some(ids) => {
             let normalized = mode_id.replace('_', "").to_lowercase();
             ids.iter()
                 .any(|id| id.replace('_', "").to_lowercase() == normalized)
+                .then_some(ModeSetTarget::SessionMode)
         }
-        None => !has_config_option_mode,
+        None => Some(ModeSetTarget::SessionMode),
     }
+}
+
+fn dispatch_set_mode(
+    connection: &ConnectionTo<Agent>,
+    acp_session_id: &SessionId,
+    mode_id: String,
+    available_mode_ids: &Option<Vec<String>>,
+    mode_config_option_id: Option<&str>,
+    event_tx: mpsc::Sender<Event>,
+    while_prompting: bool,
+) {
+    let Some(target) = resolve_mode_set_target(&mode_id, available_mode_ids, mode_config_option_id)
+    else {
+        debug!(
+            target: "acp.protocol",
+            "skipping mode switch mode={mode_id}: not advertised"
+        );
+        return;
+    };
+
+    if let ModeSetTarget::ConfigOption(config_id) = target {
+        dispatch_set_config_option(
+            connection,
+            acp_session_id,
+            config_id.to_string(),
+            mode_id,
+            ConfigOptionDispatchPurpose::Mode,
+            event_tx,
+        );
+        return;
+    }
+
+    if while_prompting {
+        info!(
+            target: "acp.protocol",
+            "sending session/set_mode mode={mode_id} during in-flight prompt"
+        );
+    } else {
+        info!(target: "acp.protocol", "sending session/set_mode mode={mode_id}");
+    }
+    let sent = connection.send_request(SetSessionModeRequest::new(
+        acp_session_id.clone(),
+        mode_id.clone(),
+    ));
+    tokio::spawn(async move {
+        match sent.block_task().await {
+            Ok(_) => {
+                let _ = event_tx
+                    .send(Event::CurrentModeChanged {
+                        current_mode_id: mode_id,
+                    })
+                    .await;
+            }
+            Err(e) => {
+                let reason = format!("{e}");
+                if while_prompting {
+                    warn!(
+                        target: "acp.protocol",
+                        "session/set_mode failed mid-turn: {reason}"
+                    );
+                } else {
+                    warn!(target: "acp.protocol", "session/set_mode failed: {reason}");
+                }
+                let _ = event_tx
+                    .send(Event::ModeSwitchFailed { mode_id, reason })
+                    .await;
+            }
+        }
+    });
 }
 
 /// The `cwd` to send on `session/new` / `session/load` / `session/fork`.
@@ -5542,15 +5656,11 @@ async fn run_connection_task<W, R>(
                 let _ = tx.send(Ok(()));
             }
 
-            // Track the mode channels the agent advertised so we can skip
-            // session/set_mode requests for modes the agent doesn't support.
-            // When new_session.modes is present, only those IDs are valid.
-            // When config-options have a Mode category, the agent uses
-            // session/set_config_option for modes instead of session/set_mode.
-            // If neither is present (e.g. test shim), allow all set_mode
-            // requests through.
+            // Track the mode channels the agent advertised so each switch uses
+            // the matching protocol method. Config-option mode is authoritative
+            // when present; otherwise SessionModeState constrains valid ids.
             let mut available_mode_ids: Option<Vec<String>> = None;
-            let mut has_config_option_mode: bool = false;
+            let mut mode_config_option_id: Option<String> = None;
 
             // Drop any http/sse servers the agent did not advertise before they
             // reach session/new or session/load; stdio is always kept. Computed
@@ -5651,8 +5761,8 @@ async fn run_connection_task<W, R>(
                                 // Capture available mode info and config-option
                                 // mode category from the fork response (it carries
                                 // the same modes/config_options as session/new), so
-                                // the SetMode handlers below skip modes the agent
-                                // has not advertised and the pickers hydrate.
+                                // SetMode chooses the authoritative channel and the
+                                // pickers hydrate.
                                 if let Some(modes) = resp.modes.as_ref() {
                                     available_mode_ids = Some(
                                         modes
@@ -5662,17 +5772,11 @@ async fn run_connection_task<W, R>(
                                             .collect(),
                                     );
                                 }
-                                if resp.config_options.as_ref().is_some_and(|opts| {
-                                    opts.iter().any(|o| {
-                                        o.category
-                                            == Some(
-                                                agent_client_protocol::schema::v1::
-                                                    SessionConfigOptionCategory::Mode,
-                                            )
-                                    })
-                                }) {
-                                    has_config_option_mode = true;
-                                }
+                                mode_config_option_id = resp
+                                    .config_options
+                                    .as_deref()
+                                    .and_then(mode_config_id)
+                                    .map(|id| id.0.to_string());
                                 // Surface agent-advertised modes (when carried in
                                 // the ACP `modes` field rather than the `mode`
                                 // config option), mirroring session/new so a fork
@@ -5794,21 +5898,11 @@ async fn run_connection_task<W, R>(
                                     if modes.is_some() {
                                         available_mode_ids = modes;
                                     }
-                                    if resp
+                                    mode_config_option_id = resp
                                         .config_options
-                                        .as_ref()
-                                        .is_some_and(|opts| {
-                                            opts.iter().any(|o| {
-                                                o.category
-                                                    == Some(
-                                                        agent_client_protocol::schema::v1::
-                                                            SessionConfigOptionCategory::Mode,
-                                                    )
-                                            })
-                                        })
-                                    {
-                                        has_config_option_mode = true;
-                                    }
+                                        .as_deref()
+                                        .and_then(mode_config_id)
+                                        .map(|id| id.0.to_string());
                                     // Emit AcpSessionAssigned even on resume so the
                                     // frontend reducer can clear any sticky
                                     // `startupError` / `lastError` from a prior crash
@@ -5893,8 +5987,8 @@ async fn run_connection_task<W, R>(
                         );
 
                         // Capture available mode IDs and config-option mode
-                        // category so the SetMode handlers below can skip
-                        // modes the agent has not advertised.
+                        // category so SetMode can choose the authoritative
+                        // channel and gate legacy values.
                         if let Some(modes) = &new_session.modes {
                             available_mode_ids = Some(
                                 modes
@@ -5904,21 +5998,11 @@ async fn run_connection_task<W, R>(
                                     .collect(),
                             );
                         }
-                        if new_session
+                        mode_config_option_id = new_session
                             .config_options
-                            .as_ref()
-                            .is_some_and(|opts| {
-                                opts.iter().any(|o| {
-                                    o.category
-                                        == Some(
-                                            agent_client_protocol::schema::v1::
-                                                SessionConfigOptionCategory::Mode,
-                                        )
-                                })
-                            })
-                        {
-                            has_config_option_mode = true;
-                        }
+                            .as_deref()
+                            .and_then(mode_config_id)
+                            .map(|id| id.0.to_string());
 
                         // Surface the agent-advertised modes (if any) so the UI
                         // can render the actual modes the agent supports rather
@@ -6659,75 +6743,20 @@ async fn run_connection_task<W, R>(
                                                 &acp_session_id,
                                                 config_id,
                                                 value,
+                                                ConfigOptionDispatchPurpose::Generic,
                                                 event_tx_for_block.clone(),
                                             );
                                         }
                                         Some(ClientCmd::SetMode(mode_id)) => {
-                                            // Skip when the agent has not
-                                            // advertised this mode (see the
-                                            // mode-tracking comments above).
-                                            if !is_mode_advertised(
-                                                &mode_id,
+                                            dispatch_set_mode(
+                                                &connection,
+                                                &acp_session_id,
+                                                mode_id,
                                                 &available_mode_ids,
-                                                has_config_option_mode,
-                                            ) {
-                                                debug!(
-                                                    target: "acp.protocol",
-                                                    "skipping session/set_mode mode={mode_id}: not advertised (mid-turn)"
-                                                );
-                                                continue;
-                                            }
-                                            info!(
-                                                target: "acp.protocol",
-                                                "sending session/set_mode mode={mode_id} during in-flight prompt"
+                                                mode_config_option_id.as_deref(),
+                                                event_tx_for_block.clone(),
+                                                true,
                                             );
-                                            // Fire the request and hand the
-                                            // response handling to a detached
-                                            // task. Awaiting it here would
-                                            // freeze this select loop for the
-                                            // duration of the round-trip,
-                                            // defeating the point of polling
-                                            // cmd_rx concurrently; a Cancel
-                                            // arriving while set_mode is in
-                                            // flight would queue. The detached
-                                            // task mirrors the success into the
-                                            // event stream so the UI flips even
-                                            // when the adapter (e.g.
-                                            // claude-agent-acp) treats the
-                                            // response as authoritative and
-                                            // skips the follow-up
-                                            // current_mode_update notification.
-                                            let sent = connection.send_request(
-                                                SetSessionModeRequest::new(
-                                                    acp_session_id.clone(),
-                                                    mode_id.clone(),
-                                                ),
-                                            );
-                                            let tx = event_tx_for_block.clone();
-                                            tokio::spawn(async move {
-                                                match sent.block_task().await {
-                                                    Ok(_) => {
-                                                        let _ = tx
-                                                            .send(Event::CurrentModeChanged {
-                                                                current_mode_id: mode_id,
-                                                            })
-                                                            .await;
-                                                    }
-                                                    Err(e) => {
-                                                        let reason = format!("{e}");
-                                                        warn!(
-                                                            target: "acp.protocol",
-                                                            "session/set_mode failed mid-turn: {reason}"
-                                                        );
-                                                        let _ = tx
-                                                            .send(Event::ModeSwitchFailed {
-                                                                mode_id,
-                                                                reason,
-                                                            })
-                                                            .await;
-                                                    }
-                                                }
-                                            });
                                         }
                                         Some(ClientCmd::DeleteSession {
                                             acp_session_id: target_id,
@@ -6967,45 +6996,15 @@ async fn run_connection_task<W, R>(
                             .send_notification(CancelNotification::new(acp_session_id.clone()));
                     }
                     Some(ClientCmd::SetMode(mode_id)) => {
-                        // Skip when the agent has not advertised this mode
-                        // (see the mode-tracking comments above).
-                        if !is_mode_advertised(
-                            &mode_id,
+                        dispatch_set_mode(
+                            &connection,
+                            &acp_session_id,
+                            mode_id,
                             &available_mode_ids,
-                            has_config_option_mode,
-                        ) {
-                            debug!(
-                                target: "acp.protocol",
-                                "skipping session/set_mode mode={mode_id}: not advertised"
-                            );
-                            continue;
-                        }
-                        info!(target: "acp.protocol", "sending session/set_mode mode={mode_id}");
-                        // Detached, same shape as the mid-turn path: don't
-                        // freeze the cmd_rx loop on the round-trip.
-                        let sent = connection.send_request(SetSessionModeRequest::new(
-                            acp_session_id.clone(),
-                            mode_id.clone(),
-                        ));
-                        let tx = event_tx_for_block.clone();
-                        tokio::spawn(async move {
-                            match sent.block_task().await {
-                                Ok(_) => {
-                                    let _ = tx
-                                        .send(Event::CurrentModeChanged {
-                                            current_mode_id: mode_id,
-                                        })
-                                        .await;
-                                }
-                                Err(e) => {
-                                    let reason = format!("{e}");
-                                    warn!(target: "acp.protocol", "session/set_mode failed: {reason}");
-                                    let _ = tx
-                                        .send(Event::ModeSwitchFailed { mode_id, reason })
-                                        .await;
-                                }
-                            }
-                        });
+                            mode_config_option_id.as_deref(),
+                            event_tx_for_block.clone(),
+                            false,
+                        );
                     }
                     Some(ClientCmd::DeleteSession {
                         acp_session_id: target_id,
@@ -7019,6 +7018,7 @@ async fn run_connection_task<W, R>(
                             &acp_session_id,
                             config_id,
                             value,
+                            ConfigOptionDispatchPurpose::Generic,
                             event_tx_for_block.clone(),
                         );
                     }
@@ -10866,23 +10866,33 @@ mod tests {
     }
 
     #[test]
-    fn is_mode_advertised_matches_normalized_ids() {
+    fn resolve_mode_set_target_matches_normalized_session_mode_ids() {
         let ids = Some(vec!["acceptEdits".to_string(), "plan".to_string()]);
         // Underscore + case folding both sides.
-        assert!(is_mode_advertised("accept_edits", &ids, false));
-        assert!(is_mode_advertised("acceptEdits", &ids, false));
-        assert!(is_mode_advertised("PLAN", &ids, false));
+        assert_eq!(
+            resolve_mode_set_target("accept_edits", &ids, None),
+            Some(ModeSetTarget::SessionMode)
+        );
+        assert_eq!(
+            resolve_mode_set_target("acceptEdits", &ids, None),
+            Some(ModeSetTarget::SessionMode)
+        );
+        assert_eq!(
+            resolve_mode_set_target("PLAN", &ids, None),
+            Some(ModeSetTarget::SessionMode)
+        );
         // Not in the advertised set.
-        assert!(!is_mode_advertised("bypassPermissions", &ids, false));
+        assert_eq!(
+            resolve_mode_set_target("bypassPermissions", &ids, None),
+            None
+        );
     }
 
     #[test]
     fn profile_yolo_mode_ids_pass_the_advertised_guard() {
         use super::super::agent_profiles;
-        // The supervisor's post-spawn `set_mode(profile.yolo_mode_id)` is
-        // gated by this same `is_mode_advertised` guard. Pin each adapter's
-        // YOLO id against the modes that adapter actually advertises, so a
-        // mismatch (the #1142 codex bug, or the
+        // Pin each adapter's YOLO id against the modes that adapter actually
+        // advertises, so a mismatch (the #1142 codex bug, or the
         // @agentclientprotocol/codex-acp `agent-full-access` rename) can't
         // silently get dropped again.
         let claude_modes = Some(vec![
@@ -10899,27 +10909,91 @@ mod tests {
         ]);
 
         let claude_yolo = agent_profiles::resolve("claude").yolo_mode_id.unwrap();
-        assert!(is_mode_advertised(claude_yolo, &claude_modes, false));
+        assert_eq!(
+            resolve_mode_set_target(claude_yolo, &claude_modes, None),
+            Some(ModeSetTarget::SessionMode)
+        );
 
         let codex_yolo = agent_profiles::resolve("codex").yolo_mode_id.unwrap();
-        assert!(is_mode_advertised(codex_yolo, &codex_modes, false));
+        assert_eq!(
+            resolve_mode_set_target(codex_yolo, &codex_modes, None),
+            Some(ModeSetTarget::SessionMode)
+        );
         // The old hard-coded id would NOT survive the guard for codex.
-        assert!(!is_mode_advertised(
-            "bypassPermissions",
-            &codex_modes,
-            false
-        ));
+        assert_eq!(
+            resolve_mode_set_target("bypassPermissions", &codex_modes, None),
+            None
+        );
         // The old Zed adapter id is stale for @agentclientprotocol/codex-acp.
-        assert!(!is_mode_advertised("full-access", &codex_modes, false));
+        assert_eq!(
+            resolve_mode_set_target("full-access", &codex_modes, None),
+            None
+        );
     }
 
     #[test]
-    fn is_mode_advertised_without_mode_list_defers_to_config_option() {
-        // No SessionMode list: the agent steers mode through a config option,
-        // so set_mode must NOT be sent (returns false). Without a config-option
-        // mode either, fall back to allowing the legacy set_mode (true).
-        assert!(!is_mode_advertised("plan", &None, true));
-        assert!(is_mode_advertised("plan", &None, false));
+    fn config_option_mode_is_authoritative() {
+        let ids = Some(
+            vec!["agent", "agent-full-access"]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+        );
+        assert_eq!(
+            resolve_mode_set_target("agent-full-access", &ids, Some("mode")),
+            Some(ModeSetTarget::ConfigOption("mode"))
+        );
+        assert_eq!(
+            resolve_mode_set_target("agent-full-access", &None, Some("mode")),
+            Some(ModeSetTarget::ConfigOption("mode"))
+        );
+        assert_eq!(
+            resolve_mode_set_target("plan", &None, None),
+            Some(ModeSetTarget::SessionMode)
+        );
+    }
+
+    #[test]
+    fn mode_config_dispatch_preserves_semantic_mode_events() {
+        let events = config_option_success_events(
+            Vec::new(),
+            "agent-full-access".to_string(),
+            ConfigOptionDispatchPurpose::Mode,
+        );
+        assert_eq!(events.len(), 2);
+        assert!(matches!(
+            &events[0],
+            Event::ConfigOptionsUpdated { options } if options.is_empty()
+        ));
+        assert!(matches!(
+            &events[1],
+            Event::CurrentModeChanged { current_mode_id }
+                if current_mode_id == "agent-full-access"
+        ));
+
+        let failure = config_option_failure_event(
+            "mode".to_string(),
+            "agent-full-access".to_string(),
+            "rejected".to_string(),
+            ConfigOptionDispatchPurpose::Mode,
+        );
+        assert!(matches!(
+            failure,
+            Event::ModeSwitchFailed { mode_id, reason }
+                if mode_id == "agent-full-access" && reason == "rejected"
+        ));
+
+        let generic_failure = config_option_failure_event(
+            "model".to_string(),
+            "gpt-5".to_string(),
+            "rejected".to_string(),
+            ConfigOptionDispatchPurpose::Generic,
+        );
+        assert!(matches!(
+            generic_failure,
+            Event::ConfigOptionSwitchFailed { config_id, value, reason }
+                if config_id == "model" && value == "gpt-5" && reason == "rejected"
+        ));
     }
 
     #[test]
