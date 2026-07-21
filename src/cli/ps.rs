@@ -186,6 +186,8 @@ fn merge_rows(
 
     for st in tmux_states {
         let suffix = tmux_id_suffix(&st.session_name);
+        // On an 8-char id collision `find` takes the first match; the tmux name
+        // only carries id8, so nothing more precise is available anyway.
         let matched =
             suffix.and_then(|s| instances.iter().find(|i| super::truncate_id(&i.id, 8) == s));
         let (id, title, is_orphan, age_secs) = match matched {
