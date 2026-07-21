@@ -268,8 +268,11 @@ pub enum OneshotModel {
 /// value forces the CLI default (opt out of the cheap alias); a non-empty value
 /// pins that model. An agent with no model flag (or no default and no override)
 /// yields no tokens, i.e. the CLI default. This is the sole entry point for the
-/// title-vs-CLI-default decision, so the empty-string state must not be
-/// filtered away upstream.
+/// title-vs-CLI-default decision, so a caller must pass the raw map through: the
+/// empty-string state must not be collapsed in the call chain (e.g. by stripping
+/// empty values before this call). The web widget cannot emit an empty value (it
+/// removes the key on clear), so that state is reachable only via the TUI or
+/// config.toml.
 pub fn resolve_title_model_args(
     agent: &agents::AgentDef,
     models: &HashMap<String, String>,
@@ -292,12 +295,13 @@ pub fn resolve_title_model_args(
 /// agent has no known one-shot mode. Shape is `[binary, oneshot_token, model..,
 /// extra.., prompt, trailing..]`, where `model..` (for a `Title`) sits before
 /// the prompt for a positional-prompt flag but AFTER the prompt for a
-/// value-binding flag (copilot `-p`, whose value is the prompt), so the flag
-/// can never bind the model selector as the prompt. The prompt is a single argv
-/// element passed straight to the process, never interpolated into a shell
-/// string, so untrusted user text cannot inject arguments. `oneshot_trailing_args`
-/// is only populated for flag-value one-shots, where the CLI has already bound
-/// the prompt to the flag, so trailing flags stay unambiguous.
+/// value-binding flag (copilot, gemini, kimi `-p`, whose value is the prompt),
+/// so the flag can never bind the model selector as the prompt. The prompt is a
+/// single argv element passed straight to the process, never interpolated into
+/// a shell string, so untrusted user text cannot inject arguments.
+/// `oneshot_trailing_args` is only populated for value-binding one-shots, where
+/// the CLI has already bound the prompt to the flag, so trailing flags stay
+/// unambiguous.
 pub fn build_oneshot_argv(
     agent: &agents::AgentDef,
     prompt: &str,

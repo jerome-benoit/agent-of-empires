@@ -1695,6 +1695,29 @@ mod tests {
                     "agent '{}' is value-binding but has no one-shot flag",
                     agent.name
                 );
+                // Placement invariant: model args (and any pre-prompt static
+                // args) are emitted before the prompt for positional agents;
+                // a value-binding flag binds the token right after it, so it
+                // must have NO pre-prompt `oneshot_extra_args` (they would be
+                // bound as the prompt). Post-prompt flags belong in
+                // `oneshot_trailing_args` instead.
+                assert!(
+                    agent.oneshot_extra_args().is_empty(),
+                    "value-binding agent '{}' must not use oneshot_extra_args (they land before the prompt); use oneshot_trailing_args",
+                    agent.name
+                );
+            }
+            // Semi-independent oracle (not a copy of the impl's name list): the
+            // `-p`/`--prompt` one-shot flag is value-binding for every agent
+            // except claude, whose `-p` is a boolean `--print`. So any non-claude
+            // agent whose one-shot flag is `-p` must be classified value-binding;
+            // this trips if a new `-p` agent is added and left positional.
+            if agent.oneshot_flag == Some("-p") && agent.name != "claude" {
+                assert!(
+                    agent.oneshot_flag_binds_prompt(),
+                    "agent '{}' has a `-p` one-shot flag but is not classified value-binding",
+                    agent.name
+                );
             }
         }
     }
