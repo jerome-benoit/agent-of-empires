@@ -3170,9 +3170,10 @@
       "specs": [
         "src/components/plugin/__tests__/PluginSlots.test.tsx",
         "src/lib/__tests__/pluginUi.test.ts",
-        "src/hooks/usePluginUiState.test.tsx"
+        "src/hooks/usePluginUiState.test.tsx",
+        "src/components/acp/__tests__/ToolCards.test.tsx"
       ],
-      "components": ["web/src/components/plugin/PluginSlots.tsx"]
+      "components": ["web/src/components/plugin/PluginSlots.tsx", "web/src/components/acp/ToolCards.tsx"]
     },
     {
       "id": "plugins.composer-actions",
@@ -3183,6 +3184,13 @@
         "src/components/acp/Composer.pluginComposerActions.test.tsx"
       ],
       "components": ["web/src/components/plugin/PluginSlots.tsx", "web/src/components/acp/Composer.tsx"]
+    },
+    {
+      "id": "plugins.tool-card-badge",
+      "kind": "live-playwright",
+      "risk": "medium",
+      "specs": ["tests/live/plugin-tool-card-badge.spec.ts"],
+      "components": ["web/src/components/plugin/PluginSlots.tsx", "web/src/components/acp/ToolCards.tsx"]
     }
   ]
 }
