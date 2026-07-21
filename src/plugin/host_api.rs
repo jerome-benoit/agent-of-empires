@@ -35,6 +35,7 @@
 //! all, is enough.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use anyhow::Context as _;
@@ -45,7 +46,10 @@ use serde_json::{json, Value};
 use crate::events::{self, Order, Schema, SeqBound};
 use crate::plugin::protocol::codes;
 use crate::plugin::ui_state::{Tone, UiError, UiSnapshot, UiStore};
-use crate::session::Storage;
+use crate::session::mcp_model::{self, McpProvenance};
+use crate::session::mcp_state::{self, ConflictWinner, ResolveStatus};
+use crate::session::settings_schema::{self, Scope, WebWritePolicy};
+use crate::session::{mcp_overrides, update_config, Storage};
 
 /// Capability required by each host method. Reused from the manifest taxonomy
 /// (`aoe_plugin_api::KNOWN_CAPABILITIES`); no new capability is introduced.
@@ -58,6 +62,12 @@ const CAP_SESSION_WRITE: &str = "session.write";
 const CAP_NOTIFICATIONS: &str = "notifications";
 const CAP_COMPOSER_WRITE: &str = "composer.write";
 const CAP_BROWSER_OPEN: &str = "browser_open";
+/// Host/global (not own-table) config: `config.read` gates reading a settings
+/// field and resolving the MCP surface; `config.write` gates every host-config
+/// and MCP mutation. Distinct from `config.get` (`runtime.worker`), which reads
+/// the calling plugin's own settings only.
+const CAP_CONFIG_READ: &str = "config.read";
+const CAP_CONFIG_WRITE: &str = "config.write";
 
 /// Plugin-private storage quotas (#2897), per plugin. A plugin cannot reach
 /// another plugin's namespace, so the store needs no user-facing capability;
@@ -237,6 +247,13 @@ impl DispatchError {
             data: None,
         }
     }
+    fn forbidden(msg: impl Into<String>) -> Self {
+        Self {
+            code: codes::FORBIDDEN,
+            message: msg.into(),
+            data: None,
+        }
+    }
     fn method_not_found(method: &str) -> Self {
         Self {
             code: codes::METHOD_NOT_FOUND,
@@ -328,6 +345,46 @@ pub fn dispatch(
         "plugin.storage.remove" => {
             ctx.require(CAP_WORKER)?;
             plugin_storage_remove(state, ctx, params)
+        }
+        "config.read" => {
+            ctx.require(CAP_CONFIG_READ)?;
+            config_read(params)
+        }
+        "config.write" => {
+            ctx.require(CAP_CONFIG_WRITE)?;
+            config_write(params)
+        }
+        "mcp.list" => {
+            ctx.require(CAP_CONFIG_READ)?;
+            mcp_list(state, params)
+        }
+        "mcp.resolve" => {
+            ctx.require(CAP_CONFIG_READ)?;
+            mcp_resolve(state, params)
+        }
+        "mcp.add" => {
+            ctx.require(CAP_CONFIG_WRITE)?;
+            mcp_add(state, params)
+        }
+        "mcp.edit" => {
+            ctx.require(CAP_CONFIG_WRITE)?;
+            mcp_edit(state, params)
+        }
+        "mcp.delete" => {
+            ctx.require(CAP_CONFIG_WRITE)?;
+            mcp_delete(state, params)
+        }
+        "mcp.keep" => {
+            ctx.require(CAP_CONFIG_WRITE)?;
+            mcp_keep(state, params)
+        }
+        "mcp.drop" => {
+            ctx.require(CAP_CONFIG_WRITE)?;
+            mcp_drop(state, params)
+        }
+        "mcp.resolve-conflict" => {
+            ctx.require(CAP_CONFIG_WRITE)?;
+            mcp_resolve_conflict(state, params)
         }
         other => Err(DispatchError::method_not_found(other)),
     }
@@ -826,6 +883,343 @@ fn enforce_key_quota_tx(
     key: &str,
 ) -> Result<(), DispatchError> {
     enforce_key_quota(tx, plugin_id, key)
+}
+
+/// Gate a `(section, field)` to the non-elevated host-config surface shared by
+/// `config.read` / `config.write`: the field must be a known schema descriptor
+/// a non-elevated web client may also write (`WebWritePolicy::Allow`). An
+/// unknown field is `INVALID_PARAMS`; a host-execution (`local_only`) or
+/// elevation-gated field is `FORBIDDEN`. The elevation-gated set can carry
+/// literal secrets (e.g. `sandbox.environment` env values), so it is off-limits
+/// for reads too, not just writes. `verb` (`"readable"` / `"writable"`) tailors
+/// the message.
+fn require_non_elevated_field(section: &str, field: &str, verb: &str) -> Result<(), DispatchError> {
+    match settings_schema::descriptor(section, field) {
+        None => Err(DispatchError::invalid_params(format!(
+            "unknown config field {section}.{field}"
+        ))),
+        Some(d) => match d.web_write {
+            WebWritePolicy::Allow => Ok(()),
+            WebWritePolicy::LocalOnly { .. } => Err(DispatchError::forbidden(format!(
+                "config field {section}.{field} is a host-execution surface and is not {verb} by plugins"
+            ))),
+            WebWritePolicy::RequiresElevation { .. } => Err(DispatchError::forbidden(format!(
+                "config field {section}.{field} is elevation-gated and is not {verb} by plugins"
+            ))),
+        },
+    }
+}
+
+/// Read one host/global settings field (`config.read`, cap `config.read`). The
+/// `(section, field)` pair must be a plain (non-elevated) schema descriptor, so
+/// a plugin can only read declared, non-secret settings: an unknown field is
+/// `INVALID_PARAMS`, and a host-execution (`local_only`) or elevation-gated
+/// field, which can carry literal secrets, is `FORBIDDEN` (symmetric with
+/// `config.write`). Returns the value from the serialized global `Config`, or
+/// `null` when the field is unset/omitted. Distinct from `config.get`, which
+/// reads the caller's own plugin settings.
+fn config_read(params: &Value) -> Result<Value, DispatchError> {
+    let section = str_param(params, "section")?;
+    let field = str_param(params, "field")?;
+    require_non_elevated_field(section, field, "readable")?;
+    let config =
+        crate::session::Config::load().map_err(|e| DispatchError::internal(e.to_string()))?;
+    let json = serde_json::to_value(&config).map_err(|e| DispatchError::internal(e.to_string()))?;
+    let value = json
+        .get(section)
+        .and_then(|s| s.get(field))
+        .cloned()
+        .unwrap_or(Value::Null);
+    Ok(json!({ "value": value }))
+}
+
+/// Write host/global settings (`config.write`, cap `config.write`). The `patch`
+/// is the web-PATCH shape `{ section: { field: value } }`. A plugin gets exactly
+/// the NON-elevated web write surface, but unlike the web path (which silently
+/// strips `local_only` leaves) an RPC rejects every disallowed leaf loudly so a
+/// plugin never believes a refused write landed: unknown field -> INVALID_PARAMS;
+/// host-execution (`local_only`) or elevation-required field -> FORBIDDEN. The
+/// value itself is validated through the shared schema gate.
+fn config_write(params: &Value) -> Result<Value, DispatchError> {
+    let patch = params
+        .get("patch")
+        .ok_or_else(|| DispatchError::invalid_params("missing object param \"patch\""))?;
+    let sections = patch.as_object().ok_or_else(|| {
+        DispatchError::invalid_params(
+            "\"patch\" must be an object of { section: { field: value } }",
+        )
+    })?;
+    if sections.is_empty() {
+        return Err(DispatchError::invalid_params("\"patch\" is empty"));
+    }
+    for (section, fields) in sections {
+        let fields = fields.as_object().ok_or_else(|| {
+            DispatchError::invalid_params(format!("patch section {section:?} must be an object"))
+        })?;
+        for field in fields.keys() {
+            require_non_elevated_field(section, field, "writable")?;
+        }
+    }
+    // Value validation via the shared gate. `require_non_elevated_field` above
+    // already rejected unknown / local_only / elevation fields; this pass checks
+    // each value against its schema rule. `elevated = false` re-guards the
+    // elevation policy, but `validate_patch` does NOT reject `local_only` (it
+    // expects the web caller to have stripped it first), so the loud rejection
+    // above is what keeps a host-execution leaf out.
+    settings_schema::validate_patch(patch, Scope::Global, false)
+        .map_err(|rej| DispatchError::invalid_params(rej.message()))?;
+
+    let patch = patch.clone();
+    update_config(|config| -> anyhow::Result<()> {
+        let mut current = serde_json::to_value(&*config)?;
+        settings_schema::merge_json(&mut current, &patch);
+        *config = serde_json::from_value(current)?;
+        Ok(())
+    })
+    .and_then(|inner| inner)
+    .map_err(|e| DispatchError::internal(e.to_string()))?;
+    Ok(json!({ "ok": true }))
+}
+
+/// Resolve the `(agent, profile, cwd)` an MCP call operates in. `agent` is the
+/// optional `agent` param, else the host profile's configured default tool, else
+/// `claude` (mirrors the REST surface). `profile` is the host's profile; `cwd`
+/// is the daemon working directory (from which the project-local layer resolves).
+fn mcp_context(
+    state: &HostApiState,
+    params: &Value,
+) -> Result<(String, Option<String>, PathBuf), DispatchError> {
+    let profile = state.profile.clone();
+    let agent = match optional_str_param(params, "agent")? {
+        Some(a) => a.to_string(),
+        None => crate::session::profile_config::resolve_config_or_warn(&profile)
+            .session
+            .default_tool
+            .unwrap_or_else(|| "claude".to_string()),
+    };
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let profile_opt = (!profile.is_empty()).then_some(profile);
+    Ok((agent, profile_opt, cwd))
+}
+
+/// Wrap the `{ name, ...ecosystem .mcp.json entry }` params into a one-server
+/// standard config and parse it via the shared ecosystem parser, so a plugin
+/// sends the exact `.mcp.json` shape users and other agents already use. A
+/// missing/empty name or a malformed transport is `INVALID_PARAMS`.
+fn parse_mcp_server_param(
+    params: &Value,
+) -> Result<crate::session::project_mcp::ProjectMcpServer, DispatchError> {
+    let name = str_param(params, "name")?;
+    if name.trim().is_empty() {
+        return Err(DispatchError::invalid_params(
+            "MCP server \"name\" must be non-empty",
+        ));
+    }
+    let mut entry = params
+        .as_object()
+        .ok_or_else(|| DispatchError::invalid_params("params must be an object"))?
+        .clone();
+    // `name` is the map key, not an entry field; drop it so it is not treated as
+    // an (ignored) server property.
+    entry.remove("name");
+    let wrapped = json!({ "mcpServers": { name: Value::Object(entry) } });
+    let text =
+        serde_json::to_string(&wrapped).map_err(|e| DispatchError::internal(e.to_string()))?;
+    let mut servers =
+        crate::session::project_mcp::parse_standard_mcp_servers(&text).map_err(|e| {
+            DispatchError::invalid_params(format!("invalid MCP server definition: {e}"))
+        })?;
+    servers
+        .pop()
+        .ok_or_else(|| DispatchError::internal("MCP parser returned no server"))
+}
+
+/// `mcp.list` (cap `config.read`): the pure, redacted effective forwarded set.
+/// Uses `resolve_effective` (no drift reconcile, no state write), unlike
+/// `mcp.resolve`.
+fn mcp_list(state: &HostApiState, params: &Value) -> Result<Value, DispatchError> {
+    let (agent, profile, cwd) = mcp_context(state, params)?;
+    let effective = mcp_model::resolve_effective(&agent, profile.as_deref(), &cwd);
+    Ok(json!({
+        "agent": agent,
+        "servers": effective.iter().map(|s| s.redacted()).collect::<Vec<_>>(),
+    }))
+}
+
+/// `mcp.resolve` (cap `config.read`): the full management surface (effective set,
+/// kept-on-removal, conflicts, drift-paused), redacted. Mirrors the REST
+/// `GET /api/mcp/servers`; note this reconciles the drift snapshot as a side
+/// effect (adopts newly seen native servers), which the pure `mcp.list` does not.
+fn mcp_resolve(state: &HostApiState, params: &Value) -> Result<Value, DispatchError> {
+    let (agent, profile, cwd) = mcp_context(state, params)?;
+    let view = mcp_model::resolve_surface(&agent, profile.as_deref(), &cwd);
+    Ok(json!({
+        "agent": agent,
+        "effective": view.effective.iter().map(|s| s.redacted()).collect::<Vec<_>>(),
+        "keptOnRemoval": view.kept_on_removal.iter().map(|s| s.redacted()).collect::<Vec<_>>(),
+        "conflicts": view
+            .conflicts
+            .iter()
+            .map(|c| json!({
+                "name": c.current.name,
+                "agent": c.agent,
+                "previous": c.previous.redacted_summary(),
+                "current": c.current.redacted_summary(),
+                "fingerprint": c.fingerprint(),
+            }))
+            .collect::<Vec<_>>(),
+        "driftPaused": view.drift_paused,
+    }))
+}
+
+/// True if `name` resolves in the effective set from a layer other than the
+/// AoE-owned global one (agent-native / profile / project-local). Such a name is
+/// not AoE's to write, so `mcp.add` / `mcp.edit` / `mcp.delete` reject it with
+/// `FORBIDDEN`. A pure read (`resolve_effective`, no drift write).
+fn resolves_non_global(
+    state: &HostApiState,
+    params: &Value,
+    name: &str,
+) -> Result<bool, DispatchError> {
+    let (agent, profile, cwd) = mcp_context(state, params)?;
+    let effective = mcp_model::resolve_effective(&agent, profile.as_deref(), &cwd);
+    Ok(effective
+        .iter()
+        .any(|s| s.def.name == name && s.provenance != McpProvenance::Global))
+}
+
+fn not_global_forbidden(name: &str) -> DispatchError {
+    DispatchError::forbidden(format!(
+        "MCP server {name:?} is owned by a non-global layer (agent-native, profile, or project-local); AoE only writes the global layer"
+    ))
+}
+
+/// `mcp.add` (cap `config.write`): create a new server in the global `mcp.json`.
+/// A name owned by a non-global layer is `FORBIDDEN` (AoE will not add a global
+/// override that shadows it); a name that already exists globally is
+/// `INVALID_PARAMS` (the caller uses `mcp.edit`). The global existence check is
+/// atomic under the file lock.
+fn mcp_add(state: &HostApiState, params: &Value) -> Result<Value, DispatchError> {
+    let server = parse_mcp_server_param(params)?;
+    if resolves_non_global(state, params, &server.name)? {
+        return Err(not_global_forbidden(&server.name));
+    }
+    let created = mcp_overrides::insert_global_server_if_absent(&server)
+        .map_err(|e| DispatchError::internal(e.to_string()))?;
+    if !created {
+        return Err(DispatchError::invalid_params(format!(
+            "global MCP server {:?} already exists; use mcp.edit",
+            server.name
+        )));
+    }
+    Ok(json!({ "status": "added" }))
+}
+
+/// `mcp.edit` (cap `config.write`): replace an existing global server definition.
+/// A full replacement: fields omitted from the entry (including env / header
+/// secrets) are dropped, matching the global `upsert` semantics. A name owned by
+/// a non-global layer is `FORBIDDEN`; a name that exists nowhere globally is
+/// `INVALID_PARAMS` (the caller uses `mcp.add`).
+fn mcp_edit(state: &HostApiState, params: &Value) -> Result<Value, DispatchError> {
+    let server = parse_mcp_server_param(params)?;
+    let replaced = mcp_overrides::replace_global_server_if_present(&server)
+        .map_err(|e| DispatchError::internal(e.to_string()))?;
+    if replaced {
+        return Ok(json!({ "status": "edited" }));
+    }
+    if resolves_non_global(state, params, &server.name)? {
+        return Err(not_global_forbidden(&server.name));
+    }
+    Err(DispatchError::invalid_params(format!(
+        "no global MCP server {:?}; use mcp.add",
+        server.name
+    )))
+}
+
+/// `mcp.delete` (cap `config.write`): remove a server from the global `mcp.json`.
+/// Only the AoE-owned global layer is writable: a name that resolves from an
+/// agent-native / profile / project-local layer is `FORBIDDEN` (AoE never writes
+/// those files); a name present nowhere is `INVALID_PARAMS`.
+fn mcp_delete(state: &HostApiState, params: &Value) -> Result<Value, DispatchError> {
+    let name = str_param(params, "name")?.to_string();
+    let removed = mcp_overrides::remove_global_server(&name)
+        .map_err(|e| DispatchError::internal(e.to_string()))?;
+    if removed {
+        return Ok(json!({ "status": "deleted" }));
+    }
+    // Not in the global layer. Classify for a precise error: a non-global
+    // provenance is a forbidden target, anything else is simply not found.
+    if resolves_non_global(state, params, &name)? {
+        Err(not_global_forbidden(&name))
+    } else {
+        Err(DispatchError::invalid_params(format!(
+            "unknown global MCP server {name:?}"
+        )))
+    }
+}
+
+/// `mcp.keep` (cap `config.write`): keep a server removed from a native config by
+/// promoting it into the global `mcp.json` (feature D). `INVALID_PARAMS` if no
+/// such kept-on-removal entry exists.
+fn mcp_keep(state: &HostApiState, params: &Value) -> Result<Value, DispatchError> {
+    let (agent, _profile, _cwd) = mcp_context(state, params)?;
+    let name = str_param(params, "name")?;
+    let kept = mcp_state::keep_removed(&agent, name)
+        .map_err(|e| DispatchError::internal(e.to_string()))?;
+    if kept {
+        Ok(json!({ "status": "kept" }))
+    } else {
+        Err(DispatchError::invalid_params(format!(
+            "no kept-on-removal MCP server {name:?} for agent {agent:?}"
+        )))
+    }
+}
+
+/// `mcp.drop` (cap `config.write`): drop a kept-on-removal server without
+/// promoting it (feature D). Idempotent: a name already gone still returns ok.
+fn mcp_drop(state: &HostApiState, params: &Value) -> Result<Value, DispatchError> {
+    let (agent, _profile, _cwd) = mcp_context(state, params)?;
+    let name = str_param(params, "name")?;
+    mcp_state::forget_native(&agent, name).map_err(|e| DispatchError::internal(e.to_string()))?;
+    Ok(json!({ "status": "dropped" }))
+}
+
+/// `mcp.resolve-conflict` (cap `config.write`): resolve a drift conflict for one
+/// server (feature C). Mirrors the REST resolve endpoint: re-resolve the current
+/// conflicts, find the one for `name`, and apply `winner` (`aoe` / `native`)
+/// under the `fingerprint` optimistic-concurrency token. A stale token or a
+/// conflict that no longer exists returns `{ status: "stale" }`.
+fn mcp_resolve_conflict(state: &HostApiState, params: &Value) -> Result<Value, DispatchError> {
+    let (agent, _profile, _cwd) = mcp_context(state, params)?;
+    let name = str_param(params, "name")?.to_string();
+    let winner = match str_param(params, "winner")? {
+        "aoe" => ConflictWinner::Aoe,
+        "native" => ConflictWinner::Native,
+        other => {
+            return Err(DispatchError::invalid_params(format!(
+                "unknown winner {other:?} (expected \"aoe\" or \"native\")"
+            )))
+        }
+    };
+    let fingerprint = str_param(params, "fingerprint")?.to_string();
+
+    let read = mcp_model::load_native_mcp_servers_checked_from_home(&agent)
+        .map_err(|e| DispatchError::internal(e.to_string()))?;
+    let reconcile = mcp_state::reconcile_agent(&agent, &read)
+        .map_err(|e| DispatchError::internal(e.to_string()))?;
+    let Some(conflict) = reconcile
+        .conflicts
+        .into_iter()
+        .find(|c| c.current.name == name)
+    else {
+        return Ok(json!({ "status": "stale" }));
+    };
+    match mcp_state::resolve_conflict(&conflict, winner, &fingerprint)
+        .map_err(|e| DispatchError::internal(e.to_string()))?
+    {
+        ResolveStatus::Applied => Ok(json!({ "status": "applied" })),
+        ResolveStatus::Stale => Ok(json!({ "status": "stale" })),
+    }
 }
 
 /// Parse the `slot` param into a typed [`UiSlot`]. An unknown slot is bad
@@ -1905,5 +2299,293 @@ mod tests {
             }),
         )
         .unwrap();
+    }
+
+    /// Restore HOME + XDG_CONFIG_HOME on drop so a failing assertion never leaks
+    /// the temp override into the rest of the test process.
+    struct HomeGuard {
+        home: Option<std::ffi::OsString>,
+        xdg: Option<std::ffi::OsString>,
+    }
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            match self.home.take() {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+            match self.xdg.take() {
+                Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+        }
+    }
+
+    fn set_tmp_home(dir: &std::path::Path) -> HomeGuard {
+        let guard = HomeGuard {
+            home: std::env::var_os("HOME"),
+            xdg: std::env::var_os("XDG_CONFIG_HOME"),
+        };
+        std::env::set_var("HOME", dir);
+        std::env::set_var("XDG_CONFIG_HOME", dir.join(".config"));
+        guard
+    }
+
+    /// Story: a plugin with `config.write` calls `mcp.add`, and `mcp.list`
+    /// returns the server on the next call, resolved from the `global` layer.
+    #[test]
+    #[serial_test::serial]
+    fn mcp_add_then_list_round_trips() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _home = set_tmp_home(tmp.path());
+        let state = state(tmp.path());
+        let c = ctx(&[CAP_CONFIG_READ, CAP_CONFIG_WRITE]);
+
+        let added = dispatch(
+            &state,
+            &c,
+            "mcp.add",
+            &json!({"name": "fs", "command": "mcp-fs", "args": ["--root", "."]}),
+        )
+        .unwrap();
+        assert_eq!(added["status"], json!("added"));
+
+        // A second add of the same name is refused (use edit).
+        let dup = dispatch(
+            &state,
+            &c,
+            "mcp.add",
+            &json!({"name": "fs", "command": "x"}),
+        )
+        .unwrap_err();
+        assert_eq!(dup.code, codes::INVALID_PARAMS);
+
+        let list = dispatch(&state, &c, "mcp.list", &json!({"agent": "claude"})).unwrap();
+        let servers = list["servers"].as_array().unwrap();
+        let fs = servers.iter().find(|s| s["name"] == json!("fs")).unwrap();
+        assert_eq!(fs["command"], json!("mcp-fs"));
+        assert_eq!(fs["provenance"], json!("global"));
+    }
+
+    /// Story: `mcp.delete` removes a `global` server; targeting an `agent-native`
+    /// server returns FORBIDDEN and writes nothing; an unknown name is
+    /// INVALID_PARAMS.
+    #[test]
+    #[serial_test::serial]
+    fn mcp_delete_global_removes_but_agent_native_is_forbidden() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _home = set_tmp_home(tmp.path());
+        // A native (claude) server that AoE does not own.
+        std::fs::write(
+            tmp.path().join(".claude.json"),
+            r#"{ "mcpServers": { "native": { "command": "n" } } }"#,
+        )
+        .unwrap();
+        let state = state(tmp.path());
+        let c = ctx(&[CAP_CONFIG_READ, CAP_CONFIG_WRITE]);
+
+        dispatch(
+            &state,
+            &c,
+            "mcp.add",
+            &json!({"name": "g", "command": "gcmd"}),
+        )
+        .unwrap();
+        let deleted = dispatch(&state, &c, "mcp.delete", &json!({"name": "g"})).unwrap();
+        assert_eq!(deleted["status"], json!("deleted"));
+
+        // The agent-native server is not AoE-owned: refused, and no global write.
+        let forbidden = dispatch(
+            &state,
+            &c,
+            "mcp.delete",
+            &json!({"name": "native", "agent": "claude"}),
+        )
+        .unwrap_err();
+        assert_eq!(forbidden.code, codes::FORBIDDEN);
+        // The forbidden delete wrote nothing to the global layer.
+        assert!(!crate::session::mcp_overrides::remove_global_server("native").unwrap());
+
+        let missing = dispatch(
+            &state,
+            &c,
+            "mcp.delete",
+            &json!({"name": "nope", "agent": "claude"}),
+        )
+        .unwrap_err();
+        assert_eq!(missing.code, codes::INVALID_PARAMS);
+    }
+
+    /// Story: `mcp.add` / `mcp.edit` refuse a name owned by a non-global layer
+    /// with FORBIDDEN (AoE only writes the global layer), and `mcp.edit` on a
+    /// name that exists nowhere globally is INVALID_PARAMS.
+    #[test]
+    #[serial_test::serial]
+    fn mcp_add_and_edit_reject_non_global_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _home = set_tmp_home(tmp.path());
+        // An agent-native server AoE does not own.
+        std::fs::write(
+            tmp.path().join(".claude.json"),
+            r#"{ "mcpServers": { "native": { "command": "n" } } }"#,
+        )
+        .unwrap();
+        let state = state(tmp.path());
+        let c = ctx(&[CAP_CONFIG_READ, CAP_CONFIG_WRITE]);
+
+        // add of a native-owned name: FORBIDDEN, and no global override written.
+        let add_forbidden = dispatch(
+            &state,
+            &c,
+            "mcp.add",
+            &json!({"name": "native", "command": "x", "agent": "claude"}),
+        )
+        .unwrap_err();
+        assert_eq!(add_forbidden.code, codes::FORBIDDEN);
+        assert!(!crate::session::mcp_overrides::remove_global_server("native").unwrap());
+
+        // edit of a native-owned name: FORBIDDEN (not INVALID_PARAMS).
+        let edit_forbidden = dispatch(
+            &state,
+            &c,
+            "mcp.edit",
+            &json!({"name": "native", "command": "x", "agent": "claude"}),
+        )
+        .unwrap_err();
+        assert_eq!(edit_forbidden.code, codes::FORBIDDEN);
+
+        // edit of a name that exists nowhere globally: INVALID_PARAMS (use add).
+        let edit_missing = dispatch(
+            &state,
+            &c,
+            "mcp.edit",
+            &json!({"name": "ghost", "command": "x", "agent": "claude"}),
+        )
+        .unwrap_err();
+        assert_eq!(edit_missing.code, codes::INVALID_PARAMS);
+    }
+
+    /// Story: a plugin without `config.write` cannot perform any MCP write or a
+    /// `config.write`; the host refuses on capability before the handler runs.
+    #[test]
+    fn mcp_and_config_writes_require_config_write_cap() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = state(tmp.path());
+        // Holds config.read but not config.write.
+        let c = ctx(&[CAP_CONFIG_READ]);
+
+        for (method, params) in [
+            ("mcp.add", json!({"name": "fs", "command": "c"})),
+            ("mcp.edit", json!({"name": "fs", "command": "c"})),
+            ("mcp.delete", json!({"name": "fs"})),
+            ("mcp.keep", json!({"name": "fs"})),
+            ("mcp.drop", json!({"name": "fs"})),
+            (
+                "mcp.resolve-conflict",
+                json!({"name": "fs", "winner": "aoe", "fingerprint": "x"}),
+            ),
+            (
+                "config.write",
+                json!({"patch": {"session": {"yolo_mode_default": true}}}),
+            ),
+        ] {
+            let err = dispatch(&state, &c, method, &params).unwrap_err();
+            assert_eq!(
+                err.code,
+                codes::FORBIDDEN,
+                "{method} must require config.write"
+            );
+        }
+    }
+
+    /// Story: `config.write` refuses an unknown section, a host-execution
+    /// (`local_only`) field, and an elevation-required field, then accepts a
+    /// plain field which round-trips through `config.read`.
+    #[test]
+    #[serial_test::serial]
+    fn config_write_gates_fields_and_round_trips_allowed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _home = set_tmp_home(tmp.path());
+        let state = state(tmp.path());
+        let c = ctx(&[CAP_CONFIG_READ, CAP_CONFIG_WRITE]);
+
+        // Unknown section (`hooks` = arbitrary shell, no descriptor) -> rejected.
+        let unknown = dispatch(
+            &state,
+            &c,
+            "config.write",
+            &json!({"patch": {"hooks": {"on_start": "rm -rf /"}}}),
+        )
+        .unwrap_err();
+        assert_eq!(unknown.code, codes::INVALID_PARAMS);
+
+        // local_only host-execution surface -> FORBIDDEN.
+        let local_only = dispatch(
+            &state,
+            &c,
+            "config.write",
+            &json!({"patch": {"acp": {"node_path": "/tmp/node"}}}),
+        )
+        .unwrap_err();
+        assert_eq!(local_only.code, codes::FORBIDDEN);
+
+        // Elevation-required field -> FORBIDDEN (a plugin gets the unelevated set).
+        let elevated = dispatch(
+            &state,
+            &c,
+            "config.write",
+            &json!({"patch": {"worktree": {"enabled": true}}}),
+        )
+        .unwrap_err();
+        assert_eq!(elevated.code, codes::FORBIDDEN);
+
+        // A plain Allow field writes and reads back.
+        dispatch(
+            &state,
+            &c,
+            "config.write",
+            &json!({"patch": {"session": {"yolo_mode_default": true}}}),
+        )
+        .unwrap();
+        let read = dispatch(
+            &state,
+            &c,
+            "config.read",
+            &json!({"section": "session", "field": "yolo_mode_default"}),
+        )
+        .unwrap();
+        assert_eq!(read["value"], json!(true));
+
+        // An unknown field is rejected on read too.
+        let bad = dispatch(
+            &state,
+            &c,
+            "config.read",
+            &json!({"section": "session", "field": "nope"}),
+        )
+        .unwrap_err();
+        assert_eq!(bad.code, codes::INVALID_PARAMS);
+
+        // config.read is gated symmetrically with config.write: a host-execution
+        // (`local_only`) field and an elevation-gated field, which can carry
+        // literal secrets (e.g. `sandbox.environment`), are FORBIDDEN to read,
+        // not just to write.
+        for (section, field) in [
+            ("acp", "node_path"),       // local_only host-execution surface
+            ("worktree", "enabled"),    // elevation-gated
+            ("sandbox", "environment"), // elevation-gated, may hold secrets
+        ] {
+            let err = dispatch(
+                &state,
+                &c,
+                "config.read",
+                &json!({"section": section, "field": field}),
+            )
+            .unwrap_err();
+            assert_eq!(
+                err.code,
+                codes::FORBIDDEN,
+                "config.read of {section}.{field} must be FORBIDDEN"
+            );
+        }
     }
 }
