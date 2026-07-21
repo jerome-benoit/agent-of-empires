@@ -234,6 +234,9 @@ const MAX_TITLE_WORDS: usize = 8;
 /// has the least possible work to do; anything off-format is rejected, never
 /// salvaged.
 const INSTRUCTION: &str = "Generate a concise 3 to 5 word title summarizing the following task. \
+The transcript may begin with the CLI tool's startup banner, welcome message, tips, or help \
+text; ignore that boilerplate and title the user's actual request and the work done, never the \
+tool's own introduction. \
 Output the title and nothing else: no quotes, no markdown, no code fences, no labels, \
 no preamble, no explanation, no trailing punctuation. The entire response must be just \
 the title on a single line. Do not refuse: if the task is unclear, still produce your \
@@ -653,14 +656,104 @@ fn try_global_slot() -> Option<std::fs::File> {
 /// middle-elided head+tail block, or `None` when the capture is empty or looks
 /// like garbage (so the caller keeps the civ name without paying for a
 /// one-shot).
-fn capture_terminal_context(tmux: &crate::tmux::Session) -> Option<String> {
+fn capture_terminal_context(tmux: &crate::tmux::Session, tool: &str) -> Option<String> {
     let raw = tmux.capture_pane_full().ok()?;
     let cleaned = strip_ansi(&raw);
-    let trimmed = cleaned.trim();
+    let stripped = strip_agent_banner(&cleaned, tool);
+    let trimmed = stripped.trim();
     if !context_looks_usable(trimmed) {
         return None;
     }
     Some(head_tail(trimmed, CONTEXT_HEAD_BYTES, CONTEXT_TAIL_BYTES))
+}
+
+/// CLI agents print a startup banner (a welcome box plus "getting started"
+/// tips) on launch. It dominates the pane head, so a first-turn capture ends up
+/// summarizing the banner instead of the task (Claude Code -> "claude code
+/// getting started"). Best-effort: for agents we recognize, drop the leading
+/// run of banner lines. It only acts when the banner's signature marker is
+/// present, and falls back to the original text if stripping would leave nothing
+/// substantive, so it can never make the capture worse. The `INSTRUCTION` prose
+/// is the backstop for banners this misses or for other agents.
+fn strip_agent_banner(text: &str, tool: &str) -> String {
+    // Only Claude Code has a verified banner shape to key on. Other agents rely
+    // on the instruction prose; add a case here per agent as needed.
+    if !tool.eq_ignore_ascii_case("claude") {
+        return text.to_string();
+    }
+    // Gate loosely: the startup box names the tool ("Claude Code v2.1.216" in
+    // its top border). A false positive is harmless because the line filter
+    // below only strips an actual leading run of box chrome, so a task that
+    // merely mentions Claude Code (with no leading box) loses nothing.
+    if !text.to_lowercase().contains("claude code") {
+        return text.to_string();
+    }
+    let mut in_banner = true;
+    let mut kept: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        if in_banner && is_claude_banner_line(line) {
+            continue;
+        }
+        in_banner = false;
+        kept.push(line);
+    }
+    let stripped = kept.join("\n");
+    // Guard against eating the whole transcript (a pane that was nothing but
+    // banner, or a future banner shape that trips the heuristic): keep the
+    // original when stripping leaves too little to title.
+    if stripped.chars().filter(|c| c.is_alphabetic()).count() < 12 {
+        return text.to_string();
+    }
+    stripped
+}
+
+/// Whether a line belongs to the Claude Code startup banner. The banner is a
+/// box: its borders are box-drawing glyphs, every body row opens with a vertical
+/// box edge, and its logo uses block-element glyphs, so a structural test
+/// captures the whole box regardless of the (version-dependent) wording inside.
+/// The `MARKERS` cover the notices printed just under the box (MCP-auth warning,
+/// tips, "what's new") before the REPL settles. Blank lines inside the leading
+/// block count so the run isn't cut short by the gaps between sections.
+///
+/// Verified against Claude Code v2.1.216, whose banner is a two-column box
+/// titled `Claude Code v<ver>` with "Welcome back <name>!", an ASCII logo, and a
+/// tips / what's-new column, followed by a `⚠ N MCP servers ...` notice.
+fn is_claude_banner_line(line: &str) -> bool {
+    let t = line.trim();
+    if t.is_empty() {
+        return true;
+    }
+    // Box-drawing (U+2500..=U+257F) borders/edges and block-element (U+2580..=
+    // U+259F) logo glyphs.
+    let is_chrome = |c: char| ('\u{2500}'..='\u{259F}').contains(&c);
+    if t.chars().all(|c| is_chrome(c) || c.is_whitespace()) {
+        return true;
+    }
+    if t.starts_with(|c: char| is_chrome(c) || c == '|') {
+        return true;
+    }
+    let lc = t.to_lowercase();
+    const MARKERS: &[&str] = &[
+        "claude code v",
+        "welcome to claude code",
+        "welcome back",
+        "tips for getting started",
+        "what's new",
+        "/release-notes",
+        "run /mcp",
+        "need authentication",
+        "/help for help",
+    ];
+    if MARKERS.iter().any(|m| lc.contains(m)) {
+        return true;
+    }
+    // Startup notice / tip callouts: ⚠ (U+26A0) and ※ (U+203B).
+    if t.starts_with('\u{26A0}') || t.starts_with('\u{203B}') || lc.starts_with("tip:") {
+        return true;
+    }
+    // Numbered tip: "1. ..." or "2) ...".
+    let mut chars = t.chars();
+    matches!((chars.next(), chars.next()), (Some(d), Some(p)) if d.is_ascii_digit() && (p == '.' || p == ')'))
 }
 
 /// Reject a pane capture that is empty, has no letters, or is dominated by
@@ -840,7 +933,7 @@ pub async fn run_terminal_rename(profile: &str, session_id: &str) -> anyhow::Res
         }
     }
 
-    let Some(context) = capture_terminal_context(&tmux) else {
+    let Some(context) = capture_terminal_context(&tmux, detect_tool) else {
         tracing::debug!(target: "smart_rename", session = %session_id, "terminal skip: unusable pane capture");
         return Ok(());
     };
@@ -1703,6 +1796,92 @@ mod tests {
             ),
             Err(SkipReason::NoOneshot)
         ));
+    }
+
+    // Reproduces the real Claude Code v2.1.216 startup banner shape: a
+    // two-column box titled `Claude Code v<ver>` (identity + logo on the left,
+    // tips / what's-new on the right), then a `⚠ ... MCP servers ...` notice,
+    // then the actual conversation. Captured from a live `claude` launch.
+    const CLAUDE_BANNER_TRANSCRIPT: &str = "\
+╭─── Claude Code v2.1.216 ──────────────────────────────────────────────────╮
+│                                    │ Tips for getting started             │
+│         Welcome back Nathan!       │ Ask Claude to create a new app or     │
+│                                    │ ───────────────────────────────────  │
+│              ▐▛███▜▌               │ What's new                            │
+│             ▝▜█████▛▘              │ Added sandbox.filesystem.disabled     │
+│               ▘▘ ▝▝                │ Fixed a slowdown in long sessions     │
+│   Opus 4.8 (1M context) · Max ·    │ /release-notes for more               │
+│   nathan@mozilla.ai's Org          │                                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+
+ ⚠ 3 MCP servers need authentication · run /mcp
+
+> fix the flaky login redirect test
+
+I'll look at the auth redirect logic now.
+Patched the race in auth.rs and added a regression test.";
+
+    #[test]
+    fn strip_agent_banner_drops_claude_startup_box() {
+        let stripped = strip_agent_banner(CLAUDE_BANNER_TRANSCRIPT, "claude");
+        // The box, its wording, the logo, and the MCP notice are gone.
+        assert!(!stripped.contains("Claude Code v"));
+        assert!(!stripped.contains("Welcome back"));
+        assert!(!stripped.contains("Tips for getting started"));
+        assert!(!stripped.contains("What's new"));
+        assert!(!stripped.contains("MCP servers"));
+        assert!(!stripped.contains('╭') && !stripped.contains('│') && !stripped.contains('█'));
+        // The real conversation survives.
+        assert!(stripped.contains("fix the flaky login redirect test"));
+        assert!(stripped.contains("Patched the race in auth.rs"));
+    }
+
+    #[test]
+    fn strip_agent_banner_is_noop_for_other_agents() {
+        // A non-claude agent keeps the text verbatim (no verified signature).
+        assert_eq!(
+            strip_agent_banner(CLAUDE_BANNER_TRANSCRIPT, "codex"),
+            CLAUDE_BANNER_TRANSCRIPT
+        );
+    }
+
+    #[test]
+    fn strip_agent_banner_is_noop_without_claude_code_mention() {
+        // Real transcript that never names the tool is untouched, even for claude.
+        let plain = "> refactor the payment retry loop\n\nDone: added a backoff and a test.";
+        assert_eq!(strip_agent_banner(plain, "claude"), plain);
+    }
+
+    #[test]
+    fn strip_agent_banner_keeps_content_merely_mentioning_claude_code() {
+        // The gate matches "claude code", but a task ABOUT Claude Code with no
+        // leading banner box must be preserved: the line filter only strips an
+        // actual leading run of chrome, so `in_banner` flips off on line 1.
+        let about = "> make the Claude Code onboarding docs clearer\n\n\
+Rewrote the getting-started section and fixed two broken links.";
+        assert_eq!(strip_agent_banner(about, "claude"), about);
+    }
+
+    #[test]
+    fn strip_agent_banner_falls_back_when_only_banner() {
+        // A pane that is nothing but banner must not strip down to empty; keep
+        // the original so the caller still has something (and the instruction
+        // prose can do its job) rather than skipping on an empty capture.
+        let banner_only = "\
+╭─── Claude Code v2.1.216 ──────────╮
+│         Welcome back Nathan!      │
+│              ▐▛███▜▌              │
+╰────────────────────────────────────╯
+
+ ⚠ 3 MCP servers need authentication · run /mcp";
+        assert_eq!(strip_agent_banner(banner_only, "claude"), banner_only);
+    }
+
+    #[test]
+    fn instruction_tells_model_to_ignore_startup_banner() {
+        let lc = INSTRUCTION.to_lowercase();
+        assert!(lc.contains("startup banner"));
+        assert!(lc.contains("ignore"));
     }
 
     #[test]
