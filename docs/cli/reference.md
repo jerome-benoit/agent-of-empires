@@ -9,6 +9,7 @@ This document contains the help content for the `aoe` command-line program.
 * [`aoe agents`↴](#aoe-agents)
 * [`aoe init`↴](#aoe-init)
 * [`aoe list`↴](#aoe-list)
+* [`aoe ps`↴](#aoe-ps)
 * [`aoe logs`↴](#aoe-logs)
 * [`aoe log-level`↴](#aoe-log-level)
 * [`aoe remove`↴](#aoe-remove)
@@ -124,6 +125,7 @@ Run without arguments to launch the TUI dashboard.
 * `agents` — List supported agents and their install status
 * `init` — Initialize .agent-of-empires/config.toml in a repository
 * `list` — List all sessions
+* `ps` — Show a substrate-agnostic runtime view of in-flight sessions (tmux agent panes and ACP structured-view workers), one row each
 * `logs` — View the configured AoE log file with a pretty viewer
 * `log-level` — Get or set the running daemon's log filter at runtime. Pass a bare level (debug/info/...) for the safe expansion, or `--filter <expr>` for raw EnvFilter syntax. `--get` prints the current filter. Changes are ephemeral and lost on daemon restart
 * `remove` — Remove a session
@@ -227,6 +229,21 @@ List all sessions
 
 * `--json` — Output as JSON
 * `--all` — List sessions from all profiles
+
+
+
+## `aoe ps`
+
+Show a substrate-agnostic runtime view of in-flight sessions (tmux agent panes and ACP structured-view workers), one row each
+
+**Usage:** `aoe ps [OPTIONS]`
+
+###### **Options:**
+
+* `--json` — Output as JSON
+* `--tmux` — Show only tmux-backed sessions
+* `--acp` — Show only ACP (structured-view) workers
+* `--dead` — Include dead sessions and orphaned substrate entries (hidden by default)
 
 
 
