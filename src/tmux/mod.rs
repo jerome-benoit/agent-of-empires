@@ -575,7 +575,7 @@ pub fn session_exists_from_cache(name: &str) -> Option<bool> {
 }
 
 /// Cached tmux `#{session_activity}` epoch (seconds) for `name`, else `None`.
-/// Read-only view over [`SESSION_CACHE`]; caller refreshes first if needed.
+/// Read-only view over the private `SESSION_CACHE`; caller refreshes first if needed.
 /// Ignores the snapshot TTL on purpose: this is a best-effort AGE hint for
 /// `aoe ps`, not a liveness decision.
 pub fn session_activity(name: &str) -> Option<i64> {
