@@ -1178,11 +1178,11 @@ impl AgentDef {
     }
 
     /// Static argv tokens appended *after* the prompt for a one-shot
-    /// (smart-rename) title call. Only meaningful for flag-value one-shots
-    /// (`oneshot_flag` is a `-p`-style option whose value is the prompt): the
-    /// CLI binds the prompt to the flag, so these trailing flags cannot be read
-    /// as the prompt, and the prompt cannot be read as one of them. Copilot
-    /// needs `-s` (print only the final answer, no stats) plus
+    /// (smart-rename) title call. Only meaningful for value-binding one-shots
+    /// (`oneshot_flag_binds_prompt()` is true, e.g. copilot `-p`, whose value
+    /// is the prompt): the CLI binds the prompt to the flag, so these trailing
+    /// flags cannot be read as the prompt, and the prompt cannot be read as one
+    /// of them. Copilot needs `-s` (print only the final answer, no stats) plus
     /// `--allow-all-tools --no-ask-user` so the non-interactive title call
     /// never blocks on a permission or follow-up question. These are static,
     /// never user input, so the no-injection contract holds.
@@ -1228,12 +1228,18 @@ impl AgentDef {
     }
 
     /// Whether this agent's one-shot flag binds the following token as its
-    /// value (the prompt), rather than taking a positional prompt. Copilot's
-    /// `-p` binds its value, so model args must follow the prompt (in the
-    /// trailing region) instead of preceding it; every other one-shot agent
-    /// takes a positional prompt, so model args go before it.
+    /// value (the prompt), rather than taking a positional prompt. The
+    /// `-p`/`--prompt` value-binding flags (copilot, gemini, kimi) consume the
+    /// next token as the prompt, so model args must follow the prompt (in the
+    /// trailing region); placing them before it would make the flag swallow the
+    /// model selector. Positional-prompt one-shots (claude's boolean `-p`,
+    /// codex `exec`, opencode `run`) take the model args before the prompt.
+    ///
+    /// Verified 2026-07-21 against each CLI: gemini `-p` is yargs
+    /// `type: string, nargs: 1`; kimi `-p` is a `typer.Option(str)`; copilot
+    /// `-p <text>` takes a value; claude `-p`/`--print` is boolean.
     pub fn oneshot_flag_binds_prompt(&self) -> bool {
-        matches!(self.name, "copilot")
+        matches!(self.name, "copilot" | "gemini" | "kimi")
     }
 
     /// The base launch token(s) for the default (non-overridden) command:
@@ -1652,6 +1658,41 @@ mod tests {
                 assert!(
                     agent.oneshot_model_flag().is_some(),
                     "agent '{}' has a cheap default but no flag to emit it",
+                    agent.name
+                );
+            }
+            // Reverse guard: a model flag is only reachable through a one-shot,
+            // so a flag without a one-shot mode would be dead.
+            if agent.oneshot_model_flag().is_some() {
+                assert!(
+                    agent.oneshot_flag.is_some(),
+                    "agent '{}' exposes a model flag but has no one-shot mode",
+                    agent.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn oneshot_flag_binds_prompt_matches_expected() {
+        // Drift guard for the value-binding classification that decides where
+        // `build_oneshot_argv` places the model selector. A wrong answer here
+        // silently mis-injects an override (a value-binding flag would swallow
+        // the model selector as its prompt), so pin the verified set exactly.
+        for agent in AGENTS {
+            let expected = matches!(agent.name, "copilot" | "gemini" | "kimi");
+            assert_eq!(
+                agent.oneshot_flag_binds_prompt(),
+                expected,
+                "unexpected value-binding classification for '{}'",
+                agent.name
+            );
+            // A value-binding classification is only meaningful for an agent
+            // that actually has a one-shot flag.
+            if agent.oneshot_flag_binds_prompt() {
+                assert!(
+                    agent.oneshot_flag.is_some(),
+                    "agent '{}' is value-binding but has no one-shot flag",
                     agent.name
                 );
             }

@@ -1524,6 +1524,56 @@ mod tests {
                 "--no-ask-user"
             ]
         );
+
+        // gemini and kimi `-p` are value-binding (verified), so the model
+        // selector must trail the prompt, exactly like copilot.
+        let mut vb_models = HashMap::new();
+        vb_models.insert("gemini".to_string(), "gemini-2.5-flash".to_string());
+        vb_models.insert("kimi".to_string(), "moonshot-v1-8k".to_string());
+        let gemini = agents::get_agent("gemini").unwrap();
+        assert_eq!(
+            build_oneshot_argv(
+                gemini,
+                "name this",
+                OneshotModel::Title(resolve_title_model_args(gemini, &vb_models)),
+            )
+            .expect("gemini one-shot"),
+            vec!["gemini", "-p", "name this", "-m", "gemini-2.5-flash"]
+        );
+        let kimi = agents::get_agent("kimi").unwrap();
+        assert_eq!(
+            build_oneshot_argv(
+                kimi,
+                "name this",
+                OneshotModel::Title(resolve_title_model_args(kimi, &vb_models)),
+            )
+            .expect("kimi one-shot"),
+            vec!["kimi", "-p", "name this", "-m", "moonshot-v1-8k"]
+        );
+
+        // opencode `run` takes a positional prompt, so its model selector goes
+        // before the prompt.
+        let mut oc_models = HashMap::new();
+        oc_models.insert(
+            "opencode".to_string(),
+            "anthropic/claude-haiku-4-5".to_string(),
+        );
+        let opencode = agents::get_agent("opencode").unwrap();
+        assert_eq!(
+            build_oneshot_argv(
+                opencode,
+                "name this",
+                OneshotModel::Title(resolve_title_model_args(opencode, &oc_models)),
+            )
+            .expect("opencode one-shot"),
+            vec![
+                "opencode",
+                "run",
+                "-m",
+                "anthropic/claude-haiku-4-5",
+                "name this"
+            ]
+        );
     }
 
     #[test]

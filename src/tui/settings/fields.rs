@@ -531,7 +531,9 @@ fn custom_value_from_json(id: &str, current: &Value) -> FieldValue {
         }
         "smart-rename-model" => {
             // A per-agent {agent: model} map, edited as raw JSON in the TUI
-            // (the web has a structured per-agent widget). Commit validation
+            // (the web has a structured per-agent widget). This raw-JSON path is
+            // the only surface that can set the empty-string "force CLI default"
+            // value; the web widget removes a key on clear. Commit validation
             // requires a JSON object so a typo cannot wipe the map.
             let text = if current.is_null() {
                 "{}".to_string()

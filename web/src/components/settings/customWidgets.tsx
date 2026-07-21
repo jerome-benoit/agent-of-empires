@@ -208,9 +208,12 @@ export function LoggingTargetsWidget({ descriptor, value, save }: CustomWidgetPr
 
 /** Per-agent model for the smart-rename title one-shot. The `smart_rename_model`
  *  field is an `{ agent: model }` map; one free-text row per installed
- *  one-shot-capable agent. Clearing a row removes the override so the agent
- *  falls back to its built-in default (claude pins `haiku`, others the CLI
- *  default). Ids are free-form because AoE pins no CLI version. */
+ *  one-shot-capable agent. Clearing a row removes the key, so the agent falls
+ *  back to its built-in default (claude pins `haiku`, others the CLI default).
+ *  The third "force CLI default" state (an explicit empty-string value, opting
+ *  out of the built-in pin) is only meaningful for claude and is settable via
+ *  the TUI or config.toml, not this widget. Ids are free-form because AoE pins
+ *  no CLI version. */
 export function SmartRenameModelWidget({ descriptor, value, save }: CustomWidgetProps) {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   useEffect(() => {
