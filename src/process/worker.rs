@@ -283,6 +283,25 @@ pub fn log_path(dir: &Path, id: &str) -> Result<PathBuf> {
     Ok(dir.join(format!("{id}.log")))
 }
 
+/// `<dir>/<id>.control.sock`, the typed control channel that rides
+/// alongside the raw ACP relay `<id>.sock`. Deriving it from the main
+/// socket keeps the runner (which binds it) and the daemon (which dials
+/// it) in agreement without either needing the workers dir: `x.sock`
+/// becomes `x.control.sock`. Session ids are validated (alphanumeric,
+/// `-`, `_`) so they never carry a `.` that would confuse the extension
+/// swap. Phase A of #1054.
+pub fn control_socket_sibling(main_socket: &Path) -> PathBuf {
+    // Guard against self-application: feeding an already-derived control
+    // path would silently yield `x.control.control.sock`. All callers pass
+    // the main `.sock`; this makes future misuse loud in debug builds.
+    debug_assert!(
+        !main_socket.to_string_lossy().ends_with(".control.sock"),
+        "control_socket_sibling called on an already-derived control path: {}",
+        main_socket.display()
+    );
+    main_socket.with_extension("control.sock")
+}
+
 /// `<dir>/<id>.restart`, a sentinel that distinguishes a restart-driven
 /// teardown from a stop/kill so the reaper can react accordingly.
 pub fn restart_marker_path(dir: &Path, id: &str) -> Result<PathBuf> {

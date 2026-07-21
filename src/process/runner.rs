@@ -59,6 +59,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use super::worker_registry::{self, WorkerRecord};
+use crate::acp::control_protocol::{self, ControlBody};
 use crate::process::worker::RunnerRecordState;
 
 /// How often the abandonment watchdog inspects its own registry record.
@@ -227,14 +228,33 @@ pub async fn run(args: AcpRunnerArgs) -> Result<()> {
         "structured view runner starting"
     );
 
-    // Bind the socket BEFORE spawning the agent so the daemon's
-    // post-spawn connect doesn't race the listener creation.
-    if args.socket.exists() {
-        let _ = std::fs::remove_file(&args.socket);
-    }
+    // Bind the sibling control socket BEFORE the main relay socket, and
+    // both before spawning the agent. The daemon waits for the main
+    // socket to appear, then dials the control socket; binding control
+    // first guarantees it is connectable by the time the main socket is,
+    // so no capability handshake or record field is needed to advertise
+    // it. Phase A of #1054.
+    let control_socket = crate::process::worker::control_socket_sibling(&args.socket);
     if let Some(parent) = args.socket.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating socket dir {}", parent.display()))?;
+    }
+    if control_socket.exists() {
+        let _ = std::fs::remove_file(&control_socket);
+    }
+    let control_listener = UnixListener::bind(&control_socket)
+        .with_context(|| format!("bind {}", control_socket.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&control_socket, std::fs::Permissions::from_mode(0o600));
+    }
+
+    // Bind the main relay socket. The runner binds before it spawns the
+    // agent so the daemon's post-spawn connect doesn't race the listener
+    // creation.
+    if args.socket.exists() {
+        let _ = std::fs::remove_file(&args.socket);
     }
     let listener = UnixListener::bind(&args.socket)
         .with_context(|| format!("bind {}", args.socket.display()))?;
@@ -322,6 +342,42 @@ pub async fn run(args: AcpRunnerArgs) -> Result<()> {
         Arc::clone(&shared),
         args.session_id.clone(),
     ));
+
+    // Control-channel accept loop (#1054 Phase A). Serves the sibling
+    // `<id>.control.sock`, over which the runner reports native
+    // turn-complete signals. Independent of the main byte-relay accept
+    // loop; a daemon attaches to both. Detached like the stderr drainer:
+    // the process teardown drops it.
+    let control_shared = Arc::clone(&shared);
+    let control_session = args.session_id.clone();
+    let control_accept_task = tokio::spawn(async move {
+        loop {
+            match control_listener.accept().await {
+                Ok((stream, _addr)) => {
+                    info!(
+                        target: "acp.runner",
+                        session = %control_session,
+                        "daemon connected (control channel)"
+                    );
+                    handle_control_connection(
+                        stream,
+                        Arc::clone(&control_shared),
+                        control_session.clone(),
+                    )
+                    .await;
+                    info!(
+                        target: "acp.runner",
+                        session = %control_session,
+                        "daemon disconnected (control channel)"
+                    );
+                }
+                Err(e) => {
+                    warn!(target: "acp.runner", "control accept error: {e}");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    });
 
     // Wrap agent stdin in a tokio Mutex so the accept loop can hand it
     // to one connection at a time. Wrapping (not splitting) keeps stdin
@@ -461,6 +517,7 @@ pub async fn run(args: AcpRunnerArgs) -> Result<()> {
 
     watchdog_handle.abort();
     agent_stdout_task.abort();
+    control_accept_task.abort();
     if !preserve_registry {
         worker_registry::delete(&session_id).ok();
     }
@@ -614,6 +671,38 @@ struct RunnerShared {
     /// `session/request_permission`, a JSON-RPC error for other methods.
     /// See #1099.
     outstanding_requests: Mutex<HashMap<i64, String>>,
+    /// JSON-RPC ids of daemon-issued `session/prompt` requests awaiting a
+    /// response. Populated from daemon to agent traffic; drained when the
+    /// matching response is seen on the agent to daemon path, which fires
+    /// a `PromptCompleted` control event. Lives on `RunnerShared` (not a
+    /// connection) so a prompt issued by one daemon still reports
+    /// completion to whichever daemon is attached when the agent
+    /// responds. Phase A of #1054.
+    prompt_requests: Mutex<HashSet<i64>>,
+    /// Control-channel outbound and the single completion buffered across
+    /// a no-daemon gap, under one lock so emit and attach are mutually
+    /// exclusive (no drain-then-set TOCTOU).
+    control: Mutex<ControlChannel>,
+    /// Mirror of `active_outbound.is_some()`, read lock-free by
+    /// `emit_control` to decide whether a completion is owned by a live
+    /// main-relay daemon (drop it) or occurred during a genuine no-daemon
+    /// gap (buffer it for the next control attach). Set/cleared alongside
+    /// `active_outbound`.
+    main_attached: std::sync::atomic::AtomicBool,
+}
+
+/// Control-channel state for the sibling `<id>.control.sock`. A single
+/// mutex covers both fields so `emit_control` (check outbound, else
+/// buffer) and `install_control_outbound` (drain buffer, set outbound)
+/// cannot interleave and strand a completion.
+#[derive(Default)]
+struct ControlChannel {
+    /// Write half to the attached daemon, or None when detached.
+    outbound: Option<tokio::net::unix::OwnedWriteHalf>,
+    /// The one completion produced during a no-daemon gap, awaiting the
+    /// next control attach. ACP is serial per session, so at most one turn
+    /// is ever legitimately pending; a newer completion supersedes.
+    pending: Option<ControlBody>,
 }
 
 /// JSON-RPC peek for outstanding-request tracking. Pulls only the
@@ -635,6 +724,38 @@ struct JsonRpcPeek {
 /// non-error control-flow signal the agent expects.
 const PERMISSION_METHOD: &str = "session/request_permission";
 
+/// The daemon-issued request whose response marks a turn complete. The
+/// runner tracks its id (seen on the daemon to agent path) and surfaces
+/// a native `PromptCompleted` when the matching response comes back on
+/// the agent to daemon path. Phase A of #1054.
+const PROMPT_METHOD: &str = "session/prompt";
+
+/// Deadline for a single control-channel frame write. `emit_control`
+/// holds the `control` mutex across the write and runs on the sole
+/// stdout-relay task, so an unbounded write to a stalled control peer (a
+/// slow reader or a full socket buffer) would freeze the mutex and the
+/// whole session's relay. Capping it bounds that blast radius; a timeout
+/// is treated as a write failure so the existing drop/buffer cleanup
+/// runs. Phase A of #1054.
+const CONTROL_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Write a control frame with a bounded deadline. Returns `true` on a
+/// successful write, `false` on a write error or timeout; callers treat
+/// `false` as a dead/stalled socket and run their drop/buffer cleanup.
+async fn write_control_frame(
+    out: &mut tokio::net::unix::OwnedWriteHalf,
+    body: &ControlBody,
+) -> bool {
+    matches!(
+        tokio::time::timeout(
+            CONTROL_WRITE_TIMEOUT,
+            control_protocol::write_frame(out, body)
+        )
+        .await,
+        Ok(Ok(()))
+    )
+}
+
 /// Soft cap on `outstanding_requests`. Hit only if the daemon stops
 /// answering non-permission requests (which a healthy ACP daemon
 /// always does); a misbehaving daemon shouldn't be able to grow the
@@ -650,6 +771,9 @@ impl RunnerShared {
             active_outbound: Mutex::new(None),
             pending: Mutex::new(VecDeque::with_capacity(NOTIFICATION_BUFFER_LINES)),
             outstanding_requests: Mutex::new(HashMap::new()),
+            prompt_requests: Mutex::new(HashSet::new()),
+            control: Mutex::new(ControlChannel::default()),
+            main_attached: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -675,6 +799,24 @@ impl RunnerShared {
                 );
             }
             map.insert(id, method);
+        }
+
+        // Phase A #1054: if this is the agent's response to a tracked
+        // `session/prompt`, surface a native turn-complete over the
+        // control channel. Gated on actually tracking a prompt so a busy
+        // session does not JSON-parse every agent line twice (this on top
+        // of `note_daemon_response`). Independent of the byte-relay
+        // outbound below, since the control channel is a separate socket.
+        if !self.prompt_requests.lock().await.is_empty() {
+            if let Some((id, stop_reason)) = parse_response(line) {
+                if self.prompt_requests.lock().await.remove(&id) {
+                    self.emit_control(ControlBody::PromptCompleted {
+                        prompt_req_id: id,
+                        stop_reason,
+                    })
+                    .await;
+                }
+            }
         }
 
         let mut guard = self.active_outbound.lock().await;
@@ -832,12 +974,103 @@ impl RunnerShared {
         }
         drop(pending);
         *guard = Some(out);
+        self.main_attached
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         prev
     }
 
     async fn clear_outbound(&self) {
-        let mut guard = self.active_outbound.lock().await;
-        *guard = None;
+        *self.active_outbound.lock().await = None;
+        self.main_attached
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        // A main-relay disconnect starts a no-daemon gap. Drop any
+        // completion left un-drained from a prior gap so only the current
+        // gap's completion is ever replayed to the next resuming daemon.
+        self.control.lock().await.pending = None;
+    }
+
+    /// Peek a daemon to agent line: if it is a `session/prompt` request,
+    /// record its id so the matching response (agent to daemon) reports a
+    /// native turn-complete. Phase A of #1054.
+    async fn note_prompt_request(&self, line: &[u8]) {
+        if let Some((id, method)) = parse_request(line) {
+            if method == PROMPT_METHOD {
+                self.prompt_requests.lock().await.insert(id);
+            }
+        }
+    }
+
+    /// Deliver a control frame to the attached daemon, else buffer it for
+    /// the next control attach. Phase A delivers exactly one completion
+    /// per control attach (the adopted turn), so a successful live write
+    /// tears the outbound down: no later frame is written to a socket the
+    /// daemon has stopped reading. A completion is only buffered during a
+    /// genuine no-daemon gap; while a main-relay daemon is attached it
+    /// already owns that turn's completion via its own prompt future, so
+    /// buffering it would replay a stale completion onto a future adopted
+    /// turn. One lock over both fields keeps this mutually exclusive with
+    /// `install_control_outbound`.
+    async fn emit_control(&self, body: ControlBody) {
+        let mut ch = self.control.lock().await;
+        if let Some(out) = ch.outbound.as_mut() {
+            let ok = write_control_frame(out, &body).await;
+            ch.outbound = None;
+            if ok {
+                return;
+            }
+            // Dead or stalled control socket. A control daemon had dialed
+            // in (this is the resume/adopted-turn path), so this completion
+            // is real and was not received: buffer it unconditionally for
+            // the next control attach to replay. Do NOT fall through to the
+            // main_attached gate, which would drop it (the write timing out
+            // is exactly when the fast path matters most). See PR #2975.
+            ch.pending = Some(body);
+            return;
+        }
+        // No control daemon was ever attached on this channel. Only buffer
+        // during a genuine no-daemon gap; while a main-relay daemon is
+        // attached it owns this turn's completion via its own prompt
+        // future, so buffering would replay a stale completion onto a
+        // future adopted turn.
+        if self
+            .main_attached
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return;
+        }
+        ch.pending = Some(body);
+    }
+
+    /// Install a control-channel write half: greet with `Hello`, then under
+    /// the same lock either hand off the one buffered completion (and leave
+    /// the outbound unset, since that is the adopted turn's single frame)
+    /// or store the write half to deliver the completion live later.
+    async fn install_control_outbound(
+        &self,
+        mut out: tokio::net::unix::OwnedWriteHalf,
+        session_id: &str,
+    ) {
+        let hello = ControlBody::Hello {
+            control_protocol_version: control_protocol::CONTROL_PROTOCOL_VERSION,
+            session_id: session_id.to_string(),
+        };
+        if !write_control_frame(&mut out, &hello).await {
+            return;
+        }
+        let mut ch = self.control.lock().await;
+        if let Some(body) = ch.pending.take() {
+            if !write_control_frame(&mut out, &body).await {
+                ch.pending = Some(body);
+            }
+            // Delivered (or failed on a dead/stalled socket); one completion
+            // per attach, so do not retain the outbound.
+            return;
+        }
+        ch.outbound = Some(out);
+    }
+
+    async fn clear_control_outbound(&self) {
+        self.control.lock().await.outbound = None;
     }
 }
 
@@ -905,6 +1138,38 @@ async fn read_frame_bounded<R: AsyncBufRead + Unpin>(
     }
 }
 
+/// Peek fields of a JSON-RPC response line for turn-complete detection:
+/// the `result.stopReason` when the response succeeded.
+#[derive(Deserialize)]
+struct JsonRpcResponsePeek {
+    #[serde(default)]
+    id: Option<serde_json::Value>,
+    #[serde(default)]
+    method: Option<String>,
+    #[serde(default)]
+    result: Option<serde_json::Value>,
+}
+
+/// Parse a JSON-RPC response line into `(id, stop_reason)`. Returns None
+/// for requests (a `method` is present), notifications (no `id`),
+/// non-numeric ids, and malformed lines. An error-envelope response (no
+/// `result`) still counts as a completion, with `stop_reason` None; the
+/// turn ended either way, so the UI should stop showing "thinking".
+fn parse_response(line: &[u8]) -> Option<(i64, Option<String>)> {
+    let peek: JsonRpcResponsePeek = serde_json::from_slice(line).ok()?;
+    if peek.method.is_some() {
+        return None;
+    }
+    let id = peek.id?.as_i64()?;
+    let stop_reason = peek
+        .result
+        .as_ref()
+        .and_then(|r| r.get("stopReason"))
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_string());
+    Some((id, stop_reason))
+}
+
 /// Read agent stdout line-by-line (ndjson) and either forward to the
 /// daemon or buffer.
 async fn fanout_agent_stdout(
@@ -961,6 +1226,7 @@ async fn handle_connection(
             Ok(0) => break, // EOF: daemon closed the connection.
             Ok(_) => {
                 shared.note_daemon_response(&line).await;
+                shared.note_prompt_request(&line).await;
                 let mut stdin = agent_stdin.lock().await;
                 if stdin.write_all(&line).await.is_err() || stdin.flush().await.is_err() {
                     warn!(
@@ -986,6 +1252,38 @@ async fn handle_connection(
         .cancel_outstanding_requests(&agent_stdin, &session_id)
         .await;
     shared.clear_outbound().await;
+}
+
+/// Handle one control-channel connection: install its write half
+/// (greeting with `Hello` and draining buffered completion events), then
+/// read daemon to runner frames until EOF so a disconnect is detected.
+/// Phase A of #1054 has no daemon to runner frames that require action
+/// (the daemon's `Attach` just confirms the version), so the read loop
+/// exists only to observe the socket closing.
+async fn handle_control_connection(
+    stream: UnixStream,
+    shared: Arc<RunnerShared>,
+    session_id: String,
+) {
+    let (mut read_half, write_half) = stream.into_split();
+    shared
+        .install_control_outbound(write_half, &session_id)
+        .await;
+    loop {
+        match control_protocol::read_frame(&mut read_half).await {
+            Ok(Some(_body)) => {}
+            Ok(None) => break, // clean EOF: daemon closed the control socket.
+            Err(e) => {
+                warn!(
+                    target: "acp.runner",
+                    session = %session_id,
+                    "control read error: {e}"
+                );
+                break;
+            }
+        }
+    }
+    shared.clear_control_outbound().await;
 }
 
 fn spawn_agent(
@@ -1202,6 +1500,136 @@ mod tests {
     fn parse_helpers_tolerate_malformed_json() {
         assert_eq!(parse_request(b"not json"), None);
         assert_eq!(parse_response_id(b"not json"), None);
+        assert_eq!(parse_response(b"not json"), None);
+    }
+
+    #[test]
+    fn parse_response_extracts_stop_reason() {
+        let line = br#"{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}"#;
+        assert_eq!(parse_response(line), Some((3, Some("end_turn".into()))));
+    }
+
+    #[test]
+    fn parse_response_treats_error_envelope_as_completion() {
+        // An error response still ends the turn; detected as a completion
+        // with no stopReason.
+        let line = br#"{"jsonrpc":"2.0","id":4,"error":{"code":-32000,"message":"boom"}}"#;
+        assert_eq!(parse_response(line), Some((4, None)));
+    }
+
+    #[test]
+    fn parse_response_ignores_requests_and_notifications() {
+        assert_eq!(
+            parse_response(br#"{"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{}}"#),
+            None
+        );
+        assert_eq!(
+            parse_response(br#"{"jsonrpc":"2.0","method":"session/update","params":{}}"#),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_request_detects_prompt() {
+        let line = br#"{"jsonrpc":"2.0","id":11,"method":"session/prompt","params":{}}"#;
+        assert_eq!(parse_request(line), Some((11, PROMPT_METHOD.into())));
+    }
+
+    /// The core Phase A invariant: a tracked `session/prompt` request id,
+    /// seen on the daemon to agent path, produces a `PromptCompleted`
+    /// control event when the matching response arrives on the agent to
+    /// daemon path. With no control daemon attached (and no main daemon
+    /// attached, i.e. a genuine gap) the event is buffered in
+    /// `control.pending`, which is exactly the mid-restart case the change
+    /// exists to cover.
+    #[tokio::test]
+    async fn prompt_response_emits_completed_control_event() {
+        let shared = RunnerShared::new();
+        let prompt = br#"{"jsonrpc":"2.0","id":5,"method":"session/prompt","params":{}}
+"#;
+        shared.note_prompt_request(prompt).await;
+        assert!(shared.prompt_requests.lock().await.contains(&5));
+
+        let resp = br#"{"jsonrpc":"2.0","id":5,"result":{"stopReason":"end_turn"}}
+"#;
+        shared.deliver_line(resp).await;
+
+        // The prompt id is drained and a completion event is buffered.
+        assert!(shared.prompt_requests.lock().await.is_empty());
+        assert_eq!(
+            shared.control.lock().await.pending,
+            Some(ControlBody::PromptCompleted {
+                prompt_req_id: 5,
+                stop_reason: Some("end_turn".into()),
+            })
+        );
+    }
+
+    /// The gate: a completion produced while a main-relay daemon is
+    /// attached is owned by that daemon's own prompt future, so it must
+    /// NOT be buffered (buffering would replay it onto a future adopted
+    /// turn, prematurely stopping it). See PR #2975 review.
+    #[tokio::test]
+    async fn completion_not_buffered_while_main_daemon_attached() {
+        let shared = RunnerShared::new();
+        shared
+            .main_attached
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let prompt = br#"{"jsonrpc":"2.0","id":8,"method":"session/prompt","params":{}}
+"#;
+        shared.note_prompt_request(prompt).await;
+        let resp = br#"{"jsonrpc":"2.0","id":8,"result":{"stopReason":"end_turn"}}
+"#;
+        shared.deliver_line(resp).await;
+        assert!(
+            shared.control.lock().await.pending.is_none(),
+            "a live main-relay daemon owns the completion; nothing should buffer"
+        );
+    }
+
+    /// Regression for PR #2975: when a live control write fails (dead or
+    /// stalled socket), the completion must be buffered for the next attach
+    /// rather than dropped through the `main_attached` gate. A control
+    /// daemon had dialed in, so the completion is real and unreceived.
+    #[tokio::test]
+    async fn emit_control_buffers_on_write_failure_even_when_main_attached() {
+        use std::sync::atomic::Ordering;
+
+        let shared = RunnerShared::new();
+        // A control outbound whose peer is gone: writes to it fail. For an
+        // AF_UNIX stream, a write after the peer closes returns an error
+        // rather than buffering, so this is deterministic.
+        let (peer, ours) = tokio::net::UnixStream::pair().unwrap();
+        drop(peer);
+        let (_r, w) = ours.into_split();
+        shared.control.lock().await.outbound = Some(w);
+        // Main relay attached: the pre-fix code would drop here.
+        shared.main_attached.store(true, Ordering::Relaxed);
+
+        let body = ControlBody::PromptCompleted {
+            prompt_req_id: 9,
+            stop_reason: Some("end_turn".into()),
+        };
+        shared.emit_control(body.clone()).await;
+
+        let ch = shared.control.lock().await;
+        assert!(ch.outbound.is_none(), "a failed write clears the outbound");
+        assert_eq!(
+            ch.pending,
+            Some(body),
+            "completion buffered despite main_attached, not dropped through the gate"
+        );
+    }
+
+    /// A response id the runner never tracked as a prompt (e.g. a reply to
+    /// an fs/terminal request) must not produce a completion event.
+    #[tokio::test]
+    async fn untracked_response_emits_nothing() {
+        let shared = RunnerShared::new();
+        let resp = br#"{"jsonrpc":"2.0","id":77,"result":{}}
+"#;
+        shared.deliver_line(resp).await;
+        assert!(shared.control.lock().await.pending.is_none());
     }
 
     /// `deliver_line` populates the outstanding-requests map on the
