@@ -1193,21 +1193,28 @@ impl AgentDef {
         }
     }
 
-    /// Static argv tokens that pin a cheap model for a smart-rename title
-    /// one-shot. `build_oneshot_argv` inserts them between the one-shot flag and
-    /// the prompt (only for `OneshotModel::Cheap`), so they parse as options and
-    /// the prompt stays the final positional element, keeping the no-injection
-    /// contract intact. This placement is safe only for one-shot flags that do
-    /// not bind the following token as their value; today only claude's `-p` (a
-    /// boolean print flag with a positional prompt) receives them.
-    ///
-    /// A throwaway three-to-five-word title must not bill the CLI's default
-    /// frontier model, so we pin the cheapest capable model. Only a STABLE,
-    /// non-dated alias may be hardcoded: AoE pins no CLI version (it detects via
-    /// `which` / `--version`), so a dated id (e.g. `claude-haiku-4-5-20250101`)
-    /// would rotate or expire out from under us. Agents with no verified stable
-    /// alias return `&[]`, i.e. the CLI's own default, unchanged from before.
-    pub fn oneshot_model_args(&self) -> &'static [&'static str] {
+    /// The argv token that selects a model for this agent's one-shot (e.g.
+    /// claude `--model`, codex `-m`), or `None` when the agent has no known
+    /// model selector. `build_oneshot_argv` emits `[flag, model_id]` when a
+    /// model is pinned (built-in cheap default or a user override); an agent
+    /// without a flag simply never pins a model, so a configured value is
+    /// ignored rather than mis-injected (fail-closed).
+    pub fn oneshot_model_flag(&self) -> Option<&'static str> {
+        match self.name {
+            "claude" | "copilot" => Some("--model"),
+            "codex" | "gemini" | "opencode" | "kimi" => Some("-m"),
+            _ => None,
+        }
+    }
+
+    /// The built-in cheap model pinned for a throwaway smart-rename title when
+    /// the user has not configured one. A three-to-five-word title must not
+    /// bill the CLI's default frontier model. Only a STABLE, non-dated alias
+    /// may be hardcoded: AoE pins no CLI version (it detects via `which` /
+    /// `--version`), so a dated id (e.g. `claude-haiku-4-5-20250101`) would
+    /// rotate or expire. Agents with no verified stable alias return `None`,
+    /// i.e. the CLI's own default.
+    pub fn oneshot_cheap_model(&self) -> Option<&'static str> {
         match self.name {
             // Verified 2026-07-20: `haiku` is Anthropic's stable, non-dated
             // alias for the cheap Claude tier, accepted by `claude -p --model`.
@@ -1215,9 +1222,18 @@ impl AgentDef {
             // its default model rather than erroring, so a stale id would only
             // lose the saving (no cost regression); pinning the never-dating
             // alias avoids that.
-            "claude" => &["--model", "haiku"],
-            _ => &[],
+            "claude" => Some("haiku"),
+            _ => None,
         }
+    }
+
+    /// Whether this agent's one-shot flag binds the following token as its
+    /// value (the prompt), rather than taking a positional prompt. Copilot's
+    /// `-p` binds its value, so model args must follow the prompt (in the
+    /// trailing region) instead of preceding it; every other one-shot agent
+    /// takes a positional prompt, so model args go before it.
+    pub fn oneshot_flag_binds_prompt(&self) -> bool {
+        matches!(self.name, "copilot")
     }
 
     /// The base launch token(s) for the default (non-overridden) command:
@@ -1564,14 +1580,14 @@ mod tests {
                 "agent '{}' one-shot flag must not interpolate the prompt",
                 agent.name
             );
-            // The same single-token, no-interpolation contract applies to the
-            // static args inserted before and after the prompt.
-            for extra in agent
-                .oneshot_model_args()
-                .iter()
-                .chain(agent.oneshot_extra_args())
-                .chain(agent.oneshot_trailing_args())
-            {
+            // The same single-token, no-interpolation contract applies to every
+            // static one-shot token inserted around the prompt.
+            let mut statics: Vec<&str> = Vec::new();
+            statics.extend(agent.oneshot_model_flag());
+            statics.extend(agent.oneshot_cheap_model());
+            statics.extend(agent.oneshot_extra_args().iter().copied());
+            statics.extend(agent.oneshot_trailing_args().iter().copied());
+            for extra in statics {
                 assert!(
                     !extra.contains("{}"),
                     "agent '{}' one-shot arg '{}' must not interpolate the prompt",
@@ -1590,17 +1606,17 @@ mod tests {
     }
 
     #[test]
-    fn only_claude_pins_a_oneshot_model() {
-        // The cheap-model pin is fail-closed: exactly one agent has a
+    fn only_claude_has_a_cheap_default() {
+        // The built-in cheap default is fail-closed: exactly one agent has a
         // cross-validated stable alias. Any future addition must be a deliberate
-        // edit here, so a stray model flag on another agent trips this.
+        // edit here, so a stray default on another agent trips this.
         for agent in AGENTS {
             if agent.name == "claude" {
-                assert_eq!(agent.oneshot_model_args(), &["--model", "haiku"]);
+                assert_eq!(agent.oneshot_cheap_model(), Some("haiku"));
             } else {
                 assert!(
-                    agent.oneshot_model_args().is_empty(),
-                    "agent '{}' must not pin a one-shot model without a verified stable alias",
+                    agent.oneshot_cheap_model().is_none(),
+                    "agent '{}' must not carry a built-in cheap model without a verified stable alias",
                     agent.name
                 );
             }
@@ -1608,18 +1624,34 @@ mod tests {
     }
 
     #[test]
-    fn value_binding_oneshot_flags_take_no_model_args() {
-        // `build_oneshot_argv` puts model args before the prompt, which is safe
-        // only when the one-shot flag does not bind the following token as its
-        // value. A non-empty `oneshot_trailing_args` marks such a value-binding
-        // flag (e.g. copilot `-p`, whose value IS the prompt); pinning model
-        // args there would make the flag swallow `--model` as the prompt. Guard
-        // that the two never coexist.
+    fn oneshot_model_flag_matches_expected() {
+        // Drift guard: every one-shot-capable agent must expose a model
+        // selector (so a user override is honored, not silently dropped), and
+        // the token must match the CLI. A built-in cheap default requires a
+        // flag to emit it.
         for agent in AGENTS {
-            if !agent.oneshot_trailing_args().is_empty() {
+            let expected = match agent.name {
+                "claude" | "copilot" => Some("--model"),
+                "codex" | "gemini" | "opencode" | "kimi" => Some("-m"),
+                _ => None,
+            };
+            assert_eq!(
+                agent.oneshot_model_flag(),
+                expected,
+                "unexpected model flag for '{}'",
+                agent.name
+            );
+            if agent.oneshot_flag.is_some() {
                 assert!(
-                    agent.oneshot_model_args().is_empty(),
-                    "agent '{}' has a value-binding one-shot flag, so it must not pin model args",
+                    agent.oneshot_model_flag().is_some(),
+                    "one-shot agent '{}' must expose a model flag",
+                    agent.name
+                );
+            }
+            if agent.oneshot_cheap_model().is_some() {
+                assert!(
+                    agent.oneshot_model_flag().is_some(),
+                    "agent '{}' has a cheap default but no flag to emit it",
                     agent.name
                 );
             }
