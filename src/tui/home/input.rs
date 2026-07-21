@@ -2531,6 +2531,17 @@ impl HomeView {
         self.dispatch_action_key(key, update_info)
     }
 
+    /// Whether the bottom search bar should render: while typing, or while a
+    /// committed query is still set, so the text you searched for stays visible
+    /// until you Esc out, even when it matched nothing (a committed `/xyzzy`
+    /// with zero results still shows `/xyzzy [0/0]` rather than vanishing).
+    /// Gated on the query, not `search_matches`, so zero-result committed
+    /// searches persist; every search-exit path clears `search_query`. Reserves
+    /// a list row in both states so the bar never overlaps the last session row.
+    pub(super) fn search_bar_visible(&self) -> bool {
+        self.search_active || !self.search_query.value().is_empty()
+    }
+
     /// Run the main action dispatch on a key.
     ///
     /// Extracted from `handle_key` so the command palette can route through the
@@ -2552,7 +2563,11 @@ impl HomeView {
 
         // Context-dependent Esc handling (not a relocatable action).
         match key.code {
-            KeyCode::Esc if !self.search_matches.is_empty() => {
+            // Esc clears a committed search (the input box is already closed
+            // here). Gate on the query, not `search_matches`, so a committed
+            // zero-result search (`/xyzzy` with no hits) is still dismissable
+            // rather than leaving its bar stuck on screen.
+            KeyCode::Esc if !self.search_query.value().is_empty() => {
                 self.search_matches.clear();
                 self.search_match_index = 0;
                 self.search_query = Input::default();
@@ -4521,7 +4536,7 @@ impl HomeView {
         if !inner.contains(Position::from((col, row))) {
             return None;
         }
-        let visible_height = if self.search_active {
+        let visible_height = if self.search_bar_visible() {
             (inner.height as usize).saturating_sub(1)
         } else {
             inner.height as usize
@@ -4530,7 +4545,7 @@ impl HomeView {
             return None;
         }
         let row_in_inner = row.saturating_sub(inner.y) as usize;
-        if self.search_active && row_in_inner + 1 == inner.height as usize {
+        if self.search_bar_visible() && row_in_inner + 1 == inner.height as usize {
             return None;
         }
 
