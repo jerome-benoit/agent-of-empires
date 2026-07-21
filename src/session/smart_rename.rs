@@ -1375,8 +1375,6 @@ mod tests {
         // codex `exec` refuses to run outside a git repo without this flag, so a
         // scratch-session one-shot would exit non-zero. The flag goes between
         // the token and the prompt; the prompt stays the final element.
-        // codex has no verified stable cheap-model alias, so it takes no model
-        // args: still [binary, flag, skip-git-repo-check, prompt].
         // codex has no built-in cheap alias, so with no override it takes no
         // model args: still [binary, flag, skip-git-repo-check, prompt].
         let codex = agents::get_agent("codex").unwrap();
@@ -1605,6 +1603,12 @@ mod tests {
         // Empty (or whitespace) value -> force CLI default (opt out of haiku).
         models.insert("claude".to_string(), "  ".to_string());
         assert!(resolve_title_model_args(claude, &models).is_empty());
+        // A padded non-empty value is trimmed before it is pinned.
+        models.insert("claude".to_string(), "  opus  ".to_string());
+        assert_eq!(
+            resolve_title_model_args(claude, &models),
+            vec!["--model", "opus"]
+        );
     }
 
     #[test]
