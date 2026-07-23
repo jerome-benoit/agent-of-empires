@@ -1895,11 +1895,7 @@ mod tests {
     use crate::acp::client::{DaemonEndpoint, HttpClient};
 
     fn test_state() -> StructuredViewState {
-        let endpoint = DaemonEndpoint {
-            base_url: "http://127.0.0.1:8080".into(),
-            token: None,
-            source: Source::Env,
-        };
+        let endpoint = DaemonEndpoint::new("http://127.0.0.1:8080".into(), None, Source::Env);
         let http = HttpClient::new(endpoint.clone()).unwrap();
         StructuredViewState::new("s-1".into(), endpoint, http, None)
     }
@@ -2198,11 +2194,11 @@ mod tests {
 
     #[test]
     fn render_shows_slash_picker_overlay() {
-        let endpoint = DaemonEndpoint {
-            base_url: "http://127.0.0.1:8080".to_string(),
-            token: None,
-            source: Source::LocalDaemon,
-        };
+        let endpoint = DaemonEndpoint::new(
+            "http://127.0.0.1:8080".to_string(),
+            None,
+            Source::LocalDaemon,
+        );
         let http = HttpClient::new(endpoint.clone()).expect("http client");
         let mut state = StructuredViewState::new("sess".to_string(), endpoint, http, None);
         state.focus = Focus::Composer;
@@ -2234,11 +2230,11 @@ mod tests {
         // bottom selection painted above the fold and vanished. Render a
         // 9-row terminal with many commands, select the last, and assert
         // the selected label + marker actually paint.
-        let endpoint = DaemonEndpoint {
-            base_url: "http://127.0.0.1:8080".to_string(),
-            token: None,
-            source: Source::LocalDaemon,
-        };
+        let endpoint = DaemonEndpoint::new(
+            "http://127.0.0.1:8080".to_string(),
+            None,
+            Source::LocalDaemon,
+        );
         let http = HttpClient::new(endpoint.clone()).expect("http client");
         let mut state = StructuredViewState::new("sess".to_string(), endpoint, http, None);
         state.focus = Focus::Composer;
