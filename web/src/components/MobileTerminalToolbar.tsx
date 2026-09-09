@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { RefObject } from "react";
 import { useLongPressDrag, type DragAxis } from "../hooks/useLongPressDrag";
 import { toastBus } from "../lib/toastBus";
+import { invalidateRetainedImeContext } from "../lib/mobileKeyboardProxy";
 
 const CLIPBOARD_TEXT_TYPES = ["text/plain", "text/uri-list", "text/html"] as const;
 
@@ -68,23 +69,36 @@ export function MobileTerminalToolbar({ sendData, keyboardOpen, ctrlActive, onCt
     if (keyboardOpen) inputElRef.current?.focus();
   }, [inputElRef, keyboardOpen]);
 
+  // Drag-repeat arrows are the same out-of-band path as the buttons.
+  const sendOutOfBand = useCallback(
+    (data: string) => {
+      invalidateRetainedImeContext(inputElRef.current);
+      sendData(data);
+    },
+    [sendData, inputElRef],
+  );
+
   const send = useCallback(
     (data: string) => {
       haptic();
+      // Out-of-band input bypasses the proxy textarea's beforeinput, so the
+      // retained IME syllable no longer mirrors the PTY line; drop it or the
+      // next Korean keystroke rewrites the stale value into the new prompt.
+      invalidateRetainedImeContext(inputElRef.current);
       sendData(data);
       refocusTerminal();
     },
-    [sendData, refocusTerminal, haptic],
+    [sendData, refocusTerminal, haptic, inputElRef],
   );
 
   const upHandlers = useLongPressDrag({
-    onRepeat: () => sendData(ARROW_UP),
-    onHorizontal: (dir) => sendData(dir === "left" ? ARROW_LEFT : ARROW_RIGHT),
+    onRepeat: () => sendOutOfBand(ARROW_UP),
+    onHorizontal: (dir) => sendOutOfBand(dir === "left" ? ARROW_LEFT : ARROW_RIGHT),
     onAxisChange: setUpAxis,
   });
   const downHandlers = useLongPressDrag({
-    onRepeat: () => sendData(ARROW_DOWN),
-    onHorizontal: (dir) => sendData(dir === "left" ? ARROW_LEFT : ARROW_RIGHT),
+    onRepeat: () => sendOutOfBand(ARROW_DOWN),
+    onHorizontal: (dir) => sendOutOfBand(dir === "left" ? ARROW_LEFT : ARROW_RIGHT),
     onAxisChange: setDownAxis,
   });
 
