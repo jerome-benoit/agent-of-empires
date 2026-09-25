@@ -2353,8 +2353,8 @@ const RECOVERY_BACKUP_MARKER: &str = ".pre-recovery-";
 
 /// Back up one file before it is rewritten, keeping only the newest bounded set
 /// for that filename. A migration that retypes a persisted field calls this
-/// first: the older build cannot read the new shape, and a forced downgrade then
-/// drops those rows.
+/// first: the older build cannot read the new shape, so a forced downgrade
+/// quarantines those rows into a one-generation sidecar.
 pub(crate) fn backup_before_rewrite(path: &Path) -> Result<()> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
@@ -2364,13 +2364,12 @@ pub(crate) fn backup_before_rewrite(path: &Path) -> Result<()> {
         }
     };
     let file_name = path.file_name().expect("sessions path has a file name");
-    let mut backups = recovery_backups(path).unwrap_or_default();
-    // Strictly newer than every sibling: two backups inside one millisecond
-    // would overwrite each other, since landing one is a rename, and a clock
-    // that steps back would leave this copy as the oldest for the prune. The
-    // copy is degraded, never skipped: an unlistable directory names it at the
-    // clock and can clobber a same-millisecond sibling, and a sibling stamped
-    // past any clock this build can read takes the slot below it.
+    let backups = recovery_backups(path)
+        .with_context(|| format!("failed listing recovery backups beside {}", path.display()))?;
+    // Strictly newer than every sibling, so two backups inside one millisecond
+    // cannot land on each other, since landing one is a rename. A sibling past
+    // any clock this build can read leaves no newer name, and takes the first
+    // free one at the clock instead.
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -2379,10 +2378,13 @@ pub(crate) fn backup_before_rewrite(path: &Path) -> Result<()> {
     let mut stamp = now.max(newest.saturating_add(1));
     if stamp <= newest {
         stamp = now;
-        while backups.iter().any(|(taken, _)| *taken == stamp) {
-            stamp = stamp
-                .checked_add(1)
-                .context("recovery backup stamp overflowed")?;
+        // Taken stamps are distinct, so a free name is within `backups.len()`
+        // steps and the search always ends.
+        for _ in 0..backups.len() {
+            if !backups.iter().any(|(taken, _)| *taken == stamp) {
+                break;
+            }
+            stamp = stamp.saturating_add(1);
         }
     }
     let mut name = file_name.to_os_string();
@@ -2391,12 +2393,13 @@ pub(crate) fn backup_before_rewrite(path: &Path) -> Result<()> {
     atomic_write_verified(&backup, &bytes)?;
     sync_parent_directory(&backup)
         .context(format!("backup {} was not made durable", backup.display()))?;
-    backups.push((stamp, backup));
-    backups.sort_by_key(|(stamp, _)| *stamp);
+    // Prune the set that was there before, never the copy just made: a
+    // saturated stamp space can name it below a sibling, and a prune over the
+    // whole set would take it first.
     prune_recovery_backups(
         path,
         &backups,
-        RECOVERY_BACKUPS_TO_KEEP,
+        RECOVERY_BACKUPS_TO_KEEP.saturating_sub(1),
         sync_resolved_parent_directory,
     )
 }
@@ -4700,11 +4703,45 @@ mod tests {
         Ok(())
     }
 
-    /// A sibling stamped past any clock this build can read must not cost a
-    /// later backup its copy. That stamp tops out the space on the first call,
-    /// so the second one is where the copy used to be skipped.
+    /// Foreign entries past any clock this build can read fill the retention
+    /// window. The copy this call makes must survive the prune it triggers, so
+    /// the test plants enough of them that the prune has work to do.
     #[test]
-    fn a_saturated_stamp_space_still_lands_a_recovery_backup() -> Result<()> {
+    fn a_saturated_stamp_space_keeps_the_copy_its_own_prune_would_take() -> Result<()> {
+        let temp = tempdir()?;
+        let path = temp.path().join("sessions.json");
+        for planted in [
+            1_000_000_000_000_000_000_000_000_000_000u128,
+            2_000_000_000_000_000_000_000_000_000_000u128,
+            u128::MAX,
+        ] {
+            fs::write(
+                path.with_file_name(format!("sessions.json.pre-recovery-{planted}")),
+                format!("planted-{planted}"),
+            )?;
+        }
+        fs::write(&path, b"first")?;
+
+        backup_before_rewrite(&path)?;
+
+        let backups = recovery_backups(&path)?;
+        assert_eq!(
+            backups.len(),
+            RECOVERY_BACKUPS_TO_KEEP,
+            "the window stays bounded: {backups:?}"
+        );
+        assert_eq!(
+            fs::read(&backups[0].1)?,
+            b"first",
+            "the copy this call made must outlive its own prune"
+        );
+        Ok(())
+    }
+
+    /// Two copies in a row against one saturated sibling: each call must keep
+    /// its own copy and neither may reuse a name already on disk.
+    #[test]
+    fn a_saturated_stamp_space_never_reuses_a_taken_name() -> Result<()> {
         let temp = tempdir()?;
         let path = temp.path().join("sessions.json");
         fs::write(
