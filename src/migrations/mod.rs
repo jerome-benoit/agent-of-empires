@@ -399,4 +399,54 @@ mod tests {
         );
         assert_eq!(get_current_version(), CURRENT_VERSION);
     }
+
+    /// The oldest restore point of an upgrade is the file the previous release
+    /// can still read, and it is the only thing left to recover from once a
+    /// forced downgrade has dropped those rows.
+    #[test]
+    #[serial_test::serial]
+    fn oldest_restore_point_of_an_upgrade_stays_readable_by_the_previous_release() {
+        // v1.16.1 typed both of these as plain strings.
+        #[derive(serde::Deserialize)]
+        struct Pre116 {
+            #[serde(default)]
+            retroactive_capture_excludes: std::collections::HashSet<String>,
+            pending_initial_turn: Option<String>,
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let _guard = crate::session::test_support::isolate_app_dir_at(temp.path());
+        let app = crate::session::get_app_dir().unwrap();
+        fs::create_dir_all(&app).unwrap();
+        fs::write(app.join(VERSION_FILE), "28").unwrap();
+        fs::write(
+            app.join("sessions.json"),
+            r#"[{"retroactive_capture_excludes":["legacy-sid"],"pending_initial_turn":"go"}]"#,
+        )
+        .unwrap();
+
+        run_migrations().unwrap();
+
+        let mut restore_points: Vec<std::path::PathBuf> = fs::read_dir(&app)
+            .unwrap()
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("sessions.json.pre-recovery-"))
+            })
+            .collect();
+        restore_points.sort();
+        assert!(
+            !restore_points.is_empty(),
+            "an upgrade that retypes a field must leave a restore point"
+        );
+
+        let before: Vec<Pre116> =
+            serde_json::from_slice(&fs::read(&restore_points[0]).unwrap()).unwrap();
+        assert!(before[0]
+            .retroactive_capture_excludes
+            .contains("legacy-sid"));
+        assert_eq!(before[0].pending_initial_turn.as_deref(), Some("go"));
+    }
 }

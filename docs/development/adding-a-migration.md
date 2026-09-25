@@ -10,3 +10,5 @@ To add one:
 2. In `src/migrations/mod.rs`: add `mod vNNN_description;`, bump `CURRENT_VERSION`, append a `Migration { version: NNN, name: "description", run: vNNN_description::run }` entry.
 
 Migrations must be idempotent, use `tracing::info!`, gate platform-specific ones with `#[cfg(target_os = "...")]`, and be tested by hand-crafting the old state.
+
+A migration that retypes a persisted field must call `crate::session::backup_before_repair` before rewriting, so a build that predating the new shape still has a restore point. That build cannot read the retyped field and drops the whole row, which is otherwise unrecoverable. The bounded `*.pre-recovery-<millis>` siblings it leaves next to the file are those restore points; keep the newest `RECOVERY_BACKUPS_TO_KEEP` of them. They are chronological, so when one upgrade retypes more than one field only the oldest of that run still holds the shape the previous release reads.

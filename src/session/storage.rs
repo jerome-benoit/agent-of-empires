@@ -2348,8 +2348,11 @@ fn resolve_journal_store<'a>(
 
 const RECOVERY_BACKUPS_TO_KEEP: usize = 3;
 
-/// Back up one repaired file and keep only the newest bounded set for that filename.
-fn backup_before_repair(path: &Path) -> Result<()> {
+/// Back up one file before it is rewritten or repaired, keeping only the newest
+/// bounded set for that filename. A migration that retypes a persisted field
+/// calls this first: the older build cannot read the new shape, so without a
+/// restore point a forced downgrade drops those rows for good.
+pub(crate) fn backup_before_repair(path: &Path) -> Result<()> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),

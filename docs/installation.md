@@ -30,6 +30,14 @@ aoe update
 
 If you installed shell completions as a static file, regenerate it afterwards so it picks up new commands and flags; see [Shell completions](guides/shell-completions.md) for the always-fresh setup that avoids this.
 
+## Downgrading
+
+Downgrades are not supported. The older build refuses to start when `.schema_version` records a newer data schema, which is the safe outcome: a release that retypes a persisted field writes a shape the previous release cannot read, and that release drops any row it cannot decode, then rewrites the file without it on its next save.
+
+If you need to go back anyway, copy `profiles/<name>/sessions.json` and `.schema_version` out of the [app directory](guides/configuration.md#file-locations) before you run the older build, since nothing else can undo a session it has already dropped. There is no flag to bypass the check: editing `.schema_version` is the only way in. Launch the older build once without creating, renaming, or archiving any session, and check whether it wrote `profiles/<name>/sessions.corrupt.jsonl`. If it did, put your copies back and return to the current release. Deleting `.schema_version` instead of editing it is not a safer variant: the older build reads that as a fresh install and re-runs every migration it has.
+
+A release that retypes a persisted field also leaves a `sessions.json.pre-recovery-<millis>` restore point beside the file, holding the bytes as they were just before that rewrite. When one upgrade retypes more than one field, each rewrite leaves its own, and only the oldest of them is still in the shape the previous release reads, so restore that one. The newest few are kept. This is a safety net, not a supported downgrade: it does not help an install that was already upgraded, because a migration never re-runs once its version is recorded, and using it still means editing `.schema_version` as above. Copying the file yourself first is the reliable path.
+
 ## Uninstalling
 
 ```bash
