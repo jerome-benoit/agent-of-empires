@@ -23,6 +23,28 @@ pub(super) fn session_files(app_dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
+/// The restore points written beside `path`, oldest first.
+#[cfg(test)]
+pub(super) fn restore_points_under(path: &Path) -> Vec<PathBuf> {
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return Vec::new();
+    };
+    let prefix = format!("{file_name}.pre-recovery-");
+    let mut found: Vec<PathBuf> = fs::read_dir(path.parent().unwrap_or(Path::new(".")))
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|candidate| {
+            candidate
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&prefix))
+        })
+        .collect();
+    found.sort();
+    found
+}
+
 /// Apply `heal` to every row of a `sessions.json` document, writing the file
 /// back when any row reports a change, and answering how many did. A document
 /// that does not parse is skipped: these heals are best-effort and an

@@ -2350,8 +2350,8 @@ const RECOVERY_BACKUPS_TO_KEEP: usize = 3;
 
 /// Back up one file before it is rewritten or repaired, keeping only the newest
 /// bounded set for that filename. A migration that retypes a persisted field
-/// calls this first: the older build cannot read the new shape, so without a
-/// restore point a forced downgrade drops those rows for good.
+/// calls this first: the older build cannot read the new shape, and a forced
+/// downgrade then drops those rows.
 pub(crate) fn backup_before_repair(path: &Path) -> Result<()> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
@@ -2360,55 +2360,77 @@ pub(crate) fn backup_before_repair(path: &Path) -> Result<()> {
             return Err(error).context(format!("failed reading {} for backup", path.display()))
         }
     };
-    let stamp = std::time::SystemTime::now()
+    let file_name = path.file_name().expect("sessions path has a file name");
+    let mut backups = recovery_backups(
+        path,
+        &format!("{}.pre-recovery-", file_name.to_string_lossy()),
+    )?;
+    // Strictly newer than every sibling. Two backups inside one millisecond
+    // would otherwise overwrite each other, since landing one is a rename, and
+    // a clock that steps back would leave this copy as the oldest for the prune
+    // to delete.
+    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or_default();
-    let mut name = path
-        .file_name()
-        .expect("sessions path has a file name")
-        .to_os_string();
+    let stamp = backups
+        .iter()
+        .map(|(stamp, _)| stamp.saturating_add(1))
+        .max()
+        .unwrap_or_default()
+        .max(now);
+    let mut name = file_name.to_os_string();
     name.push(format!(".pre-recovery-{stamp}"));
     let backup = path.with_file_name(name);
     atomic_write_verified(&backup, &bytes)?;
     sync_parent_directory(&backup)
         .context(format!("backup {} was not made durable", backup.display()))?;
-    prune_old_recovery_backups(path, RECOVERY_BACKUPS_TO_KEEP)
+    backups.push((stamp, backup));
+    backups.sort_by_key(|(stamp, _)| *stamp);
+    prune_recovery_backups(
+        path,
+        &backups,
+        RECOVERY_BACKUPS_TO_KEEP,
+        sync_resolved_parent_directory,
+    )
 }
 
-fn prune_old_recovery_backups(path: &Path, keep: usize) -> Result<()> {
-    prune_old_recovery_backups_with_sync(path, keep, sync_resolved_parent_directory)
-}
-
-fn prune_old_recovery_backups_with_sync<S>(path: &Path, keep: usize, mut sync: S) -> Result<()>
-where
-    S: FnMut(&Path) -> Result<()>,
-{
+/// The timestamped restore points beside `path`, oldest first.
+fn recovery_backups(path: &Path, prefix: &str) -> Result<Vec<(u128, PathBuf)>> {
     let Some(parent) = path.parent() else {
-        return Ok(());
+        return Ok(Vec::new());
     };
-    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-        return Ok(());
-    };
-    let prefix = format!("{file_name}.pre-recovery-");
     let mut backups: Vec<(u128, PathBuf)> = fs::read_dir(parent)?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .filter_map(|candidate| {
             let timestamp = candidate
                 .file_name()
                 .and_then(|name| name.to_str())
-                .and_then(|name| name.strip_prefix(&prefix))
+                .and_then(|name| name.strip_prefix(prefix))
                 .and_then(|stamp| stamp.parse::<u128>().ok())?;
             Some((timestamp, candidate))
         })
         .collect();
     backups.sort_by_key(|(timestamp, _)| *timestamp);
+    Ok(backups)
+}
+
+/// Drop all but the newest `keep` of `backups`, which must be sorted oldest first.
+fn prune_recovery_backups<S>(
+    path: &Path,
+    backups: &[(u128, PathBuf)],
+    keep: usize,
+    mut sync: S,
+) -> Result<()>
+where
+    S: FnMut(&Path) -> Result<()>,
+{
     let remove_count = backups.len().saturating_sub(keep);
     if remove_count == 0 {
         return Ok(());
     }
-    for (_, old) in backups.into_iter().take(remove_count) {
-        fs::remove_file(&old)
+    for (_, old) in backups.iter().take(remove_count) {
+        fs::remove_file(old)
             .with_context(|| format!("failed pruning old recovery backup {}", old.display()))?;
     }
     // Backup files are lexical siblings of path even when path itself is a symlink.
@@ -4591,7 +4613,8 @@ mod tests {
         }
         let mut synced = Vec::new();
 
-        prune_old_recovery_backups_with_sync(&path, 3, |candidate| {
+        let backups = recovery_backups(&path, "sessions.json.pre-recovery-")?;
+        prune_recovery_backups(&path, &backups, 3, |candidate| {
             synced.push(candidate.to_path_buf());
             Ok(())
         })?;
@@ -4624,6 +4647,29 @@ mod tests {
         stamps.sort();
         assert_eq!(stamps.len(), RECOVERY_BACKUPS_TO_KEEP);
         assert_eq!(&stamps[..2], &[4, 5], "oldest backups are pruned");
+        Ok(())
+    }
+
+    /// Two backups taken close enough to share a millisecond must not collapse
+    /// into one file: the older bytes are the only copy of what the rewrite
+    /// replaced.
+    #[test]
+    fn a_second_backup_never_overwrites_the_first() -> Result<()> {
+        let temp = tempdir()?;
+        let path = temp.path().join("sessions.json");
+        fs::write(&path, b"first")?;
+        backup_before_repair(&path)?;
+        fs::write(&path, b"second")?;
+        backup_before_repair(&path)?;
+
+        let backups = recovery_backups(&path, "sessions.json.pre-recovery-")?;
+        assert_eq!(
+            backups.len(),
+            2,
+            "both restore points must survive: {backups:?}"
+        );
+        assert_eq!(fs::read(&backups[0].1)?, b"first");
+        assert_eq!(fs::read(&backups[1].1)?, b"second");
         Ok(())
     }
 

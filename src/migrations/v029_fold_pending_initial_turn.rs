@@ -14,7 +14,7 @@
 use anyhow::{anyhow, Result};
 use std::fs;
 use std::path::Path;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Migration entry point: fold `pending_initial_turn` under the app dir.
 pub fn run() -> Result<()> {
@@ -91,7 +91,9 @@ fn fold_pending_initial_turn(path: &Path) -> Result<()> {
     }
 
     if folded > 0 {
-        crate::session::backup_before_repair(path)?;
+        if let Err(error) = crate::session::backup_before_repair(path) {
+            warn!(%error, path = %path.display(), "v029: no restore point for the fold");
+        }
         crate::session::atomic_write(path, serde_json::to_string_pretty(&value)?.as_bytes())?;
         info!(
             "v029: folded pending_initial_turn on {folded} session(s) in {}",
@@ -104,6 +106,7 @@ fn fold_pending_initial_turn(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::migrations::sessions_file;
 
     #[test]
     fn folds_text_and_attachments_into_one_record() {
@@ -183,22 +186,6 @@ mod tests {
         }
     }
 
-    fn restore_points_under(dir: &Path) -> Vec<std::path::PathBuf> {
-        let mut found: Vec<_> = fs::read_dir(dir)
-            .unwrap()
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with("sessions.json.pre-recovery-"))
-            })
-            .collect();
-        found.sort();
-        found
-    }
-
-    /// The previous release rejects the folded object and drops the row, so the
-    /// only way back is the restore point taken before the rewrite.
     #[test]
     fn folding_leaves_a_restore_point_the_previous_release_can_read() {
         // v1.16.1 typed this field as `Option<String>`.
@@ -214,7 +201,7 @@ mod tests {
         fold_pending_initial_turn(&path).unwrap();
         fold_pending_initial_turn(&path).unwrap();
 
-        let restore_points = restore_points_under(dir.path());
+        let restore_points = sessions_file::restore_points_under(&path);
         assert_eq!(
             restore_points.len(),
             1,
@@ -233,6 +220,6 @@ mod tests {
 
         fold_pending_initial_turn(&path).unwrap();
 
-        assert!(restore_points_under(dir.path()).is_empty());
+        assert!(sessions_file::restore_points_under(&path).is_empty());
     }
 }

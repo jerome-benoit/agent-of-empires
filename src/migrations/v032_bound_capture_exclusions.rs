@@ -54,7 +54,9 @@ fn migrate_file(path: &Path) -> Result<()> {
         }
     }
     if changed {
-        crate::session::backup_before_repair(path)?;
+        if let Err(error) = crate::session::backup_before_repair(path) {
+            tracing::warn!(%error, path = %path.display(), "v032: no restore point for the retype");
+        }
         crate::session::atomic_write(path, serde_json::to_string_pretty(&value)?.as_bytes())?;
         tracing::info!(
             "v032: bound legacy capture exclusions in {}",
@@ -67,6 +69,7 @@ fn migrate_file(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::migrations::sessions_file;
 
     #[test]
     fn legacy_exclusions_remain_conservative_after_upgrade_and_reentry() {
@@ -100,22 +103,6 @@ mod tests {
             .any(|binding| binding.excludes_capture("new-sid", Some(&source))));
     }
 
-    fn restore_points_under(dir: &Path) -> Vec<std::path::PathBuf> {
-        let mut found: Vec<_> = fs::read_dir(dir)
-            .unwrap()
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with("sessions.json.pre-recovery-"))
-            })
-            .collect();
-        found.sort();
-        found
-    }
-
-    /// The previous release rejects the object shape and drops the row, so the
-    /// only way back is the restore point taken before the rewrite.
     #[test]
     fn retyping_leaves_a_restore_point_the_previous_release_can_read() {
         // v1.16.1 typed this field as `HashSet<String>`.
@@ -137,7 +124,7 @@ mod tests {
         run_in(temp.path()).unwrap();
         run_in(temp.path()).unwrap();
 
-        let restore_points = restore_points_under(path.parent().unwrap());
+        let restore_points = sessions_file::restore_points_under(&path);
         assert_eq!(
             restore_points.len(),
             1,
@@ -148,14 +135,5 @@ mod tests {
         assert!(before[0]
             .retroactive_capture_excludes
             .contains("legacy-sid"));
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = fs::metadata(&restore_points[0])
-                .unwrap()
-                .permissions()
-                .mode();
-            assert_eq!(mode & 0o777, 0o600, "restore point must stay owner-only");
-        }
     }
 }

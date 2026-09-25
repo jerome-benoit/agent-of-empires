@@ -400,9 +400,6 @@ mod tests {
         assert_eq!(get_current_version(), CURRENT_VERSION);
     }
 
-    /// The oldest restore point of an upgrade is the file the previous release
-    /// can still read, and it is the only thing left to recover from once a
-    /// forced downgrade has dropped those rows.
     #[test]
     #[serial_test::serial]
     fn oldest_restore_point_of_an_upgrade_stays_readable_by_the_previous_release() {
@@ -427,16 +424,7 @@ mod tests {
 
         run_migrations().unwrap();
 
-        let mut restore_points: Vec<std::path::PathBuf> = fs::read_dir(&app)
-            .unwrap()
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with("sessions.json.pre-recovery-"))
-            })
-            .collect();
-        restore_points.sort();
+        let restore_points = sessions_file::restore_points_under(&app.join("sessions.json"));
         assert!(
             !restore_points.is_empty(),
             "an upgrade that retypes a field must leave a restore point"
