@@ -2268,8 +2268,8 @@ where
                     "target copies vanished while the repair was starting; leaving the journal for a retry"
                 );
             }
-            backup_before_repair(source_storage.sessions_path())?;
-            backup_before_repair(&source_storage.sessions_path().with_file_name("groups.json"))?;
+            backup_before_rewrite(source_storage.sessions_path())?;
+            backup_before_rewrite(&source_storage.sessions_path().with_file_name("groups.json"))?;
             instances.retain(|row| !source_losers.contains(&row.id));
             let winners: Vec<crate::session::Instance> = instances
                 .iter()
@@ -2348,11 +2348,14 @@ fn resolve_journal_store<'a>(
 
 const RECOVERY_BACKUPS_TO_KEEP: usize = 3;
 
-/// Back up one file before it is rewritten or repaired, keeping only the newest
-/// bounded set for that filename. A migration that retypes a persisted field
-/// calls this first: the older build cannot read the new shape, and a forced
-/// downgrade then drops those rows.
-pub(crate) fn backup_before_repair(path: &Path) -> Result<()> {
+/// Filename marker of the bounded copies [`backup_before_rewrite`] writes.
+const RECOVERY_BACKUP_MARKER: &str = ".pre-recovery-";
+
+/// Back up one file before it is rewritten, keeping only the newest bounded set
+/// for that filename. A migration that retypes a persisted field calls this
+/// first: the older build cannot read the new shape, and a forced downgrade then
+/// drops those rows.
+pub(crate) fn backup_before_rewrite(path: &Path) -> Result<()> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -2361,27 +2364,29 @@ pub(crate) fn backup_before_repair(path: &Path) -> Result<()> {
         }
     };
     let file_name = path.file_name().expect("sessions path has a file name");
-    let mut backups = recovery_backups(
-        path,
-        &format!("{}.pre-recovery-", file_name.to_string_lossy()),
-    )
-    .unwrap_or_default();
-    // Strictly newer than every sibling. Two backups inside one millisecond
-    // would otherwise overwrite each other, since landing one is a rename, and
-    // a clock that steps back would leave this copy as the oldest for the prune
-    // to delete. A directory that cannot be listed still gets its copy.
+    let mut backups = recovery_backups(path).unwrap_or_default();
+    // Strictly newer than every sibling: two backups inside one millisecond
+    // would overwrite each other, since landing one is a rename, and a clock
+    // that steps back would leave this copy as the oldest for the prune. The
+    // copy is degraded, never skipped: an unlistable directory names it at the
+    // clock and can clobber a same-millisecond sibling, and a sibling stamped
+    // past any clock this build can read takes the slot below it.
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or_default();
-    let next = backups
-        .iter()
-        .map(|(stamp, _)| stamp.checked_add(1))
-        .collect::<Option<Vec<_>>>()
-        .context("recovery backup stamp overflowed")?;
-    let stamp = next.into_iter().max().unwrap_or_default().max(now);
+    let newest = backups.last().map_or(0, |(stamp, _)| *stamp);
+    let mut stamp = now.max(newest.saturating_add(1));
+    if stamp <= newest {
+        stamp = now;
+        while backups.iter().any(|(taken, _)| *taken == stamp) {
+            stamp = stamp
+                .checked_add(1)
+                .context("recovery backup stamp overflowed")?;
+        }
+    }
     let mut name = file_name.to_os_string();
-    name.push(format!(".pre-recovery-{stamp}"));
+    name.push(format!("{RECOVERY_BACKUP_MARKER}{stamp}"));
     let backup = path.with_file_name(name);
     atomic_write_verified(&backup, &bytes)?;
     sync_parent_directory(&backup)
@@ -2396,18 +2401,22 @@ pub(crate) fn backup_before_repair(path: &Path) -> Result<()> {
     )
 }
 
-/// The timestamped restore points beside `path`, oldest first.
-fn recovery_backups(path: &Path, prefix: &str) -> Result<Vec<(u128, PathBuf)>> {
+/// The timestamped recovery backups beside `path`, oldest first.
+pub(crate) fn recovery_backups(path: &Path) -> Result<Vec<(u128, PathBuf)>> {
     let Some(parent) = path.parent() else {
         return Ok(Vec::new());
     };
+    let Some(file_name) = path.file_name() else {
+        return Ok(Vec::new());
+    };
+    let prefix = format!("{}{RECOVERY_BACKUP_MARKER}", file_name.to_string_lossy());
     let mut backups: Vec<(u128, PathBuf)> = fs::read_dir(parent)?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .filter_map(|candidate| {
             let timestamp = candidate
                 .file_name()
                 .and_then(|name| name.to_str())
-                .and_then(|name| name.strip_prefix(prefix))
+                .and_then(|name| name.strip_prefix(&prefix))
                 .and_then(|stamp| stamp.parse::<u128>().ok())?;
             Some((timestamp, candidate))
         })
@@ -4614,7 +4623,7 @@ mod tests {
         }
         let mut synced = Vec::new();
 
-        let backups = recovery_backups(&path, "sessions.json.pre-recovery-")?;
+        let backups = recovery_backups(&path)?;
         prune_recovery_backups(&path, &backups, 3, |candidate| {
             synced.push(candidate.to_path_buf());
             Ok(())
@@ -4636,7 +4645,7 @@ mod tests {
                 stamp.to_string(),
             )?;
         }
-        backup_before_repair(&path)?;
+        backup_before_rewrite(&path)?;
         let mut stamps: Vec<u128> = fs::read_dir(temp.path())?
             .filter_map(|entry| entry.ok().map(|entry| entry.file_name()))
             .filter_map(|name| {
@@ -4651,10 +4660,10 @@ mod tests {
         Ok(())
     }
 
-    /// A restore point is named strictly newer than every sibling, so a second
-    /// backup can never land on the first. The planted sibling carries a
-    /// far-future stamp, so this fails against a `SystemTime::now()` naming
-    /// rule whatever the clock and the filesystem do.
+    /// A recovery backup is named strictly newer than every sibling, so a
+    /// second one can never land on the first. The planted sibling carries a
+    /// far-future stamp, so this fails against a `SystemTime::now()` naming rule
+    /// whatever the clock and the filesystem do.
     #[test]
     fn a_backup_is_named_newer_than_every_sibling() -> Result<()> {
         let temp = tempdir()?;
@@ -4666,9 +4675,9 @@ mod tests {
         )?;
         fs::write(&path, b"live")?;
 
-        backup_before_repair(&path)?;
+        backup_before_rewrite(&path)?;
 
-        let backups = recovery_backups(&path, "sessions.json.pre-recovery-")?;
+        let backups = recovery_backups(&path)?;
         assert_eq!(backups.len(), 2, "the planted sibling must survive");
         assert_eq!(backups[0].0, planted);
         assert!(
@@ -4677,8 +4686,8 @@ mod tests {
         );
         assert_eq!(fs::read(&backups[1].1)?, b"live");
         fs::write(&path, b"later")?;
-        backup_before_repair(&path)?;
-        let backups = recovery_backups(&path, "sessions.json.pre-recovery-")?;
+        backup_before_rewrite(&path)?;
+        let backups = recovery_backups(&path)?;
         assert_eq!(backups.len(), 3, "an earlier copy must never be reused");
         assert_eq!(fs::read(&backups[1].1)?, b"live");
         assert_eq!(fs::read(&backups[2].1)?, b"later");
@@ -4686,8 +4695,37 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = fs::metadata(&backups[1].1)?.permissions().mode();
-            assert_eq!(mode & 0o777, 0o600, "restore point must stay owner-only");
+            assert_eq!(mode & 0o777, 0o600, "recovery backup must stay owner-only");
         }
+        Ok(())
+    }
+
+    /// A sibling stamped past any clock this build can read must not cost a
+    /// later backup its copy. That stamp tops out the space on the first call,
+    /// so the second one is where the copy used to be skipped.
+    #[test]
+    fn a_saturated_stamp_space_still_lands_a_recovery_backup() -> Result<()> {
+        let temp = tempdir()?;
+        let path = temp.path().join("sessions.json");
+        fs::write(
+            path.with_file_name(format!("sessions.json.pre-recovery-{}", u128::MAX)),
+            b"planted",
+        )?;
+
+        fs::write(&path, b"first")?;
+        backup_before_rewrite(&path)?;
+        fs::write(&path, b"second")?;
+        backup_before_rewrite(&path)?;
+
+        let backups = recovery_backups(&path)?;
+        assert_eq!(backups.len(), 3, "both copies must land: {backups:?}");
+        let landed: Vec<Vec<u8>> = backups
+            .iter()
+            .map(|(_, candidate)| fs::read(candidate).unwrap())
+            .collect();
+        assert!(landed.contains(&b"planted".to_vec()));
+        assert!(landed.contains(&b"first".to_vec()));
+        assert!(landed.contains(&b"second".to_vec()));
         Ok(())
     }
 

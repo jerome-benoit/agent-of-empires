@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn oldest_restore_point_of_an_upgrade_stays_readable_by_the_previous_release() {
+    fn oldest_recovery_backup_of_an_upgrade_stays_readable_by_the_previous_release() {
         // v1.16.1 typed both of these as plain strings.
         #[derive(serde::Deserialize)]
         struct Pre116 {
@@ -424,14 +424,14 @@ mod tests {
 
         run_migrations().unwrap();
 
-        let restore_points = sessions_file::restore_points_under(&app.join("sessions.json"));
+        let backups = crate::session::recovery_backups(&app.join("sessions.json")).unwrap();
         assert!(
-            !restore_points.is_empty(),
-            "an upgrade that retypes a field must leave a restore point"
+            !backups.is_empty(),
+            "an upgrade that retypes a field must leave a recovery backup"
         );
 
         let before: Vec<Pre116> =
-            serde_json::from_slice(&fs::read(&restore_points[0]).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&backups[0].1).unwrap()).unwrap();
         assert!(before[0]
             .retroactive_capture_excludes
             .contains("legacy-sid"));

@@ -91,8 +91,8 @@ fn fold_pending_initial_turn(path: &Path) -> Result<()> {
     }
 
     if folded > 0 {
-        if let Err(error) = crate::session::backup_before_repair(path) {
-            warn!(%error, path = %path.display(), "v029: no restore point for the fold");
+        if let Err(error) = crate::session::backup_before_rewrite(path) {
+            warn!(%error, path = %path.display(), "v029: no recovery backup for the fold");
             crate::migrations::progress::notice(
                 "could not back up sessions.json before folding pending_initial_turn",
             );
@@ -109,7 +109,6 @@ fn fold_pending_initial_turn(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::migrations::sessions_file;
 
     #[test]
     fn folds_text_and_attachments_into_one_record() {
@@ -190,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn folding_leaves_a_restore_point_the_previous_release_can_read() {
+    fn folding_leaves_a_recovery_backup_the_previous_release_can_read() {
         // v1.16.1 typed this field as `Option<String>`.
         #[derive(serde::Deserialize)]
         struct Pre116 {
@@ -204,14 +203,14 @@ mod tests {
         fold_pending_initial_turn(&path).unwrap();
         fold_pending_initial_turn(&path).unwrap();
 
-        let restore_points = sessions_file::restore_points_under(&path);
+        let backups = crate::session::recovery_backups(&path).unwrap();
         assert_eq!(
-            restore_points.len(),
+            backups.len(),
             1,
-            "re-entry must not add another restore point: {restore_points:?}"
+            "re-entry must not add another recovery backup: {backups:?}"
         );
         let before: Vec<Pre116> =
-            serde_json::from_slice(&fs::read(&restore_points[0]).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&backups[0].1).unwrap()).unwrap();
         assert_eq!(before[0].pending_initial_turn.as_deref(), Some("go"));
     }
 }

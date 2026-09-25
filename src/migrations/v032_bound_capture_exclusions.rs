@@ -54,8 +54,8 @@ fn migrate_file(path: &Path) -> Result<()> {
         }
     }
     if changed {
-        if let Err(error) = crate::session::backup_before_repair(path) {
-            tracing::warn!(%error, path = %path.display(), "v032: no restore point for the retype");
+        if let Err(error) = crate::session::backup_before_rewrite(path) {
+            tracing::warn!(%error, path = %path.display(), "v032: no recovery backup for the retype");
             crate::migrations::progress::notice(
                 "could not back up sessions.json before binding capture exclusions",
             );
@@ -72,7 +72,6 @@ fn migrate_file(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::migrations::sessions_file;
 
     #[test]
     fn legacy_exclusions_remain_conservative_after_upgrade_and_reentry() {
@@ -107,7 +106,7 @@ mod tests {
     }
 
     #[test]
-    fn retyping_leaves_a_restore_point_the_previous_release_can_read() {
+    fn retyping_leaves_a_recovery_backup_the_previous_release_can_read() {
         // v1.16.1 typed this field as `HashSet<String>`.
         #[derive(serde::Deserialize)]
         struct Pre116 {
@@ -127,14 +126,14 @@ mod tests {
         run_in(temp.path()).unwrap();
         run_in(temp.path()).unwrap();
 
-        let restore_points = sessions_file::restore_points_under(&path);
+        let backups = crate::session::recovery_backups(&path).unwrap();
         assert_eq!(
-            restore_points.len(),
+            backups.len(),
             1,
-            "re-entry must not add another restore point: {restore_points:?}"
+            "re-entry must not add another recovery backup: {backups:?}"
         );
         let before: Vec<Pre116> =
-            serde_json::from_slice(&fs::read(&restore_points[0]).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&backups[0].1).unwrap()).unwrap();
         assert!(before[0]
             .retroactive_capture_excludes
             .contains("legacy-sid"));

@@ -141,9 +141,11 @@ pub use config::repo_config::{
 pub use projects::{Project, ProjectOverrides, ProjectScope};
 pub use recovery::HookTimeoutScope;
 pub use scope::SessionScope;
+#[cfg(test)]
+pub(crate) use storage::recovery_backups;
 pub(crate) use storage::{
     acquire_session_title_lock, acquire_storage_flock, acquire_storage_shared_flock, atomic_write,
-    backup_before_repair, read_file_no_follow, replace_file_no_follow, resolve_symlink_chain,
+    backup_before_rewrite, read_file_no_follow, replace_file_no_follow, resolve_symlink_chain,
     try_acquire_storage_flock, GroupMovePlan, StorageFlock, STORAGE_LOCK_FILENAME,
 };
 pub use storage::{
