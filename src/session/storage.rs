@@ -2364,21 +2364,22 @@ pub(crate) fn backup_before_repair(path: &Path) -> Result<()> {
     let mut backups = recovery_backups(
         path,
         &format!("{}.pre-recovery-", file_name.to_string_lossy()),
-    )?;
+    )
+    .unwrap_or_default();
     // Strictly newer than every sibling. Two backups inside one millisecond
     // would otherwise overwrite each other, since landing one is a rename, and
     // a clock that steps back would leave this copy as the oldest for the prune
-    // to delete.
+    // to delete. A directory that cannot be listed still gets its copy.
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or_default();
-    let stamp = backups
+    let next = backups
         .iter()
-        .map(|(stamp, _)| stamp.saturating_add(1))
-        .max()
-        .unwrap_or_default()
-        .max(now);
+        .map(|(stamp, _)| stamp.checked_add(1))
+        .collect::<Option<Vec<_>>>()
+        .context("recovery backup stamp overflowed")?;
+    let stamp = next.into_iter().max().unwrap_or_default().max(now);
     let mut name = file_name.to_os_string();
     name.push(format!(".pre-recovery-{stamp}"));
     let backup = path.with_file_name(name);
@@ -4650,9 +4651,43 @@ mod tests {
         Ok(())
     }
 
-    /// Two backups taken close enough to share a millisecond must not collapse
-    /// into one file: the older bytes are the only copy of what the rewrite
-    /// replaced.
+    /// A restore point must be named strictly newer than every sibling. The
+    /// planted sibling carries a far-future stamp, so this fails against a
+    /// `SystemTime::now()` naming rule whatever the clock and the filesystem
+    /// happen to do: that rule would land the new copy first, and a backup
+    /// sharing a name overwrites the other.
+    #[test]
+    fn a_backup_is_named_newer_than_every_sibling() -> Result<()> {
+        let temp = tempdir()?;
+        let path = temp.path().join("sessions.json");
+        let planted = u128::MAX / 2;
+        fs::write(
+            path.with_file_name(format!("sessions.json.pre-recovery-{planted}")),
+            b"planted",
+        )?;
+        fs::write(&path, b"live")?;
+
+        backup_before_repair(&path)?;
+
+        let backups = recovery_backups(&path, "sessions.json.pre-recovery-")?;
+        assert_eq!(backups.len(), 2, "the planted sibling must survive");
+        assert_eq!(backups[0].0, planted);
+        assert!(
+            backups[1].0 > planted,
+            "new copy must sort last: {backups:?}"
+        );
+        assert_eq!(fs::read(&backups[1].1)?, b"live");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&backups[1].1)?.permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "restore point must stay owner-only");
+        }
+        Ok(())
+    }
+
+    /// The copy left before a rewrite is the only one the previous release can
+    /// read, so a second backup must not land on the first.
     #[test]
     fn a_second_backup_never_overwrites_the_first() -> Result<()> {
         let temp = tempdir()?;

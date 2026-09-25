@@ -56,6 +56,9 @@ fn migrate_file(path: &Path) -> Result<()> {
     if changed {
         if let Err(error) = crate::session::backup_before_repair(path) {
             tracing::warn!(%error, path = %path.display(), "v032: no restore point for the retype");
+            crate::migrations::progress::notice(
+                "could not back up sessions.json before binding capture exclusions",
+            );
         }
         crate::session::atomic_write(path, serde_json::to_string_pretty(&value)?.as_bytes())?;
         tracing::info!(

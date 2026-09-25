@@ -23,26 +23,30 @@ pub(super) fn session_files(app_dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-/// The restore points written beside `path`, oldest first.
+/// The restore points written beside `path`, oldest first by their stamp.
 #[cfg(test)]
 pub(super) fn restore_points_under(path: &Path) -> Vec<PathBuf> {
-    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+    let (Some(parent), Some(file_name)) =
+        (path.parent(), path.file_name().and_then(|n| n.to_str()))
+    else {
         return Vec::new();
     };
     let prefix = format!("{file_name}.pre-recovery-");
-    let mut found: Vec<PathBuf> = fs::read_dir(path.parent().unwrap_or(Path::new(".")))
+    let mut found: Vec<(u128, PathBuf)> = fs::read_dir(parent)
         .into_iter()
         .flatten()
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|candidate| {
-            candidate
+        .filter_map(|candidate| {
+            let stamp = candidate
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with(&prefix))
+                .and_then(|name| name.strip_prefix(&prefix))
+                .and_then(|stamp| stamp.parse().ok())?;
+            Some((stamp, candidate))
         })
         .collect();
-    found.sort();
-    found
+    found.sort_by_key(|(stamp, _)| *stamp);
+    found.into_iter().map(|(_, path)| path).collect()
 }
 
 /// Apply `heal` to every row of a `sessions.json` document, writing the file
