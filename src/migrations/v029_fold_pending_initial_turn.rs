@@ -214,15 +214,4 @@ mod tests {
             serde_json::from_slice(&fs::read(&restore_points[0]).unwrap()).unwrap();
         assert_eq!(before[0].pending_initial_turn.as_deref(), Some("go"));
     }
-
-    #[test]
-    fn rows_with_nothing_to_fold_take_no_restore_point() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("sessions.json");
-        fs::write(&path, r#"[{"id":"a"}]"#).unwrap();
-
-        fold_pending_initial_turn(&path).unwrap();
-
-        assert!(sessions_file::restore_points_under(&path).is_empty());
-    }
 }

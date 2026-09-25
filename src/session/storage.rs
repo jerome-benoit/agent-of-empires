@@ -4651,11 +4651,10 @@ mod tests {
         Ok(())
     }
 
-    /// A restore point must be named strictly newer than every sibling. The
-    /// planted sibling carries a far-future stamp, so this fails against a
-    /// `SystemTime::now()` naming rule whatever the clock and the filesystem
-    /// happen to do: that rule would land the new copy first, and a backup
-    /// sharing a name overwrites the other.
+    /// A restore point is named strictly newer than every sibling, so a second
+    /// backup can never land on the first. The planted sibling carries a
+    /// far-future stamp, so this fails against a `SystemTime::now()` naming
+    /// rule whatever the clock and the filesystem do.
     #[test]
     fn a_backup_is_named_newer_than_every_sibling() -> Result<()> {
         let temp = tempdir()?;
@@ -4677,34 +4676,18 @@ mod tests {
             "new copy must sort last: {backups:?}"
         );
         assert_eq!(fs::read(&backups[1].1)?, b"live");
+        fs::write(&path, b"later")?;
+        backup_before_repair(&path)?;
+        let backups = recovery_backups(&path, "sessions.json.pre-recovery-")?;
+        assert_eq!(backups.len(), 3, "an earlier copy must never be reused");
+        assert_eq!(fs::read(&backups[1].1)?, b"live");
+        assert_eq!(fs::read(&backups[2].1)?, b"later");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = fs::metadata(&backups[1].1)?.permissions().mode();
             assert_eq!(mode & 0o777, 0o600, "restore point must stay owner-only");
         }
-        Ok(())
-    }
-
-    /// The copy left before a rewrite is the only one the previous release can
-    /// read, so a second backup must not land on the first.
-    #[test]
-    fn a_second_backup_never_overwrites_the_first() -> Result<()> {
-        let temp = tempdir()?;
-        let path = temp.path().join("sessions.json");
-        fs::write(&path, b"first")?;
-        backup_before_repair(&path)?;
-        fs::write(&path, b"second")?;
-        backup_before_repair(&path)?;
-
-        let backups = recovery_backups(&path, "sessions.json.pre-recovery-")?;
-        assert_eq!(
-            backups.len(),
-            2,
-            "both restore points must survive: {backups:?}"
-        );
-        assert_eq!(fs::read(&backups[0].1)?, b"first");
-        assert_eq!(fs::read(&backups[1].1)?, b"second");
         Ok(())
     }
 
