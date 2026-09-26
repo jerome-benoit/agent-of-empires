@@ -1,5 +1,6 @@
 //! Preserve legacy SID exclusions without inventing their namespace.
 
+use super::progress;
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::{fs, path::Path};
@@ -56,9 +57,7 @@ fn migrate_file(path: &Path) -> Result<()> {
     if changed {
         if let Err(error) = crate::session::backup_before_rewrite(path) {
             tracing::warn!(%error, path = %path.display(), "v032: no recovery backup for the retype");
-            crate::migrations::progress::notice(
-                "could not back up sessions.json before binding capture exclusions",
-            );
+            progress::notice("could not back up sessions.json before binding capture exclusions");
         }
         crate::session::atomic_write(path, serde_json::to_string_pretty(&value)?.as_bytes())?;
         tracing::info!(

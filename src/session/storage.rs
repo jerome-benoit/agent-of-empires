@@ -2363,13 +2363,15 @@ pub(crate) fn backup_before_rewrite(path: &Path) -> Result<()> {
             return Err(error).context(format!("failed reading {} for backup", path.display()))
         }
     };
-    let file_name = path.file_name().expect("sessions path has a file name");
+    let Some(file_name) = path.file_name() else {
+        return Ok(());
+    };
     let backups = recovery_backups(path)
         .with_context(|| format!("failed listing recovery backups beside {}", path.display()))?;
-    // Strictly newer than every sibling, so two backups inside one millisecond
-    // cannot land on each other, since landing one is a rename. A sibling past
-    // any clock this build can read leaves no newer name, and takes the first
-    // free one at the clock instead.
+    // Above every sibling while the stamp space leaves room, so a copy taken in
+    // the same millisecond as the last one cannot land on it. Only `u128::MAX`
+    // leaves no room above; the search then takes a free stamp at the clock,
+    // which sorts below that sibling.
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -2378,8 +2380,8 @@ pub(crate) fn backup_before_rewrite(path: &Path) -> Result<()> {
     let mut stamp = now.max(newest.saturating_add(1));
     if stamp <= newest {
         stamp = now;
-        // Taken stamps are distinct, so a free name is within `backups.len()`
-        // steps and the search always ends.
+        // `backups.len()` taken stamps cannot cover `backups.len()` consecutive
+        // candidates, so the search always ends on a name nobody holds.
         for _ in 0..backups.len() {
             if !backups.iter().any(|(taken, _)| *taken == stamp) {
                 break;
@@ -2391,17 +2393,23 @@ pub(crate) fn backup_before_rewrite(path: &Path) -> Result<()> {
     name.push(format!("{RECOVERY_BACKUP_MARKER}{stamp}"));
     let backup = path.with_file_name(name);
     atomic_write_verified(&backup, &bytes)?;
-    sync_parent_directory(&backup)
-        .context(format!("backup {} was not made durable", backup.display()))?;
-    // Prune the set that was there before, never the copy just made: a
-    // saturated stamp space can name it below a sibling, and a prune over the
-    // whole set would take it first.
-    prune_recovery_backups(
+    // Past this point the copy is on disk, so what remains only tidies the
+    // siblings. Report that in the log rather than as a failed backup, which
+    // would tell a user their restore point is missing when it is not.
+    if let Err(error) = sync_parent_directory(&backup)
+        .context(format!("backup {} was not made durable", backup.display()))
+    {
+        tracing::warn!(target: "session.store", %error, path = %backup.display(), "recovery backup not synced into its directory");
+    }
+    if let Err(error) = prune_recovery_backups(
         path,
         &backups,
         RECOVERY_BACKUPS_TO_KEEP.saturating_sub(1),
         sync_resolved_parent_directory,
-    )
+    ) {
+        tracing::warn!(target: "session.store", %error, path = %path.display(), "recovery backups not pruned");
+    }
+    Ok(())
 }
 
 /// The timestamped recovery backups beside `path`, oldest first.
@@ -4667,6 +4675,8 @@ mod tests {
     /// second one can never land on the first. The planted sibling carries a
     /// far-future stamp, so this fails against a `SystemTime::now()` naming rule
     /// whatever the clock and the filesystem do.
+    /// The created copy is also checked for owner-only mode, the one property a
+    /// reader would not infer from the name.
     #[test]
     fn a_backup_is_named_newer_than_every_sibling() -> Result<()> {
         let temp = tempdir()?;
@@ -4700,6 +4710,33 @@ mod tests {
             let mode = fs::metadata(&backups[1].1)?.permissions().mode();
             assert_eq!(mode & 0o777, 0o600, "recovery backup must stay owner-only");
         }
+        Ok(())
+    }
+
+    /// A prune that cannot run is not a failed backup: the copy is already on
+    /// disk, and reporting otherwise would send a user looking for a restore
+    /// point that is there. A directory sitting where the oldest backup name
+    /// belongs makes the prune fail without touching the new copy.
+    #[test]
+    fn a_prune_that_cannot_run_still_leaves_the_copy() -> Result<()> {
+        let temp = tempdir()?;
+        let path = temp.path().join("sessions.json");
+        fs::create_dir(path.with_file_name("sessions.json.pre-recovery-1"))?;
+        fs::write(path.with_file_name("sessions.json.pre-recovery-2"), b"two")?;
+        fs::write(
+            path.with_file_name(format!("sessions.json.pre-recovery-{}", u128::MAX)),
+            b"top",
+        )?;
+        fs::write(&path, b"live")?;
+
+        backup_before_rewrite(&path)?;
+
+        assert!(
+            recovery_backups(&path)?
+                .iter()
+                .any(|(_, candidate)| fs::read(candidate).is_ok_and(|bytes| bytes == b"live")),
+            "the copy this call made must survive a prune that cannot run"
+        );
         Ok(())
     }
 

@@ -11,6 +11,7 @@
 //! Every pre-existing row predates the `synthesized` flag, so it folds to
 //! `false` (the field only ever meant a create-time initial turn until now).
 
+use super::progress;
 use anyhow::{anyhow, Result};
 use std::fs;
 use std::path::Path;
@@ -93,9 +94,7 @@ fn fold_pending_initial_turn(path: &Path) -> Result<()> {
     if folded > 0 {
         if let Err(error) = crate::session::backup_before_rewrite(path) {
             warn!(%error, path = %path.display(), "v029: no recovery backup for the fold");
-            crate::migrations::progress::notice(
-                "could not back up sessions.json before folding pending_initial_turn",
-            );
+            progress::notice("could not back up sessions.json before folding pending_initial_turn");
         }
         crate::session::atomic_write(path, serde_json::to_string_pretty(&value)?.as_bytes())?;
         info!(

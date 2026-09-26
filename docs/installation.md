@@ -32,11 +32,23 @@ If you installed shell completions as a static file, regenerate it afterwards so
 
 ## Downgrading
 
-Downgrades are not supported. The older build refuses to start when `.schema_version` records a newer data schema, which is the safe outcome. A release that retypes a persisted field writes a shape the previous release cannot read, and that release moves any row it cannot decode to a sidecar beside the file, `sessions.corrupt.jsonl` for sessions and `groups.corrupt.jsonl` for groups, then drops it from the registry on its next save. The row is copied to that sidecar, so it is normally still there to recover, but the sidecar holds one generation: a later unreadable row replaces it.
+Downgrades are not supported: the older build refuses to start when `.schema_version` records a newer data schema, and that refusal is the safe outcome, because a release that retypes a persisted field writes a shape the previous one cannot read.
 
-If you need to go back anyway, first copy every `profiles/<name>/sessions.json` and `profiles/<name>/groups.json`, the top-level `sessions.json` if one is left from the pre-profiles layout, and `.schema_version` out of the [app directory](guides/configuration.md#file-locations). Move any `sessions.corrupt.jsonl` or `groups.corrupt.jsonl` out of the way rather than deleting it, so their presence later means something without losing what a previous run put there. There is no flag to bypass the check: editing `.schema_version` down to the older build's own schema version is the only way in. Launch the older build once without creating, renaming, or archiving any session, then check whether it wrote either sidecar. If it did, put your copies back and return to the current release. Deleting `.schema_version` instead of editing it is not a safer variant: the older build reads that as a fresh install and re-runs every migration it has.
+### Finding out whether an older build can read your data
 
-A release that retypes a persisted field also leaves a `sessions.json.pre-recovery-<stamp>` recovery backup beside the file, holding the bytes as they were just before that rewrite; treat the names as ordered rather than as dates. When one upgrade retypes more than one field each rewrite leaves its own, and only the oldest of that run is still in a shape the previous release reads, so restore the oldest one still there. Three are kept per file, shared with the backups `aoe` takes when it repairs a group move, so two repairs after the upgrade can push the oldest one out; if that happened, none of the rest is safe and copying the file is the only path. The retypes this covers shipped in 1.17.0, so an install that has already run them has no recovery backup for the 1.16 shape; it helps only an install still on 1.16.x that upgrades into a build carrying it. Using it still means editing `.schema_version` as above.
+1. Copy every `profiles/<name>/sessions.json` and the `groups.json` beside it out of the [app directory](guides/configuration.md#file-locations), plus the top-level `sessions.json` if the pre-profiles layout left one. A retype migration rewrites no other file; `groups.json` comes along so a return trip restores a matching pair.
+2. Copy `.schema_version` as a record, then edit it in place down to the number the older build prints when it refuses to start, its own schema version. Deleting it is not the safer variant: a missing file reads as version 0, so the older build re-runs every migration it has.
+3. Move any `sessions.corrupt.jsonl` or `groups.corrupt.jsonl` aside rather than deleting it, so step 4 can tell a new one from an old one.
+4. Start the older build once, then look for either of those files. It writes one as soon as it reads a row it cannot decode. Create, rename, and archive nothing while it runs: its next save writes back only the rows it read, and the rest are gone from the file.
+5. If either file appeared, put your copies back and stay on the current release.
+
+### When an older build could not read your sessions
+
+The quarantine file is then the only copy of those rows, and it holds one load's worth of them: that load writes the whole batch it could not decode, and a later load replaces the file, so whatever that later load no longer saw is gone from it.
+
+A release that retypes a persisted field also leaves a `sessions.json.pre-recovery-<stamp>` beside the file, holding the bytes from just before that rewrite. The stamp is a clock reading pushed above its siblings, so order the names rather than reading them as dates. When one upgrade retypes more than one field each rewrite leaves its own, and only the oldest is still a shape the older build reads, so restore that one. Three are kept per file, shared with the copies `aoe` takes when it repairs a group move, so two repairs can push the oldest out, and then none of the rest will read either.
+
+Check that the copy is there rather than assuming it: an upgrade that could not take one says so in its startup output and in the log. These retypes shipped in 1.17.0, so an install that already ran them has no copy of the older shape, and one only helps an install still on 1.16.x that upgrades into a build carrying them. Using it means editing `.schema_version` as in step 2.
 
 ## Uninstalling
 
