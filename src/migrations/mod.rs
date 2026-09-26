@@ -424,7 +424,7 @@ mod tests {
 
         run_migrations().unwrap();
 
-        let backups = crate::session::recovery_backups(&app.join("sessions.json")).unwrap();
+        let backups = crate::session::migration_backups(&app.join("sessions.json")).unwrap();
         assert!(
             !backups.is_empty(),
             "an upgrade that retypes a field must leave a recovery backup"

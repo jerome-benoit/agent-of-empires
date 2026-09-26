@@ -11,4 +11,4 @@ To add one:
 
 Migrations must be idempotent, use `tracing::info!`, gate platform-specific ones with `#[cfg(target_os = "...")]`, and be tested by hand-crafting the old state.
 
-A migration that retypes a persisted field must call `crate::session::backup_before_rewrite` before rewriting, so the build that predates the new shape still has bytes it can read. What that build does with a row it cannot decode, and what the recovery backup is worth to a user who forces a downgrade, is covered under [Downgrading](../installation.md#downgrading).
+A migration that retypes a persisted field must call `crate::session::backup_before_migration` before rewriting, so the build that predates the new shape still has bytes it can read. What that build does with a row it cannot decode, and what the recovery backup is worth to a user who forces a downgrade, is covered under [Downgrading](../installation.md#downgrading).

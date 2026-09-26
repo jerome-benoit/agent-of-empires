@@ -55,8 +55,8 @@ fn migrate_file(path: &Path) -> Result<()> {
         }
     }
     if changed {
-        if let Err(error) = crate::session::backup_before_rewrite(path) {
-            tracing::warn!(%error, path = %path.display(), "v032: no recovery backup for the retype");
+        if let Err(error) = crate::session::backup_before_migration(path) {
+            tracing::warn!(%error, path = %path.display(), "v032: no migration backup for the retype");
             progress::notice("could not back up sessions.json before binding capture exclusions");
         }
         crate::session::atomic_write(path, serde_json::to_string_pretty(&value)?.as_bytes())?;
@@ -125,7 +125,7 @@ mod tests {
         run_in(temp.path()).unwrap();
         run_in(temp.path()).unwrap();
 
-        let backups = crate::session::recovery_backups(&path).unwrap();
+        let backups = crate::session::migration_backups(&path).unwrap();
         assert_eq!(
             backups.len(),
             1,

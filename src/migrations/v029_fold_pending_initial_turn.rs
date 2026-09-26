@@ -92,8 +92,8 @@ fn fold_pending_initial_turn(path: &Path) -> Result<()> {
     }
 
     if folded > 0 {
-        if let Err(error) = crate::session::backup_before_rewrite(path) {
-            warn!(%error, path = %path.display(), "v029: no recovery backup for the fold");
+        if let Err(error) = crate::session::backup_before_migration(path) {
+            warn!(%error, path = %path.display(), "v029: no migration backup for the fold");
             progress::notice("could not back up sessions.json before folding pending_initial_turn");
         }
         crate::session::atomic_write(path, serde_json::to_string_pretty(&value)?.as_bytes())?;
@@ -202,7 +202,7 @@ mod tests {
         fold_pending_initial_turn(&path).unwrap();
         fold_pending_initial_turn(&path).unwrap();
 
-        let backups = crate::session::recovery_backups(&path).unwrap();
+        let backups = crate::session::migration_backups(&path).unwrap();
         assert_eq!(
             backups.len(),
             1,
