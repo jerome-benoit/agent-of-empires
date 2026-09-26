@@ -233,19 +233,18 @@ pub(super) struct NativeLaunchInputs {
     pub(super) identity_extension: Option<(String, String)>,
 }
 
-/// Whether two host paths name one location, whatever their spelling.
-///
-/// Total by construction: a path that cannot be resolved still compares by its
-/// nearest existing ancestor, so a failure never reads as agreement.
+/// A host path's identity, whatever its spelling. Total by construction: a
+/// path that cannot be resolved still compares by its nearest existing
+/// ancestor, so a failure never reads as agreement.
+fn host_identity(path: &std::path::Path) -> PathBuf {
+    crate::session::capture::canonicalize_allowing_missing_leaf(path)
+        .unwrap_or_else(|| crate::git::template::lexical_normalize(path))
+}
+
+/// Whether two host paths name one location. The launch reports these
+/// identities, so a symlinked spelling never reaches the user split in two.
 fn host_paths_match(left: &std::path::Path, right: &std::path::Path) -> bool {
-    if left == right {
-        return true;
-    }
-    let identity = |path: &std::path::Path| {
-        crate::session::capture::canonicalize_allowing_missing_leaf(path)
-            .unwrap_or_else(|| crate::git::template::lexical_normalize(path))
-    };
-    identity(left) == identity(right)
+    left == right || host_identity(left) == host_identity(right)
 }
 impl NativeLaunchInputs {
     fn read_native_file(&self, path: &std::path::Path) -> Result<Option<Vec<u8>>> {
@@ -1318,9 +1317,10 @@ impl Instance {
                         .map(|execution| execution.stores[0].clone())
                         .unwrap_or_else(|| for_new_session.clone()),
                 );
+                let new_session_identity = host_identity(&for_new_session);
                 store_override = recorded
-                    .filter(|_| !host_paths_match(&for_new_session, &root))
-                    .map(|_| (root.clone(), for_new_session.clone(), source));
+                    .filter(|_| new_session_identity != host_identity(&root))
+                    .map(|_| (root.clone(), new_session_identity.clone(), source));
                 let pinned = root.to_str().context("native store is not UTF-8")?.to_owned();
                 let default = crate::session::capture::is_default_claude_store(&root, &home);
                 let export = inputs.container.is_some() || explicit || !default;
