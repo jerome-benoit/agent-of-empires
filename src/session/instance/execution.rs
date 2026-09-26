@@ -1317,10 +1317,12 @@ impl Instance {
                         .map(|execution| execution.stores[0].clone())
                         .unwrap_or_else(|| for_new_session.clone()),
                 );
-                let new_session_identity = host_identity(&for_new_session);
-                store_override = recorded
-                    .filter(|_| new_session_identity != host_identity(&root))
-                    .map(|_| (root.clone(), new_session_identity.clone(), source));
+                store_override = recorded.and_then(|_| {
+                    let launch_identity = host_identity(&root);
+                    let new_session_identity = host_identity(&for_new_session);
+                    (launch_identity != new_session_identity)
+                        .then_some((launch_identity, new_session_identity, source))
+                });
                 let pinned = root.to_str().context("native store is not UTF-8")?.to_owned();
                 let default = crate::session::capture::is_default_claude_store(&root, &home);
                 let export = inputs.container.is_some() || explicit || !default;
