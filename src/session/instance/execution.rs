@@ -218,6 +218,9 @@ pub(super) struct NativeExecution {
     pub(super) resolved_target_session_id: Option<String>,
     pub(super) pi_pinnable: bool,
     pub(super) opencode_preassign: bool,
+    /// A recorded store outranks the store a new session would use here, as
+    /// `(launch, new_session, source)`. The launch reports it once.
+    pub(super) store_override: Option<(PathBuf, PathBuf, &'static str)>,
 }
 pub(super) struct NativeLaunchInputs {
     pub(super) launch_id: String,
@@ -228,6 +231,21 @@ pub(super) struct NativeLaunchInputs {
     pub(super) docker_env: Option<crate::session::environment::DockerExecEnv>,
     pub(super) pane_env: Vec<crate::tmux::PaneEnvMutation>,
     pub(super) identity_extension: Option<(String, String)>,
+}
+
+/// Whether two host paths name one location, whatever their spelling.
+///
+/// Total by construction: a path that cannot be resolved still compares by its
+/// nearest existing ancestor, so a failure never reads as agreement.
+fn host_paths_match(left: &std::path::Path, right: &std::path::Path) -> bool {
+    if left == right {
+        return true;
+    }
+    let identity = |path: &std::path::Path| {
+        crate::session::capture::canonicalize_allowing_missing_leaf(path)
+            .unwrap_or_else(|| crate::git::template::lexical_normalize(path))
+    };
+    identity(left) == identity(right)
 }
 impl NativeLaunchInputs {
     fn read_native_file(&self, path: &std::path::Path) -> Result<Option<Vec<u8>>> {
@@ -1248,6 +1266,7 @@ impl Instance {
         let mut pi_transcript_path = None;
         let mut namespace_arguments = Vec::new();
         let mut exported_default_store = false;
+        let mut store_override = None;
         let mut roots = match agent.name {
             "claude" => {
                 // The recorded binding names the store this conversation
@@ -1281,11 +1300,27 @@ impl Instance {
                     }
                     None => selected.is_some() || exported.is_some(),
                 };
-                let root = absolute(recorded
-                    .map(|execution| execution.stores[0].clone())
-                    .or_else(|| declared.clone())
-                    .or(exported)
-                    .unwrap_or_else(|| home.join(".claude")));
+                let source = if declared.is_some() {
+                    "agent_config_dir"
+                } else if exported.is_some() {
+                    "environment"
+                } else {
+                    "default"
+                };
+                let for_new_session = absolute(
+                    declared
+                        .clone()
+                        .or(exported)
+                        .unwrap_or_else(|| home.join(".claude")),
+                );
+                let root = absolute(
+                    recorded
+                        .map(|execution| execution.stores[0].clone())
+                        .unwrap_or_else(|| for_new_session.clone()),
+                );
+                store_override = recorded
+                    .filter(|_| !host_paths_match(&for_new_session, &root))
+                    .map(|_| (root.clone(), for_new_session.clone(), source));
                 let pinned = root.to_str().context("native store is not UTF-8")?.to_owned();
                 let default = crate::session::capture::is_default_claude_store(&root, &home);
                 let export = inputs.container.is_some() || explicit || !default;
@@ -1795,6 +1830,7 @@ impl Instance {
             resolved_target_session_id,
             pi_pinnable,
             opencode_preassign,
+            store_override,
         })
     }
 
@@ -1820,18 +1856,11 @@ impl Instance {
         right: &ExecutionBinding,
     ) -> bool {
         fn paths_match(left: &std::path::Path, right: &std::path::Path, filesystem: &str) -> bool {
-            if left == right {
-                return true;
+            if filesystem == "host" {
+                return host_paths_match(left, right);
             }
-            let identity = |path: &std::path::Path| {
-                if filesystem == "host" {
-                    crate::session::capture::canonicalize_allowing_missing_leaf(path)
-                        .unwrap_or_else(|| crate::git::template::lexical_normalize(path))
-                } else {
-                    crate::git::template::lexical_normalize(path)
-                }
-            };
-            identity(left) == identity(right)
+            crate::git::template::lexical_normalize(left)
+                == crate::git::template::lexical_normalize(right)
         }
         fn locations_match(left: &[ExecutionLocation], right: &[ExecutionLocation]) -> bool {
             left.len() == right.len()
@@ -2361,6 +2390,14 @@ mod tests {
         let host = binding(&real);
         let host_alias = binding(&alias);
         assert!(Instance::execution_identity_matches(&host, &host_alias));
+        // Identity is the whole location, not its last component: two distinct
+        // directories that happen to share a leaf name are different contexts.
+        let twin = temp.path().join("twin");
+        std::fs::create_dir_all(twin.join("store")).unwrap();
+        assert!(
+            !Instance::execution_identity_matches(&host, &binding(&twin)),
+            "a same-named directory elsewhere is a different execution context"
+        );
         // Store routing does not change which conversation a binding names.
         let exported = ExecutionBinding {
             exported_default_store: true,
