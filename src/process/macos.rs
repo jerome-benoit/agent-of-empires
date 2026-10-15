@@ -409,12 +409,15 @@ pub(super) fn process_group_id(pid: u32) -> anyhow::Result<Option<u32>> {
     }
 }
 
-fn process_membership(pid: u32) -> anyhow::Result<Option<libc::proc_bsdinfo>> {
+fn process_membership(pid: u32) -> std::io::Result<Option<libc::proc_bsdinfo>> {
+    let raw_pid = i32::try_from(pid).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "process PID exceeds i32")
+    })?;
     let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
     let read = unsafe {
         libc::proc_pidinfo(
-            i32::try_from(pid)?,
+            raw_pid,
             libc::PROC_PIDTBSDINFO,
             0,
             info.as_mut_ptr().cast(),
@@ -426,10 +429,15 @@ fn process_membership(pid: u32) -> anyhow::Result<Option<libc::proc_bsdinfo>> {
         if error.raw_os_error() == Some(libc::ESRCH) || !super::worker::is_pid_alive(pid) {
             return Ok(None);
         }
-        anyhow::bail!("process membership unavailable: {error}");
+        return Err(error);
     }
     let info = unsafe { info.assume_init() };
-    anyhow::ensure!(info.pbi_pid == pid, "unexpected process membership PID");
+    if info.pbi_pid != pid {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "unexpected process membership PID",
+        ));
+    }
     Ok(Some(info))
 }
 
@@ -543,7 +551,11 @@ pub(super) fn prime_processes(
             continue;
         };
         let parent = membership.pbi_ppid;
-        let parent_before = process_membership(parent)?.as_ref().map(stable_start_id);
+        let parent_before = process_membership(parent)
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(stable_start_id);
         let marked = match prime_launch_marker(pid, marker, socket, &mut bytes) {
             Ok(marked) => marked,
             Err(error) if known.iter().any(|identity| identity.pid == pid) => return Err(error),
@@ -552,7 +564,11 @@ pub(super) fn prime_processes(
         let Some(confirmed) = process_membership(pid)? else {
             continue;
         };
-        let parent_after = process_membership(parent)?.as_ref().map(stable_start_id);
+        let parent_after = process_membership(parent)
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(stable_start_id);
         let Some(after) = audit_token(pid)? else {
             continue;
         };

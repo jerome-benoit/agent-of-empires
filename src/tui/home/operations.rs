@@ -285,12 +285,16 @@ impl HomeView {
 
     /// Refuse a launch that durable lifecycle state currently blocks.
     pub(in crate::tui) fn refuse_start_if_shelved(&mut self, id: &str) -> bool {
+        if self
+            .get_instance(id)
+            .is_some_and(|inst| inst.status == Status::Deleting)
+        {
+            return true;
+        }
         let blocked = self.get_instance(id).and_then(|inst| {
-            if inst.status == Status::Deleting {
-                return None;
-            }
             let key = if self.strict_hotkeys { "Z" } else { "z" };
             match inst.ensure_startable() {
+                Err(StartBlocked::Deleting) => None,
                 Err(StartBlocked::Trashed) => Some((
                     "Session in trash",
                     format!(
@@ -2192,7 +2196,10 @@ impl HomeView {
             // A restart cascade still on the worker would race the teardown against the
             // container it is creating; skip the row, as `delete_selected` does. A second
             // delete would also overwrite the force level tracked for the first.
-            if self.restart_in_flight.contains(&id) || self.deletes_in_flight.contains_key(&id) {
+            if inst.status == Status::Deleting
+                || self.restart_in_flight.contains(&id)
+                || self.deletes_in_flight.contains_key(&id)
+            {
                 continue;
             }
             let force_delete = match self.failed_delete_forced(&inst) {

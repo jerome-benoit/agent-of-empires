@@ -165,7 +165,7 @@ impl Instance {
         let result = (|| {
             if corpse_pane {
                 let publication = self.prime_root_publication(true);
-                self.kill_clean_locked(&storage)?;
+                prepared.expected_conversation = self.kill_clean_locked(&storage)?;
                 prepared =
                     self.refresh_prepared_prime_launch_after_pane_stop(prepared, publication)?;
             }
@@ -881,6 +881,144 @@ mod tests {
         std::fs::write(&helper, format!("#!/bin/sh\nAOE_FROZEN_NATIVE_TEST_CHILD=1 exec {} --exact {} --nocapture --test-threads=1\n", crate::session::environment::shell_escape(std::env::current_exe().unwrap().to_str().unwrap()), crate::session::environment::shell_escape(&format!("{module}::{entry}")))).unwrap();
         std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
         crate::process::test_support::NativeLaunchExecutable::install(helper)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn pending_native_capture_cannot_supersede_committed_purge() {
+        if std::env::var_os("AOE_FROZEN_NATIVE_TEST_CHILD").is_some() {
+            crate::process::exec_frozen_environment().unwrap();
+            return;
+        }
+        crate::tmux::test_helpers::require_tmux!();
+        use crate::session::deletion::{DeletionRequest, PurgeReservation, PurgeTransaction};
+        use crate::session::instance::test_helpers::{seed_disk_for_sidecar_test, tool_instance};
+        use crate::session::{LifecycleOperation, Storage};
+
+        let (_hooks, _base, directory) = crate::hooks::test_support::BaseGuard::ready();
+        let _home = crate::session::test_support::isolate_app_dir_at(directory.path());
+        crate::session::config::update_app_state(|state| {
+            state.has_acknowledged_agent_hooks = true;
+        })
+        .unwrap();
+        let project = directory.path().join("project");
+        std::fs::create_dir(&project).unwrap();
+        let project = std::fs::canonicalize(project).unwrap();
+        let _path = crate::session::test_support::install_login_shell_path_command(
+            directory.path(),
+            "claude",
+            "#!/bin/sh\ncase \"$1\" in\n--version) printf '2.0.0\\n'; exit 0;;\n--help) printf '%s\\n' '--session-id --resume'; exit 0;;\nesac\nread -r release\n",
+        );
+        let _helper = frozen_test_helper(
+            directory.path(),
+            "pending_native_capture_cannot_supersede_committed_purge",
+        );
+        let profile = "pending-capture-purge";
+        let mut peer = tool_instance("claude", project.to_str().unwrap());
+        peer.source_profile = profile.into();
+        peer.view = crate::session::View::Terminal;
+        seed_disk_for_sidecar_test(profile, &peer);
+        let session = peer.tmux_session().unwrap();
+        let _pane = crate::tmux::test_helpers::TmuxTestSession::from_name(session.name());
+        peer.start().unwrap();
+        assert!(peer.session_id_poller_is_running());
+        let sid = uuid::Uuid::new_v4().to_string();
+        crate::hooks::write_session_id_via_guard(
+            &peer.id,
+            &sid,
+            Some(&peer.active_execution.as_ref().unwrap().launch_id),
+        )
+        .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !crate::session::sync::pending_poller_observation_matches(&peer, |observation| {
+            observation.sid == sid && observation.execution == peer.active_execution
+        }) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "real native poller did not observe the guarded Codex hook publication"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        let storage = Storage::open_unwatched(profile).unwrap();
+        let producer = storage
+            .load()
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == peer.id)
+            .unwrap();
+        let connection = rusqlite::Connection::open(
+            crate::session::get_app_dir().unwrap().join("acp_events.db"),
+        )
+        .unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE acp_events (unexpected TEXT);
+                 CREATE TABLE acp_attachments (unexpected TEXT);",
+            )
+            .unwrap();
+        drop(connection);
+        let transaction = match PurgeTransaction::reserve_with_acp_transcript(
+            storage.clone(),
+            DeletionRequest {
+                session_id: peer.id.clone(),
+                instance: producer,
+                delete_worktree: false,
+                delete_branch: false,
+                delete_sandbox: false,
+                force_delete: false,
+                detach_hooks: true,
+                keep_scratch: true,
+            },
+        )
+        .unwrap()
+        {
+            PurgeReservation::Reserved(transaction) => transaction,
+            PurgeReservation::Rejected(result) => panic!("unexpected rejection: {result:?}"),
+        };
+        let result = transaction
+            .run_hooks()
+            .begin_irreversible()
+            .unwrap()
+            .finish();
+        assert!(!result.success);
+        assert!(result.teardown_started);
+        let generation = storage
+            .update(|rows, _| {
+                let row = rows.iter_mut().find(|row| row.id == peer.id).unwrap();
+                assert_eq!(row.status, Status::Deleting);
+                let generation = row.lifecycle_generation;
+                assert!(row.lifecycle_reservation_is_owned(LifecycleOperation::Purge, generation));
+                row.lifecycle_reservation.as_mut().unwrap().at =
+                    chrono::Utc::now() - chrono::Duration::days(1);
+                Ok(generation)
+            })
+            .unwrap();
+        let journal = crate::session::lifecycle_journal::path_for(
+            storage.sessions_path(),
+            &peer.id,
+            generation,
+        );
+        let journal_before = std::fs::read(&journal).unwrap();
+
+        crate::session::sync::drain_and_persist_session_ids(
+            std::slice::from_mut(&mut peer),
+            &crate::file_watch::FileWatchService::noop(),
+        );
+        let stored = storage
+            .load()
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == peer.id)
+            .unwrap();
+        assert!(
+            stored.lifecycle_reservation_is_owned(LifecycleOperation::Purge, generation),
+            "background capture changed committed purge authority: {stored:?}"
+        );
+        assert_eq!(stored.status, Status::Deleting);
+        assert_eq!(std::fs::read(journal).unwrap(), journal_before);
+        peer.stop_poller();
     }
 
     #[cfg(unix)]

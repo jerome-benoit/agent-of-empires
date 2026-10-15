@@ -1363,121 +1363,65 @@ fn trash_header_d_and_palette_open_empty_trash_confirm() {
 
 #[test]
 #[serial]
-fn empty_trash_escalates_a_row_that_keeps_failing() {
+fn empty_trash_does_not_supersede_a_committed_purge() {
     use std::time::{Duration, Instant};
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    enum Peer {
-        Idle,
-        Restores,
-        HoldsLock,
-    }
-    for peer in [Peer::Idle, Peer::Restores, Peer::HoldsLock] {
-        let mut env = create_test_env_with_sessions(2);
-        let id = env.view.instance_at(0).id.clone();
-        let storage = Storage::new_unwatched("test").unwrap();
-        let durable = |storage: &Storage| storage.load().unwrap().into_iter().find(|i| i.id == id);
-        // The deletion worker reads the durable row, so the dead repo goes on disk.
-        storage
-            .update(|instances, _| {
-                let inst = instances.iter_mut().find(|i| i.id == id).unwrap();
-                inst.worktree_info = Some(crate::session::WorktreeInfo {
-                    branch: "gone".to_string(),
-                    main_repo_path: "/nonexistent/aoe-test-repo".to_string(),
-                    managed_by_aoe: true,
-                    created_at: chrono::Utc::now(),
-                    base_branch: None,
-                });
-                Ok(())
-            })
-            .unwrap();
-        env.view.reload().unwrap();
-        env.view.trash_session_by_id(&id);
-        // A held Trash reservation would turn the first purge into Busy, not Failed.
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while env.view.trash_poller.is_pending(&id) {
-            assert!(Instant::now() < deadline, "trash never finished");
-            env.view.apply_trash_results();
-            std::thread::yield_now();
-        }
-        let trashed = durable(&storage).unwrap();
-        assert!(trashed.is_trashed());
-        assert_eq!(
-            trashed.lifecycle_reservation, None,
-            "trash reservation released"
-        );
 
-        for (round, forced) in [false, true, false].into_iter().enumerate() {
-            env.view.prompt_empty_trash();
-            let dialog = env
-                .view
-                .confirm_dialog
-                .as_mut()
-                .expect("empty-trash confirm");
-            if round > 0 {
-                dialog.handle_key(key(KeyCode::Down));
-                dialog.handle_key(key(KeyCode::Char(' ')));
-            }
-            let peer_lock = (round == 2 && peer == Peer::HoldsLock)
-                .then(|| storage.acquire_instance_lifecycle_lock(&id).unwrap());
-            if round == 2 && peer == Peer::Restores {
-                storage
-                    .update(|instances, _| {
-                        instances
-                            .iter_mut()
-                            .find(|i| i.id == id)
-                            .unwrap()
-                            .trashed_at = None;
-                        Ok(())
-                    })
-                    .unwrap();
-            }
-            env.view.handle_key(key(KeyCode::Char('y')), None);
-
-            if round == 2 {
-                assert!(env.view.get_instance(&id).is_some(), "{peer:?}");
-                let deadline = Instant::now() + Duration::from_secs(10);
-                while !env.view.apply_drop_results() {
-                    assert!(Instant::now() < deadline, "{peer:?}: no drop result");
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-                drop(peer_lock);
-                let kept = peer != Peer::Idle;
-                assert_eq!(durable(&storage).is_some(), kept, "{peer:?}");
-                assert_eq!(env.view.get_instance(&id).is_some(), kept, "{peer:?}");
-                break;
-            }
-            assert_eq!(
-                env.view.deletes_in_flight.get(&id).map(|a| a.forced),
-                Some(forced),
-                "round {round}"
-            );
-            // Emptying again mid-flight neither offers escalation nor re-requests the row.
-            env.view.prompt_empty_trash();
-            assert!(env
-                .view
-                .confirm_dialog
-                .as_ref()
-                .unwrap()
-                .checkbox_labels_for_test()
-                .is_empty());
-            env.view.handle_key(key(KeyCode::Char('y')), None);
-            assert_eq!(
-                env.view.deletes_in_flight.get(&id).map(|a| a.forced),
-                Some(forced),
-                "round {round}: in-flight force level kept"
-            );
-            let deadline = Instant::now() + Duration::from_secs(10);
-            while !env.view.apply_deletion_results() {
-                assert!(Instant::now() < deadline, "round {round}: no result");
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            assert_eq!(
-                env.view.failed_deletes.get(&id).map(|a| a.forced),
-                Some(forced),
-                "round {round}"
-            );
-        }
+    let mut env = create_test_env_with_sessions(2);
+    let id = env.view.instance_at(0).id.clone();
+    let storage = Storage::new_unwatched("test").unwrap();
+    storage
+        .update(|instances, _| {
+            let inst = instances.iter_mut().find(|i| i.id == id).unwrap();
+            inst.worktree_info = Some(crate::session::WorktreeInfo {
+                branch: "gone".to_string(),
+                main_repo_path: "/nonexistent/aoe-test-repo".to_string(),
+                managed_by_aoe: true,
+                created_at: chrono::Utc::now(),
+                base_branch: None,
+            });
+            Ok(())
+        })
+        .unwrap();
+    env.view.reload().unwrap();
+    env.view.trash_session_by_id(&id);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while env.view.trash_poller.is_pending(&id) {
+        assert!(Instant::now() < deadline, "trash never finished");
+        env.view.apply_trash_results();
+        std::thread::yield_now();
     }
+
+    env.view.prompt_empty_trash();
+    env.view.handle_key(key(KeyCode::Char('y')), None);
+    assert!(env.view.deletes_in_flight.contains_key(&id));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !env.view.apply_deletion_results() {
+        assert!(Instant::now() < deadline, "purge never finished");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let durable = storage
+        .load()
+        .unwrap()
+        .into_iter()
+        .find(|instance| instance.id == id)
+        .unwrap();
+    assert_eq!(durable.status, Status::Deleting);
+    assert!(durable.lifecycle_reservation_is_owned(
+        crate::session::LifecycleOperation::Purge,
+        durable.lifecycle_generation,
+    ));
+    assert_eq!(env.view.get_instance(&id).unwrap().status, Status::Deleting);
+    assert!(!env.view.failed_deletes.contains_key(&id));
+
+    env.view.info_dialog = None;
+    env.view.prompt_empty_trash();
+    assert!(env.view.confirm_dialog.is_none());
+    assert_eq!(
+        env.view.info_dialog.as_ref().map(InfoDialog::title),
+        Some("Deletion pending"),
+    );
+    assert!(!env.view.deletes_in_flight.contains_key(&id));
 }
 
 /// A peer restore/re-trash invalidates cached force escalation even at the same timestamp.

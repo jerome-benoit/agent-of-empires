@@ -355,7 +355,7 @@ impl AnchoredDir {
             if replace {
                 nix::fcntl::renameat(staging, temporary.as_str(), &parent, leaf.as_os_str())?;
             } else {
-                match crate::process::rename_exclusive(
+                match crate::process::rename_exclusive_at(
                     staging,
                     temporary.as_ref(),
                     &parent,
@@ -389,7 +389,7 @@ impl AnchoredDir {
     ) -> Result<bool> {
         let (source_parent, source_leaf) = source.open_parent(stage)?;
         let (target_parent, target_leaf) = self.open_parent(destination)?;
-        match crate::process::rename_exclusive(
+        match crate::process::rename_exclusive_at(
             &source_parent,
             source_leaf.as_os_str(),
             &target_parent,

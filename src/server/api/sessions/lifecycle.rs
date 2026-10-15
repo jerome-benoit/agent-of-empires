@@ -980,12 +980,36 @@ pub async fn stop_session(
         let structured = inst.is_structured();
         // Mirror the TUI's `stop_selected` guard: a session already stopped or
         // mid-lifecycle has nothing to stop.
-        let already = matches!(
-            inst.status,
-            Status::Stopped | Status::Deleting | Status::Creating
-        );
+        let already = matches!(inst.status, Status::Stopped | Status::Creating);
         (inst.source_profile.clone(), structured, already)
     };
+
+    let guard_profile = profile.clone();
+    let guard_id = id.clone();
+    let durable_deleting = match tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
+        let storage = Storage::open_unwatched(&guard_profile)?;
+        let _lifecycle_lock = storage.acquire_instance_lifecycle_lock(&guard_id)?;
+        Ok(storage
+            .load()?
+            .into_iter()
+            .find(|instance| instance.id == guard_id)
+            .is_some_and(|instance| instance.status == Status::Deleting))
+    })
+    .await
+    {
+        Ok(Ok(deleting)) => deleting,
+        Ok(Err(error)) => {
+            tracing::warn!(target: "http.api.sessions", session = %id, "stop admission failed: {error:#}");
+            return persist_failed_response();
+        }
+        Err(error) => {
+            tracing::warn!(target: "http.api.sessions", session = %id, "stop admission task failed: {error}");
+            return persist_failed_response();
+        }
+    };
+    if durable_deleting {
+        return crate::server::api::start_blocked_response(crate::session::StartBlocked::Deleting);
+    }
 
     if already_stopped {
         let instances = state.instances.read().await;
@@ -1004,6 +1028,8 @@ pub async fn stop_session(
     // persist their dormant stop before asking the supervisor to shut down.
     // Plain sessions delegate the full sequence to `Instance::stop` below.
     if is_structured {
+        let blocked = Arc::new(std::sync::OnceLock::new());
+        let blocked_for_persist = Arc::clone(&blocked);
         let persist_id = id.clone();
         if persist_session_update(
             profile.clone(),
@@ -1011,6 +1037,10 @@ pub async fn stop_session(
             state.file_watch.clone(),
             move |instances| {
                 if let Some(inst) = instances.iter_mut().find(|i| i.id == persist_id) {
+                    if inst.status == Status::Deleting {
+                        let _ = blocked_for_persist.set(crate::session::StartBlocked::Deleting);
+                        return;
+                    }
                     inst.status = Status::Stopped;
                     inst.mark_idle_dormant();
                 }
@@ -1020,6 +1050,9 @@ pub async fn stop_session(
         .is_err()
         {
             return persist_failed_response();
+        }
+        if let Some(blocked) = blocked.get() {
+            return crate::server::api::start_blocked_response(*blocked);
         }
     }
 
@@ -1066,7 +1099,7 @@ pub async fn stop_session(
         let stop_id = id.clone();
         match tokio::task::spawn_blocking(move || {
             let stop_result = inst_for_stop.stop();
-            let disk_result = Storage::new_unwatched(&stop_profile)
+            let disk_result = Storage::open_unwatched(&stop_profile)
                 .and_then(|storage| storage.load())
                 .map(|instances| {
                     instances
@@ -1079,6 +1112,9 @@ pub async fn stop_session(
         {
             Ok((stop_result, disk_result)) => {
                 if let Err(e) = stop_result {
+                    if let Some(blocked) = e.downcast_ref::<crate::session::StartBlocked>() {
+                        return crate::server::api::start_blocked_response(*blocked);
+                    }
                     tracing::warn!(target: "http.api.sessions", "Stop: session stop failed: {e}");
                 }
                 match disk_result {

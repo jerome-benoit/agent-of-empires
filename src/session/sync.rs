@@ -317,7 +317,7 @@ fn drain_and_persist_session_ids_inner(
 
     let mut capture_generations: Vec<(String, u64)> = Vec::with_capacity(updates.len());
     for update in &updates {
-        let ownership: anyhow::Result<_> = if lifecycle_already_locked || update.confirms_omp_pin {
+        let ownership: anyhow::Result<_> = if lifecycle_already_locked {
             Ok(None)
         } else {
             (|| {
@@ -330,13 +330,21 @@ fn drain_and_persist_session_ids_inner(
                     else {
                         anyhow::bail!("session disappeared before capture");
                     };
-                    instance
-                        .try_acquire_lifecycle_reservation(
-                            crate::session::LifecycleOperation::Capture,
-                            Instance::LIFECYCLE_RESERVATION_TTL,
-                            chrono::Utc::now(),
-                        )
-                        .map_err(|error| anyhow::anyhow!("capture blocked: {error}"))
+                    if instance.status == Status::Deleting {
+                        anyhow::bail!("capture blocked: session purge is committed");
+                    }
+                    if update.confirms_omp_pin {
+                        Ok(None)
+                    } else {
+                        instance
+                            .try_acquire_lifecycle_reservation(
+                                crate::session::LifecycleOperation::Capture,
+                                Instance::LIFECYCLE_RESERVATION_TTL,
+                                chrono::Utc::now(),
+                            )
+                            .map(Some)
+                            .map_err(|error| anyhow::anyhow!("capture blocked: {error}"))
+                    }
                 })?;
                 Ok(Some((storage, lifecycle_lock, generation)))
             })()
@@ -358,7 +366,7 @@ fn drain_and_persist_session_ids_inner(
                 file_watch,
             ),
         };
-        if let Ok(Some((storage, _lifecycle_lock, generation))) = ownership {
+        if let Ok(Some((storage, _lifecycle_lock, Some(generation)))) = ownership {
             let released = storage.update(|instances, _groups| {
                 let Some(instance) = instances
                     .iter_mut()

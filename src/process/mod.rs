@@ -368,7 +368,7 @@ pub(crate) fn terminate_and_reap_process_group(
 /// Both names are relative to retained directory descriptors; there is no
 /// check-then-rename fallback on platforms without an exclusive rename syscall.
 #[cfg(unix)]
-pub(crate) fn rename_exclusive(
+pub(crate) fn rename_exclusive_at(
     source_dir: &std::os::fd::OwnedFd,
     source: &std::ffi::OsStr,
     destination_dir: &std::os::fd::OwnedFd,
@@ -385,6 +385,40 @@ pub(crate) fn rename_exclusive(
             std::io::ErrorKind::Unsupported,
             "exclusive directory publication is unsupported on this platform",
         ))
+    }
+}
+
+pub(crate) fn rename_exclusive_path(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let source_parent = source.parent().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "source has no parent")
+        })?;
+        let destination_parent = destination.parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "destination has no parent",
+            )
+        })?;
+        let source_name = source.file_name().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "source has no file name")
+        })?;
+        let destination_name = destination.file_name().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "destination has no file name",
+            )
+        })?;
+        let source_dir: std::os::fd::OwnedFd = std::fs::File::open(source_parent)?.into();
+        let destination_dir: std::os::fd::OwnedFd = std::fs::File::open(destination_parent)?.into();
+        rename_exclusive_at(&source_dir, source_name, &destination_dir, destination_name)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::rename(source, destination)
     }
 }
 

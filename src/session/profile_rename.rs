@@ -913,19 +913,7 @@ pub(crate) fn rename(old: &str, new: &str) -> Result<()> {
         #[cfg(test)]
         super::storage::test_crash_point("profile-rename-after-checkpoint");
         retarget(&storage, &checkpoint, new)?;
-        #[cfg(unix)]
-        {
-            let parent: std::os::fd::OwnedFd =
-                fs::File::open(old_dir.parent().context("profiles directory absent")?)?.into();
-            crate::process::rename_exclusive(
-                &parent,
-                std::ffi::OsStr::new(old),
-                &parent,
-                std::ffi::OsStr::new(new),
-            )?;
-        }
-        #[cfg(not(unix))]
-        fs::rename(&old_dir, &new_dir)?;
+        crate::process::rename_exclusive_path(&old_dir, &new_dir)?;
         #[cfg(test)]
         super::storage::test_crash_point("profile-rename-after-directory");
         sync_parent_directory(&new_dir)?;

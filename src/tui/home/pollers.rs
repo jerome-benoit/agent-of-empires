@@ -50,12 +50,7 @@ impl HomeView {
                 }) {
                     return true;
                 }
-                if result.disposition == DeletionDisposition::Failed {
-                    if let Some(attempt) = attempt {
-                        self.failed_deletes
-                            .insert(result.session_id.clone(), attempt);
-                    }
-                } else {
+                if result.disposition != DeletionDisposition::Failed {
                     self.failed_deletes.remove(&result.session_id);
                 }
                 match result.disposition {
@@ -108,12 +103,16 @@ impl HomeView {
                         };
                         if let Some(current) = self.instances.get_mut(&result.session_id) {
                             if record_deletion_failure(current, result.retained_instance, error) {
+                                self.failed_deletes.remove(&result.session_id);
                                 self.info_dialog = Some(InfoDialog::new(
                                     "Delete failed",
                                     current.last_error.as_deref().unwrap_or(
                                         "Deletion remains pending; inspect recovery before retrying.",
                                     ),
                                 ));
+                            } else if let Some(attempt) = attempt {
+                                self.failed_deletes
+                                    .insert(result.session_id.clone(), attempt);
                             }
                         }
                     }

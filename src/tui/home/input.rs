@@ -1100,7 +1100,12 @@ impl HomeView {
         let mut count = 0;
         let mut failed = 0;
         let mut failed_forced = 0;
+        let mut pending = 0;
         for inst in self.instances.values().filter(|i| i.is_trashed()) {
+            if inst.status == Status::Deleting {
+                pending += 1;
+                continue;
+            }
             count += 1;
             match self.failed_delete_forced(inst) {
                 Some(false) => failed += 1,
@@ -1109,10 +1114,15 @@ impl HomeView {
             }
         }
         if count == 0 {
-            self.info_dialog = Some(InfoDialog::new(
-                "Trash is empty",
-                "There are no trashed sessions to delete.",
-            ));
+            let (title, message) = if pending == 0 {
+                ("Trash is empty", "There are no trashed sessions to delete.")
+            } else {
+                (
+                    "Deletion pending",
+                    "Trashed sessions are already being deleted. Inspect recovery before retrying.",
+                )
+            };
+            self.info_dialog = Some(InfoDialog::new(title, message));
             return;
         }
         let noun = if count == 1 { "session" } else { "sessions" };

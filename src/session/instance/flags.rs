@@ -23,6 +23,8 @@ pub enum SessionBucket {
 /// Durable lifecycle state that refuses an agent launch or live-pane input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum StartBlocked {
+    #[error("session is being deleted")]
+    Deleting,
     #[error("session is archived; unarchive it first")]
     Archived,
     #[error("session is in trash; restore it first")]
@@ -35,6 +37,7 @@ impl StartBlocked {
     /// Stable machine-readable code for API error bodies.
     pub fn code(self) -> &'static str {
         match self {
+            StartBlocked::Deleting => "session_deleting",
             StartBlocked::Archived => "session_archived",
             StartBlocked::Trashed => "session_trashed",
             StartBlocked::HandoffPending => "terminal_handoff_pending",
@@ -46,6 +49,9 @@ impl Instance {
     /// Shelved sessions and an incomplete structured-to-terminal handoff must
     /// not launch through ordinary start or input paths.
     pub fn ensure_startable(&self) -> Result<(), StartBlocked> {
+        if self.status == Status::Deleting {
+            return Err(StartBlocked::Deleting);
+        }
         match self.effective_bucket() {
             SessionBucket::Archived => Err(StartBlocked::Archived),
             SessionBucket::Trashed => Err(StartBlocked::Trashed),

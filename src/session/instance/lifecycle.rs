@@ -63,6 +63,18 @@ impl Instance {
         ttl: chrono::Duration,
         now: DateTime<Utc>,
     ) -> Result<u64, LifecycleReservationError> {
+        if operation != LifecycleOperation::Purge
+            && self.status == Status::Deleting
+            && self
+                .lifecycle_reservation
+                .as_ref()
+                .is_some_and(|reservation| {
+                    reservation.op == LifecycleOperation::Purge
+                        && reservation.generation == self.lifecycle_generation
+                })
+        {
+            return Err(LifecycleReservationError::Busy(LifecycleOperation::Purge));
+        }
         if let Some(reservation) = self.lifecycle_reservation.as_ref().filter(|reservation| {
             reservation.generation == self.lifecycle_generation && (now - reservation.at) < ttl
         }) {
@@ -244,6 +256,14 @@ impl Instance {
             let Some(stored) = instances.iter_mut().find(|instance| instance.id == self.id) else {
                 return Ok(());
             };
+            if stored.status == Status::Deleting
+                && matches!(
+                    operation,
+                    LifecycleOperation::Launch | LifecycleOperation::Stop
+                )
+            {
+                return Err(StartBlocked::Deleting.into());
+            }
             let generation = stored
                 .try_acquire_lifecycle_reservation(operation, Self::LIFECYCLE_RESERVATION_TTL, now)
                 .map_err(|error| match error {

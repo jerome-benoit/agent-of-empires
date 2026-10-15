@@ -475,6 +475,7 @@ impl PurgeTransaction {
         Ok(retained)
     }
 
+    #[cfg(test)]
     fn gate(&mut self) -> Result<(CompletionGate, Option<Instance>)> {
         let id = self.request.session_id.clone();
         let generation = self.generation;
@@ -670,6 +671,7 @@ impl PurgeTransaction {
 
     /// Reacquire and verify the token, then keep the lifecycle flock through
     /// teardown and the durable commit.
+    #[cfg(test)]
     fn complete_inner(
         mut self,
         after_teardown: impl FnOnce(&Instance) -> std::result::Result<(), String>,
@@ -838,6 +840,7 @@ impl PurgeTransaction {
         }
     }
 
+    #[cfg(test)]
     fn finalize_completed_journal(&mut self, kept_resources: &[String]) {
         if let Err(error) = self.clear_runner_fence() {
             tracing::warn!(
@@ -888,7 +891,10 @@ impl PurgeTransaction {
     }
 
     pub fn complete(self) -> DeletionResult {
-        self.complete_inner(|_| Ok(()))
+        match self.begin_irreversible() {
+            Ok(committed) => committed.finish(),
+            Err(result) => *result,
+        }
     }
 }
 
@@ -3980,41 +3986,6 @@ mod tests {
 
     #[test]
     #[serial]
-    fn failed_teardown_abandons_the_purge_intent_for_explicit_retry() {
-        let _guard = isolate_app_dir();
-        let profile = "purge-failure-journal";
-        let storage = Storage::new_unwatched(profile).unwrap();
-        let temp = tempfile::tempdir().unwrap();
-        let mut instance = stored_instance(&storage, profile, temp.path().to_str().unwrap());
-        instance.scratch = true;
-        storage
-            .update(|instances, _groups| {
-                instances.clear();
-                instances.push(instance.clone());
-                Ok(())
-            })
-            .unwrap();
-
-        let result = reserve(profile, instance).run_hooks().complete();
-        assert_eq!(result.disposition, DeletionDisposition::Failed);
-        assert!(!result.success);
-        let rows = storage.load().unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].status, Status::Idle);
-        assert!(rows[0].lifecycle_reservation.is_none());
-        let journals =
-            crate::session::lifecycle_journal::scan([storage.sessions_path().to_path_buf()]);
-        assert!(journals.entries.is_empty());
-
-        recover_lifecycle_journals_once().unwrap();
-        let rows = storage.load().unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].status, Status::Idle);
-        assert!(rows[0].lifecycle_reservation.is_none());
-    }
-
-    #[test]
-    #[serial]
     fn failed_acp_transcript_cleanup_does_not_replay_the_user_visible_purge() {
         let _guard = isolate_app_dir();
         let profile = "purge-transcript-recovery";
@@ -4333,6 +4304,67 @@ mod tests {
         assert_eq!(
             journals.entries[0].1.as_ref().unwrap().phase,
             LifecyclePhase::TranscriptCleanupStarted
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn restore_cannot_replace_an_expired_irreversible_purge() {
+        let _guard = isolate_app_dir();
+        let profile = "committed-purge-restore-race";
+        let storage = Storage::new_unwatched(profile).unwrap();
+        let mut instance = Instance::new("purge", "/tmp/test-project");
+        instance.source_profile = profile.to_string();
+        instance.trash();
+        storage
+            .update(|instances, _groups| {
+                instances.push(instance.clone());
+                Ok(())
+            })
+            .unwrap();
+        let committed =
+            match PurgeTransaction::reserve(storage.clone(), request(instance.clone())).unwrap() {
+                PurgeReservation::Reserved(transaction) => transaction,
+                PurgeReservation::Rejected(result) => panic!("purge was rejected: {result:?}"),
+            }
+            .run_hooks_with(|_, _| {})
+            .begin_irreversible()
+            .expect("purge reservation should reach committed teardown");
+        drop(committed);
+
+        storage
+            .update(|rows, _groups| {
+                rows[0]
+                    .lifecycle_reservation
+                    .as_mut()
+                    .expect("pending purge reservation")
+                    .at =
+                    Utc::now() - Instance::LIFECYCLE_RESERVATION_TTL - chrono::Duration::seconds(1);
+                Ok(())
+            })
+            .unwrap();
+        let claim = storage
+            .update(|rows, _groups| {
+                Ok(crate::session::claim::decide_restore_claim(
+                    rows,
+                    &instance.id,
+                    Utc::now(),
+                )?)
+            })
+            .unwrap();
+
+        assert_eq!(
+            claim,
+            crate::session::claim::RestoreClaimDecision::Busy(LifecycleOperation::Purge),
+        );
+        let row = storage.load().unwrap().remove(0);
+        assert_eq!(row.status, Status::Deleting);
+        assert_eq!(row.lifecycle_generation, 1);
+        let journals =
+            crate::session::lifecycle_journal::scan([storage.sessions_path().to_path_buf()]);
+        assert_eq!(
+            journals.entries[0].1.as_ref().unwrap().phase,
+            LifecyclePhase::TeardownStarted,
         );
     }
 
