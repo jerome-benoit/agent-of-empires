@@ -1,0 +1,100 @@
+name: PR4292 macOS parent census diagnostic
+
+on:
+  push:
+    branches: [fix/4292-macos-parent-diagnostic]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr4292-parent-census-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-parent-census:
+    if: github.repository == 'jerome-benoit/agent-of-empires'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/rust-toolchain
+      - name: Record native environment
+        run: |
+          sw_vers
+          uname -a
+          id
+          python3 --version
+          ps -o pid=,ppid=,uid=,comm= -p 1
+      - name: Baseline public census
+        id: before
+        continue-on-error: true
+        env:
+          AOE_PARENT_PROOF_JSON: ${{ runner.temp }}/parent-before.json
+        run: |
+          set -o pipefail
+          cargo test --locked --lib process::macos::tests::optional_parent_census_requires_only_owned_child_metadata -- --exact --nocapture --test-threads=1 2>&1 | tee "$RUNNER_TEMP/parent-before.log"
+      - name: Require actual native reproduction
+        env:
+          BASELINE_OUTCOME: ${{ steps.before.outcome }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const assert = require('node:assert/strict');
+          const p = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/parent-before.json`, 'utf8'));
+          assert.equal(process.env.BASELINE_OUTCOME, 'failure');
+          assert.equal(p.platform, 'macos');
+          assert.equal(p.child_parent, 1);
+          for (const field of ['child_audit', 'child_birth', 'child_marked', 'child_retired', 'parent_alive']) assert.equal(p[field], true, field);
+          assert.equal(p.parent_read_full, false);
+          assert.ok([1, 13].includes(p.parent_errno), 'native parent permission denial is required');
+          assert.equal(p.census_ok, false);
+          assert.equal(p.owned_found, false);
+          assert.equal(typeof p.census_error, 'string');
+          console.log(JSON.stringify(p));
+          NODE
+      - name: Apply nonfinal C2 mutation
+        run: |
+          git apply --check .github/diagnostics/pr4292-parent-census.patch
+          git apply .github/diagnostics/pr4292-parent-census.patch
+          git --no-pager diff -- src/process/macos.rs
+      - name: C2 public census
+        env:
+          AOE_PARENT_PROOF_JSON: ${{ runner.temp }}/parent-c2.json
+        run: |
+          set -o pipefail
+          cargo test --locked --lib process::macos::tests::optional_parent_census_requires_only_owned_child_metadata -- --exact --nocapture --test-threads=1 2>&1 | tee "$RUNNER_TEMP/parent-c2.log"
+      - name: Require owned child census with parent still denied
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const assert = require('node:assert/strict');
+          const p = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/parent-c2.json`, 'utf8'));
+          assert.equal(p.platform, 'macos');
+          assert.equal(p.child_parent, 1);
+          for (const field of ['child_audit', 'child_birth', 'child_marked', 'child_retired', 'parent_alive', 'census_ok', 'owned_found']) assert.equal(p[field], true, field);
+          assert.equal(p.parent_read_full, false);
+          assert.ok([1, 13].includes(p.parent_errno));
+          assert.equal(p.census_error, null);
+          console.log(JSON.stringify(p));
+          NODE
+      - name: Restore source after diagnostic
+        if: ${{ always() }}
+        run: |
+          git restore --source=HEAD --worktree -- src/process/macos.rs
+          git diff --exit-code -- src/process/macos.rs
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() }}
+        with:
+          name: pr4292-native-parent-census
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/parent-before.json
+            ${{ runner.temp }}/parent-before.log
+            ${{ runner.temp }}/parent-c2.json
+            ${{ runner.temp }}/parent-c2.log

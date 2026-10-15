@@ -1272,4 +1272,135 @@ mod tests {
         assert!(!remaining.contains(&owned));
         assert!(child.0.wait().unwrap().success());
     }
+
+    #[test]
+    fn optional_parent_census_requires_only_owned_child_metadata() {
+        use std::io::BufRead as _;
+
+        struct Orphan {
+            identity: crate::process::PrimeProcessIdentity,
+            input: Option<std::process::ChildStdin>,
+            retired: bool,
+        }
+        impl Orphan {
+            fn retire(&mut self) -> bool {
+                self.input.take();
+                for force in [false, true] {
+                    if force {
+                        if let Ok(Some(handle)) = ProcessHandle::capture(&self.identity) {
+                            let _ = handle.signal(libc::SIGKILL);
+                        }
+                    }
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+                    loop {
+                        if !crate::process::worker::is_pid_alive(self.identity.pid) {
+                            self.retired = true;
+                            return true;
+                        }
+                        if std::time::Instant::now() >= deadline {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                }
+                false
+            }
+        }
+        impl Drop for Orphan {
+            fn drop(&mut self) {
+                if !self.retired && !self.retire() {
+                    eprintln!("owned diagnostic child not retired: {}", self.identity.pid);
+                }
+            }
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let marker = format!("TMPDIR={}", root.path().display());
+        let socket = root.path().join("diagnostic.sock");
+        let mut keeper = Command::new("python3")
+            .args([
+                "-c",
+                "import os,sys\nif os.fork(): os._exit(0)\nprint(os.getpid(),flush=True)\nsys.stdin.read()\nos._exit(0)",
+            ])
+            .env("TMPDIR", root.path())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(keeper.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let pid = line.trim().parse::<u32>().unwrap();
+        let start_id = process_start_id(pid).unwrap().unwrap();
+        let mut orphan = Orphan {
+            identity: crate::process::PrimeProcessIdentity { pid, start_id },
+            input: keeper.stdin.take(),
+            retired: false,
+        };
+        assert!(keeper.wait().unwrap().success());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let child_parent;
+        loop {
+            let parent = process_membership(pid).unwrap().unwrap().pbi_ppid;
+            if parent == 1 {
+                child_parent = parent;
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "owned child has not been adopted by launchd: {parent}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let child_audit = audit_token(pid).unwrap().is_some();
+        let child_birth =
+            process_start_id(pid).unwrap().as_ref() == Some(&orphan.identity.start_id);
+        let child_marked = prime_launch_marker(pid, &marker, &socket, &mut Vec::new()).unwrap();
+        let mut parent_info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+        let parent_read = unsafe {
+            libc::proc_pidinfo(
+                1,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                parent_info.as_mut_ptr().cast(),
+                size,
+            )
+        };
+        let parent_errno = (parent_read != size)
+            .then(|| std::io::Error::last_os_error().raw_os_error())
+            .flatten();
+        let parent_alive = crate::process::worker::is_pid_alive(1);
+        let census = crate::process::prime_processes(&marker, &socket, &[]);
+        let owned_found = census
+            .as_ref()
+            .is_ok_and(|identities| identities.contains(&orphan.identity));
+        let child_retired = orphan.retire();
+        let proof = serde_json::json!({
+            "platform": std::env::consts::OS,
+            "child_pid": pid,
+            "child_parent": child_parent,
+            "child_audit": child_audit,
+            "child_birth": child_birth,
+            "child_marked": child_marked,
+            "child_retired": child_retired,
+            "parent_alive": parent_alive,
+            "parent_read_full": parent_read == size,
+            "parent_errno": parent_errno,
+            "census_ok": census.is_ok(),
+            "owned_found": owned_found,
+            "census_error": census.as_ref().err().map(|error| format!("{error:#}")),
+        });
+        std::fs::write(
+            std::env::var_os("AOE_PARENT_PROOF_JSON").expect("diagnostic proof path is required"),
+            serde_json::to_vec_pretty(&proof).unwrap(),
+        )
+        .unwrap();
+        eprintln!("{proof}");
+        assert!(child_audit && child_birth && child_marked && parent_alive);
+        assert!(child_retired, "owned diagnostic child has not exited");
+        let identities = census.expect("owned child census aborted on optional parent");
+        assert!(identities.contains(&orphan.identity));
+    }
 }

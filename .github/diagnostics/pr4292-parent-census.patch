@@ -1,0 +1,21 @@
+diff --git a/src/process/macos.rs b/src/process/macos.rs
+--- a/src/process/macos.rs
++++ b/src/process/macos.rs
+@@ -543,7 +543,7 @@
+             continue;
+         };
+         let parent = membership.pbi_ppid;
+-        let parent_before = process_membership(parent)?.as_ref().map(stable_start_id);
++        let parent_before: Option<String> = None;
+         let marked = match prime_launch_marker(pid, marker, socket, &mut bytes) {
+             Ok(marked) => marked,
+             Err(error) if known.iter().any(|identity| identity.pid == pid) => return Err(error),
+@@ -552,7 +552,7 @@
+         let Some(confirmed) = process_membership(pid)? else {
+             continue;
+         };
+-        let parent_after = process_membership(parent)?.as_ref().map(stable_start_id);
++        let parent_after: Option<String> = None;
+         let Some(after) = audit_token(pid)? else {
+             continue;
+         };
