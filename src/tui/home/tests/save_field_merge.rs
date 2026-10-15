@@ -56,6 +56,306 @@ fn delete_action_does_not_wait_for_lifecycle_flock() {
     );
 }
 
+#[test]
+#[serial]
+fn failed_terminal_checkpoint_survives_tui_result_application_and_save() {
+    use crate::session::deletion::{DeletionRequest, PurgeReservation, PurgeTransaction};
+
+    for delivery in ["retained", "missing", "stale", "drop-ticket"] {
+        let (temp, _guard, mut view, id) = boot_view_with_one_session("pending", "/tmp/pending");
+        let storage = Storage::open_unwatched("test").unwrap();
+        let workspace = crate::session::scratch::provision_scratch_dir(&id).unwrap();
+        std::fs::write(workspace.join("retained"), b"pending teardown").unwrap();
+        storage
+            .update(|rows, _| {
+                rows[0].project_path = workspace.to_string_lossy().into_owned();
+                rows[0].scratch = true;
+                Ok(())
+            })
+            .unwrap();
+        let instance = storage.load().unwrap().remove(0);
+        let transaction = match PurgeTransaction::reserve(
+            storage.clone(),
+            DeletionRequest {
+                session_id: id.clone(),
+                instance,
+                delete_worktree: false,
+                delete_branch: false,
+                delete_sandbox: false,
+                force_delete: false,
+                detach_hooks: true,
+                keep_scratch: false,
+            },
+        )
+        .unwrap()
+        {
+            PurgeReservation::Reserved(transaction) => transaction,
+            PurgeReservation::Rejected(result) => panic!("unexpected rejection: {result:?}"),
+        };
+        let observed = storage.load().unwrap().remove(0);
+        let generation = observed.lifecycle_generation;
+        view.instances.insert(id.clone(), observed);
+        let journal =
+            crate::session::lifecycle_journal::path_for(storage.sessions_path(), &id, generation);
+        let saved_journal = temp.path().join("checkpoint-before-terminal.json");
+        let mut result = transaction.run_hooks().complete_with(|_| {
+            std::fs::rename(&journal, &saved_journal).map_err(|error| error.to_string())?;
+            std::fs::create_dir(&journal).map_err(|error| error.to_string())?;
+            Ok(())
+        });
+        assert!(!result.success);
+        assert!(
+            !workspace.exists(),
+            "teardown completed before the checkpoint failed"
+        );
+        assert_eq!(
+            result.retained_instance.as_ref().unwrap().status,
+            Status::Deleting
+        );
+        if delivery == "missing" {
+            result.retained_instance = None;
+        }
+        if delivery == "stale" {
+            let current = view.instances.get_mut(&id).unwrap();
+            current.lifecycle_generation += 1;
+            current.lifecycle_reservation = None;
+            current.status = Status::Running;
+            current.last_error = Some("successor runtime error".into());
+            view.deletes_in_flight.insert(
+                id.clone(),
+                super::super::DeleteAttempt {
+                    worker: super::super::DeleteWorker::Purge,
+                    forced: false,
+                    trashed_at: None,
+                    trash_lifecycle_id: None,
+                },
+            );
+        }
+        std::fs::remove_dir(&journal).unwrap();
+        std::fs::rename(saved_journal, &journal).unwrap();
+        if delivery == "drop-ticket" {
+            view.force_remove_session(&id).unwrap();
+        }
+        view.deletion_poller = crate::tui::deletion_poller::DeletionPoller::seeded_for_test(result);
+
+        assert!(view.apply_deletion_results());
+        if delivery == "drop-ticket" {
+            assert!(matches!(
+                view.deletes_in_flight[&id].worker,
+                super::super::DeleteWorker::Drop,
+            ));
+            assert!(!view.failed_deletes.contains_key(&id));
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            while !view.apply_drop_results() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "drop result did not arrive"
+                );
+                std::thread::yield_now();
+            }
+            assert!(!view.instances.contains_key(&id));
+            assert!(!view.deletes_in_flight.contains_key(&id));
+            continue;
+        }
+        if delivery == "stale" {
+            let current = &view.instances[&id];
+            assert_eq!(current.status, Status::Running);
+            assert_eq!(current.lifecycle_generation, generation + 1);
+            assert!(current.lifecycle_reservation.is_none());
+            assert_eq!(
+                current.last_error.as_deref(),
+                Some("successor runtime error")
+            );
+            assert!(view.info_dialog.is_none());
+            assert!(!view.failed_deletes.contains_key(&id));
+            continue;
+        }
+        assert!(
+            view.info_dialog.is_some(),
+            "retained deletion failure must be visible"
+        );
+        view.save().unwrap();
+
+        let retained = storage.load().unwrap().remove(0);
+        assert_eq!(retained.status, Status::Deleting);
+        assert!(
+            retained.lifecycle_reservation_is_owned(
+                crate::session::LifecycleOperation::Purge,
+                generation,
+            )
+        );
+        assert!(journal.exists());
+        assert!(view.instances[&id].last_error.is_some());
+        storage
+            .update(|rows, _| {
+                rows[0].lifecycle_reservation.as_mut().unwrap().at =
+                    Utc::now() - chrono::Duration::days(1);
+                Ok(())
+            })
+            .unwrap();
+        crate::session::deletion::recover_lifecycle_journals_once().unwrap();
+        assert!(storage.load().unwrap().is_empty());
+        assert!(!journal.exists());
+    }
+}
+
+#[test]
+#[serial]
+fn disconnected_delete_worker_keeps_purge_authority_and_other_workers_isolated() {
+    use super::super::DeleteWorker;
+    use crate::session::deletion::{DeletionRequest, PurgeReservation, PurgeTransaction};
+    use crate::session::LifecycleOperation;
+
+    for owned_purge in [true, false] {
+        let (temp, _guard, mut view, id) =
+            boot_view_with_one_session("crashed-delete", "/tmp/crashed-delete");
+        let storage = Storage::open_unwatched("test").unwrap();
+        let workspace = crate::session::scratch::provision_scratch_dir(&id).unwrap();
+        std::fs::write(workspace.join("retained"), b"await recovery").unwrap();
+        storage
+            .update(|rows, _| {
+                rows[0].project_path = workspace.to_string_lossy().into_owned();
+                rows[0].scratch = true;
+                Ok(())
+            })
+            .unwrap();
+        let request = |instance: Instance| DeletionRequest {
+            session_id: instance.id.clone(),
+            instance,
+            delete_worktree: false,
+            delete_branch: false,
+            delete_sandbox: false,
+            force_delete: false,
+            detach_hooks: true,
+            keep_scratch: false,
+        };
+        let reserve = |instance| match PurgeTransaction::reserve(storage.clone(), request(instance))
+            .unwrap()
+        {
+            PurgeReservation::Reserved(transaction) => transaction,
+            PurgeReservation::Rejected(result) => panic!("unexpected rejection: {result:?}"),
+        };
+        if owned_purge {
+            let transaction = reserve(storage.load().unwrap().remove(0));
+            drop(transaction.run_hooks().begin_irreversible().unwrap());
+        }
+        let mut current = storage.load().unwrap().remove(0);
+        current.status = Status::Deleting;
+        view.instances.insert(id.clone(), current);
+
+        let peer_path = temp.path().join("peer-project");
+        std::fs::create_dir(&peer_path).unwrap();
+        let mut peer = Instance::new("peer-purge", peer_path.to_str().unwrap());
+        peer.source_profile = "test".into();
+        let peer_id = peer.id.clone();
+        let drop_path = temp.path().join("drop-project");
+        std::fs::create_dir(&drop_path).unwrap();
+        let mut drop_row = Instance::new("drop-worker", drop_path.to_str().unwrap());
+        drop_row.source_profile = "test".into();
+        drop_row.status = Status::Deleting;
+        let drop_id = drop_row.id.clone();
+        storage
+            .update(|rows, _| {
+                rows.extend([peer.clone(), drop_row.clone()]);
+                Ok(())
+            })
+            .unwrap();
+        let peer_transaction = reserve(peer);
+        let peer = storage
+            .load()
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == peer_id)
+            .unwrap();
+        view.instances.insert(peer_id.clone(), peer);
+        view.instances.insert(drop_id.clone(), drop_row);
+        view.force_remove_session(&drop_id).unwrap();
+        view.deletion_poller = crate::tui::deletion_poller::DeletionPoller::crashing_for_test();
+        view.request_deletion(request(view.instances[&id].clone()));
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !view.apply_deletion_results() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "worker failure was not reported"
+            );
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            view.instances[&id].status,
+            if owned_purge {
+                Status::Deleting
+            } else {
+                Status::Error
+            }
+        );
+        assert!(view.instances[&id].last_error.is_some());
+        assert!(view.info_dialog.is_some());
+        assert_eq!(view.instances[&peer_id].status, Status::Deleting);
+        assert!(view.instances[&peer_id].last_error.is_none());
+        assert!(!view.failed_deletes.contains_key(&peer_id));
+        assert!(matches!(
+            view.deletes_in_flight[&drop_id].worker,
+            DeleteWorker::Drop
+        ));
+        assert!(!view.failed_deletes.contains_key(&drop_id));
+        view.info_dialog = None;
+        assert!(!view.apply_deletion_results());
+        assert!(view.info_dialog.is_none());
+
+        view.request_deletion(request(view.instances[&drop_id].clone()));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !view.apply_drop_results() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "healthy drop worker did not finish"
+            );
+            std::thread::yield_now();
+        }
+        assert!(!view.instances.contains_key(&drop_id));
+        assert!(matches!(
+            view.deletes_in_flight[&drop_id].worker,
+            DeleteWorker::Purge
+        ));
+        assert!(!view.apply_deletion_results());
+        assert!(!view.deletes_in_flight.contains_key(&drop_id));
+        drop(peer_transaction);
+
+        view.save().unwrap();
+        let retained = storage
+            .load()
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == id)
+            .unwrap();
+        if owned_purge {
+            assert_eq!(retained.status, Status::Deleting);
+            assert!(retained.lifecycle_reservation_is_owned(
+                LifecycleOperation::Purge,
+                retained.lifecycle_generation
+            ));
+            storage
+                .update(|rows, _| {
+                    rows.iter_mut()
+                        .find(|row| row.id == id)
+                        .unwrap()
+                        .lifecycle_reservation
+                        .as_mut()
+                        .unwrap()
+                        .at = Utc::now() - chrono::Duration::days(1);
+                    Ok(())
+                })
+                .unwrap();
+            crate::session::deletion::recover_lifecycle_journals_once().unwrap();
+            assert!(!storage.load().unwrap().iter().any(|row| row.id == id));
+            assert!(!workspace.exists());
+        } else {
+            assert_eq!(retained.status, Status::Error);
+            assert!(workspace.join("retained").exists());
+        }
+    }
+}
+
 /// A TUI save with a stale view merges peer writes (a field, a new row, a new group) instead
 /// of clobbering them.
 #[test]

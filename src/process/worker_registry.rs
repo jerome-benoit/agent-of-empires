@@ -44,8 +44,6 @@ pub struct WorkerRecord {
     /// Together with `pid`, identifies the exact runner process. Older records default to 0.
     #[serde(default)]
     pub generation: u64,
-    #[serde(default)]
-    pub process_identity: Option<crate::process::KernelProcessIdentity>,
     pub started_at: u64,
     pub last_attached_at: Option<u64>,
     pub detached_at: Option<u64>,
@@ -63,7 +61,7 @@ struct PurgeFence {
     #[serde(default)]
     runner_generation: Option<u64>,
     #[serde(default)]
-    runner_process_identity: Option<crate::process::KernelProcessIdentity>,
+    runner_identity: Option<crate::process::ProcessBirthIdentity>,
 }
 
 impl WorkerRecord {
@@ -98,7 +96,6 @@ impl WorkerRecord {
             source_profile,
             prime_runtime: None,
             generation: 0,
-            process_identity: crate::process::kernel_process_identity(pid).ok().flatten(),
             started_at: now_secs(),
             last_attached_at: None,
             detached_at: None,
@@ -149,7 +146,7 @@ pub(crate) fn stop_requested(session_id: &str) -> bool {
     }
 }
 
-fn same_selected_runner(current: &WorkerRecord, selected: &WorkerRecord) -> bool {
+fn same_runner(current: &WorkerRecord, selected: &WorkerRecord) -> bool {
     current.pid == selected.pid
         && current.generation == selected.generation
         && current.runner_identity == selected.runner_identity
@@ -161,7 +158,7 @@ pub(crate) fn request_stop(selected: &WorkerRecord) -> Result<StopIntent> {
         let current = load_strict_unlocked(&selected.session_id)?
             .context("worker disappeared before stop admission")?;
         anyhow::ensure!(
-            same_selected_runner(&current, selected),
+            same_runner(&current, selected),
             "worker changed before stop admission"
         );
         let intent = StopIntent {
@@ -174,6 +171,18 @@ pub(crate) fn request_stop(selected: &WorkerRecord) -> Result<StopIntent> {
             &serde_json::to_vec(&intent)?,
         )?;
         Ok(intent)
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn seed_settled_stop_intent(session_id: &str) -> Result<()> {
+    with_registry_lock(session_id, || {
+        let intent = StopIntent {
+            pid: std::process::id(),
+            generation: 1,
+            token: uuid::Uuid::new_v4().simple().to_string(),
+        };
+        crate::session::atomic_write(&stop_path(session_id)?, &serde_json::to_vec(&intent)?)
     })
 }
 
@@ -209,7 +218,7 @@ pub(crate) fn retire_selected(selected: &WorkerRecord) -> Result<()> {
         );
         if let Some(current) = load_strict_unlocked(&selected.session_id)? {
             anyhow::ensure!(
-                same_selected_runner(&current, selected),
+                same_runner(&current, selected),
                 "worker changed during shutdown; replacement was not retired"
             );
         }
@@ -219,6 +228,7 @@ pub(crate) fn retire_selected(selected: &WorkerRecord) -> Result<()> {
 
 pub(crate) fn register_runner(record: &WorkerRecord) -> Result<tokio::net::UnixListener> {
     with_registry_lock(&record.session_id, || {
+        ensure_publication_unfenced(&record.session_id)?;
         anyhow::ensure!(
             stop_intent(&record.session_id)?.is_none(),
             "worker launch cancelled by a stop request"
@@ -251,8 +261,36 @@ pub(crate) fn register_runner(record: &WorkerRecord) -> Result<tokio::net::UnixL
 }
 
 pub(crate) fn recover_worker(session_id: &str) -> Result<()> {
-    let path = record_path(session_id)?;
-    let selected = std::fs::read(&path)?;
+    let (path, selected) = with_registry_lock(session_id, || {
+        let record = record_path(session_id)?;
+        match std::fs::read(&record) {
+            Ok(bytes) => {
+                #[cfg(unix)]
+                if let Some(orphan) = load_orphan_tracking_unlocked(session_id)? {
+                    let current: WorkerRecord = serde_json::from_slice(&bytes)
+                        .context("parsing worker record alongside orphan evidence")?;
+                    anyhow::ensure!(
+                        same_runner(&current, &orphan),
+                        "registry and orphan recovery identities disagree"
+                    );
+                }
+                Ok((record, bytes))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                #[cfg(unix)]
+                {
+                    load_orphan_tracking_unlocked(session_id)?
+                        .context("worker ownership evidence is absent")?;
+                    let orphan = orphan_tracking_path(session_id)?;
+                    let bytes = std::fs::read(&orphan)?;
+                    Ok((orphan, bytes))
+                }
+                #[cfg(not(unix))]
+                Err(error.into())
+            }
+            Err(error) => Err(error.into()),
+        }
+    })?;
     let record: Option<WorkerRecord> = serde_json::from_slice(&selected).ok();
     if let Some(record) = &record {
         if let Some(expected) = &record.runner_identity {
@@ -264,16 +302,9 @@ pub(crate) fn recover_worker(session_id: &str) -> Result<()> {
                 !runner.executing()?,
                 "original runner or its group is still executing; recovery refused"
             );
-        } else {
-            anyhow::ensure!(
-                record.runner_version < RUNNER_VERSION || !is_pid_alive(record.pid),
-                "original runner is still alive or unattested; recovery refused"
-            );
-            anyhow::ensure!(
-                !crate::process::runner_group_executing(record.pid)?,
-                "runner group still has executing processes; stop the original execution externally before recovery"
-            );
         }
+        // An unattested PID may have been reused. Explicit external confirmation,
+        // not the current occupant, is the authority for retiring that evidence.
         if record
             .prime_runtime
             .as_ref()
@@ -287,11 +318,46 @@ pub(crate) fn recover_worker(session_id: &str) -> Result<()> {
             std::fs::read(&path)? == selected,
             "worker ownership changed during recovery"
         );
+        #[cfg(unix)]
+        {
+            let orphan = load_orphan_tracking_unlocked(session_id)?;
+            if let Some(selected) = record.as_ref() {
+                if let Some(current) = orphan.as_ref() {
+                    anyhow::ensure!(
+                        same_runner(selected, current),
+                        "orphan recovery identity changed"
+                    );
+                }
+                if path == orphan_tracking_path(session_id)? {
+                    if let Some(current) = load_strict_unlocked(session_id)? {
+                        anyhow::ensure!(
+                            same_runner(selected, &current),
+                            "registry recovery identity changed"
+                        );
+                    }
+                }
+            } else {
+                anyhow::ensure!(
+                    orphan.is_none(),
+                    "orphan ownership appeared during malformed-record recovery"
+                );
+            }
+        }
         let control = crate::process::worker::control_socket_sibling(&socket_path_for(session_id)?);
         anyhow::ensure!(
             crate::process::worker::peer_pid_from_socket(&control).is_none(),
             "worker control socket still has a live owner; recovery refused"
         );
+        if let Some(mut fence) = load_purge_fence_unlocked(session_id)? {
+            fence.runner_pid = None;
+            fence.runner_generation = None;
+            fence.runner_identity = None;
+            save_purge_fence_unlocked(session_id, &fence)?;
+        }
+        #[cfg(unix)]
+        if load_orphan_tracking_unlocked(session_id)?.is_some() {
+            remove_orphan_tracking_unlocked(session_id)?;
+        }
         retire_record_files(session_id)
     })
 }
@@ -326,37 +392,51 @@ fn load_purge_fence_unlocked(session_id: &str) -> Result<Option<PurgeFence>> {
     }
 }
 
+fn save_purge_fence_unlocked(session_id: &str, fence: &PurgeFence) -> Result<()> {
+    let path = purge_fence_path(session_id)?;
+    let bytes = serde_json::to_vec(fence).context("serializing ACP purge fence")?;
+    crate::session::atomic_write_verified(&path, &bytes)?;
+    crate::session::sync_parent_directory(&path)
+}
+
 fn profile_reference_paths() -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
     for item in std::fs::read_dir(workers_dir()?)? {
-        let path = item?.path();
-        if path
+        let item = item?;
+        let path = item.path();
+        if !path
             .extension()
             .is_some_and(|ext| ext == "json" || ext == "orphan-stop" || ext == "purge-fence")
         {
-            paths.push(path);
+            continue;
         }
+        paths.push(path);
     }
     paths.sort();
     Ok(paths)
 }
 
 fn read_profile_reference(path: &Path) -> Result<Option<serde_json::Value>> {
-    match std::fs::read(path) {
-        Ok(bytes) => {
-            let value: serde_json::Value = serde_json::from_slice(&bytes)?;
-            anyhow::ensure!(value.is_object(), "invalid profile registry reference");
-            anyhow::ensure!(
-                value
-                    .get("source_profile")
-                    .is_none_or(|profile| profile.is_null() || profile.is_string()),
-                "invalid registry profile"
-            );
-            Ok(Some(value))
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
-    }
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    anyhow::ensure!(
+        metadata.file_type().is_file() && !metadata.file_type().is_symlink(),
+        "registry profile reference is not a regular file: {}",
+        path.display()
+    );
+    let bytes = std::fs::read(path)?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+    anyhow::ensure!(value.is_object(), "invalid profile registry reference");
+    anyhow::ensure!(
+        value
+            .get("source_profile")
+            .is_none_or(|profile| profile.is_null() || profile.is_string()),
+        "invalid registry profile"
+    );
+    Ok(Some(value))
 }
 
 pub(crate) fn profile_reference_sessions(profile: &str) -> Result<Vec<String>> {
@@ -383,6 +463,48 @@ pub(crate) fn profile_reference_sessions(profile: &str) -> Result<Vec<String>> {
     Ok(ids)
 }
 
+pub(crate) fn acquire_profile_deletion_registry_guards(
+    profile: &str,
+    session_ids: &[String],
+) -> Result<Vec<std::fs::File>> {
+    let mut guards = Vec::with_capacity(session_ids.len());
+    for session_id in session_ids {
+        let guard = acquire_registry_lock(session_id)?;
+        if let Some(record) = load_strict_unlocked(session_id)? {
+            anyhow::ensure!(
+                record.session_id == *session_id,
+                "worker registry session identity mismatch"
+            );
+            if let Some(source_profile) = record.source_profile.as_deref() {
+                anyhow::ensure!(
+                    source_profile == profile,
+                    "worker registry references a different profile"
+                );
+            }
+        }
+        #[cfg(unix)]
+        if let Some(orphan) = load_orphan_tracking_unlocked(session_id)? {
+            anyhow::ensure!(
+                orphan
+                    .source_profile
+                    .as_deref()
+                    .is_none_or(|source_profile| source_profile == profile),
+                "orphan tracking references a different profile"
+            );
+            anyhow::bail!("profile has pending orphan cleanup");
+        }
+        if let Some(fence) = load_purge_fence_unlocked(session_id)? {
+            anyhow::ensure!(
+                fence.source_profile == profile,
+                "purge fence references a different profile"
+            );
+            anyhow::bail!("profile has a pending purge fence");
+        }
+        guards.push(guard);
+    }
+    Ok(guards)
+}
+
 pub(crate) fn retarget_profile_references(
     id: &str,
     old: &str,
@@ -404,49 +526,13 @@ pub(crate) fn retarget_profile_references(
             {
                 value["source_profile"] = serde_json::Value::String(target.to_owned());
                 crate::session::atomic_write_verified(&path, &serde_json::to_vec(&value)?)?;
-                crate::session::sync_parent_directory(&path)?;
             }
+            crate::session::sync_parent_directory(&path)?;
         }
         Ok(())
     })
 }
 
-pub(crate) fn migrate_kernel_identities() -> Result<usize> {
-    let mut changed = 0;
-    for path in profile_reference_paths()? {
-        let id = path
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .context("invalid runtime identity filename")?;
-        validate_session_id(id)?;
-        changed += usize::from(with_registry_lock(id, || {
-            let bytes = match std::fs::read(&path) {
-                Ok(bytes) => bytes,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-                Err(error) => return Err(error.into()),
-            };
-            let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-                return Ok(false);
-            };
-            let Some(object) = value.as_object_mut() else {
-                return Ok(false);
-            };
-            let key = if path.extension().is_some_and(|ext| ext == "purge-fence") {
-                "runner_process_identity"
-            } else {
-                "process_identity"
-            };
-            if object.contains_key(key) {
-                return Ok(false);
-            }
-            object.insert(key.to_owned(), serde_json::Value::Null);
-            crate::session::atomic_write_verified(&path, &serde_json::to_vec(&value)?)?;
-            crate::session::sync_parent_directory(&path)?;
-            Ok(true)
-        })?);
-    }
-    Ok(changed)
-}
 #[cfg(unix)]
 fn orphan_tracking_path(session_id: &str) -> Result<PathBuf> {
     validate_session_id(session_id)?;
@@ -481,6 +567,24 @@ fn load_orphan_tracking_unlocked(session_id: &str) -> Result<Option<WorkerRecord
         Err(error) => Err(error).with_context(|| format!("reading {}", path.display())),
     }
 }
+pub(crate) fn load_recovery_candidate(session_id: &str) -> Result<Option<WorkerRecord>> {
+    #[cfg(unix)]
+    {
+        with_registry_lock(session_id, || {
+            let current = load_strict_unlocked(session_id)?;
+            let orphan = load_orphan_tracking_unlocked(session_id)?;
+            if let (Some(current), Some(orphan)) = (&current, &orphan) {
+                anyhow::ensure!(
+                    same_runner(current, orphan),
+                    "registry and orphan recovery identities disagree"
+                );
+            }
+            Ok(current.or(orphan))
+        })
+    }
+    #[cfg(not(unix))]
+    load(session_id)
+}
 
 #[cfg(unix)]
 fn write_orphan_tracking_unlocked(record: &WorkerRecord) -> Result<()> {
@@ -489,6 +593,13 @@ fn write_orphan_tracking_unlocked(record: &WorkerRecord) -> Result<()> {
     let bytes = serde_json::to_vec(record).context("serializing orphan stop evidence")?;
     crate::session::atomic_write_verified(&path, &bytes)?;
     crate::session::sync_parent_directory(&path)
+}
+
+#[cfg(all(test, unix))]
+pub(crate) fn mark_orphan_pending_for_test(record: &WorkerRecord) -> Result<()> {
+    with_registry_lock(&record.session_id, || {
+        write_orphan_tracking_unlocked(record)
+    })
 }
 
 #[cfg(unix)]
@@ -505,14 +616,6 @@ fn remove_orphan_tracking_unlocked(session_id: &str) -> Result<()> {
     let path = orphan_tracking_path(session_id)?;
     remove_file_if_present(&path)?;
     crate::session::sync_parent_directory(&path)
-}
-
-#[cfg(unix)]
-fn same_runner(left: &WorkerRecord, right: &WorkerRecord) -> bool {
-    left.session_id == right.session_id
-        && left.pid == right.pid
-        && left.generation == right.generation
-        && left.process_identity == right.process_identity
 }
 
 /// Fence runner publication and readoption before a purge can remove session resources.
@@ -539,7 +642,7 @@ pub fn fence_for_purge(
             lifecycle_generation,
             runner_pid: None,
             runner_generation: None,
-            runner_process_identity: None,
+            runner_identity: None,
         });
         fence.lifecycle_generation = lifecycle_generation;
         #[cfg(unix)]
@@ -548,7 +651,7 @@ pub fn fence_for_purge(
             if let Some(record) = load_strict_unlocked(session_id)? {
                 fence.runner_pid = Some(record.pid);
                 fence.runner_generation = Some(record.generation);
-                fence.runner_process_identity = record.process_identity;
+                fence.runner_identity = record.runner_identity.clone();
             } else {
                 #[cfg(unix)]
                 {
@@ -562,17 +665,23 @@ pub fn fence_for_purge(
                     );
                     let peer = control_pid.or(base_pid);
                     let peer_birth = match peer {
-                        Some(pid) => crate::process::kernel_process_identity(pid)?,
+                        Some(pid) => crate::process::process_birth_identity(pid)?,
                         None => None,
                     };
                     if let Some(tracked) = orphan.as_ref() {
                         if peer.is_some_and(|pid| pid != tracked.pid)
                             || (peer.is_some()
-                                && tracked.process_identity.is_some()
-                                && peer_birth != tracked.process_identity)
+                                && tracked.runner_identity.is_some()
+                                && peer_birth != tracked.runner_identity)
                         {
                             anyhow::ensure!(
-                                !runner_group_alive(tracked.pid, tracked.process_identity),
+                                !runner_group_alive(
+                                    tracked.pid,
+                                    tracked
+                                        .runner_identity
+                                        .as_ref()
+                                        .map(crate::process::ProcessBirthIdentity::fingerprint),
+                                ),
                                 "a different orphan process group is still tracked"
                             );
                             remove_orphan_tracking_unlocked(session_id)?;
@@ -582,11 +691,11 @@ pub fn fence_for_purge(
                     if let Some(tracked) = orphan.as_ref() {
                         fence.runner_pid = Some(tracked.pid);
                         fence.runner_generation = Some(tracked.generation);
-                        fence.runner_process_identity = tracked.process_identity;
+                        fence.runner_identity = tracked.runner_identity.clone();
                     } else {
                         fence.runner_pid = peer;
                         fence.runner_generation = None;
-                        fence.runner_process_identity = peer_birth;
+                        fence.runner_identity = peer_birth;
                     }
                     anyhow::ensure!(
                         fence.runner_pid.is_some()
@@ -602,10 +711,16 @@ pub fn fence_for_purge(
                 && fence
                     .runner_generation
                     .is_none_or(|generation| generation == tracked.generation)
-                && fence.runner_process_identity == tracked.process_identity;
+                && fence.runner_identity == tracked.runner_identity;
             if !matches {
                 anyhow::ensure!(
-                    !runner_group_alive(tracked.pid, tracked.process_identity),
+                    !runner_group_alive(
+                        tracked.pid,
+                        tracked
+                            .runner_identity
+                            .as_ref()
+                            .map(crate::process::ProcessBirthIdentity::fingerprint),
+                    ),
                     "a different orphan process group is still tracked"
                 );
                 remove_orphan_tracking_unlocked(session_id)?;
@@ -617,10 +732,7 @@ pub fn fence_for_purge(
                 "ACP runner PID {pid} is invalid"
             );
         }
-        let path = purge_fence_path(session_id)?;
-        let bytes = serde_json::to_vec(&fence).context("serializing ACP purge fence")?;
-        crate::session::atomic_write_verified(&path, &bytes)?;
-        crate::session::sync_parent_directory(&path)
+        save_purge_fence_unlocked(session_id, &fence)
     })
 }
 
@@ -640,13 +752,19 @@ pub fn clear_purge_fence_if_owned(
         }
         #[cfg(unix)]
         if let Some(pid) = current.runner_pid {
-            if runner_group_alive(pid, current.runner_process_identity) {
+            if runner_group_alive(
+                pid,
+                current
+                    .runner_identity
+                    .as_ref()
+                    .map(crate::process::ProcessBirthIdentity::fingerprint),
+            ) {
                 let matches = |record: &WorkerRecord| {
                     record.pid == pid
                         && current
                             .runner_generation
                             .is_none_or(|generation| generation == record.generation)
-                        && current.runner_process_identity == record.process_identity
+                        && current.runner_identity == record.runner_identity
                 };
                 let registered = load_strict_unlocked(session_id)?
                     .as_ref()
@@ -758,34 +876,7 @@ pub(crate) fn publish_runner(
         record.source_profile.as_deref(),
         &record.session_id,
     )?;
-    anyhow::ensure!(
-        record.pid == std::process::id() && record.process_identity.is_some(),
-        "runner publication lacks its kernel identity"
-    );
-    let listener = with_registry_lock(&record.session_id, || {
-        ensure_publication_unfenced(&record.session_id)?;
-        let socket = crate::process::worker::control_socket_sibling(&record.socket_path);
-        if let Some(parent) = socket.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        match std::fs::remove_file(&socket) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(error).with_context(|| format!("unlinking {}", socket.display()))
-            }
-        }
-        let listener = tokio::net::UnixListener::bind(&socket)
-            .with_context(|| format!("binding {}", socket.display()))?;
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600));
-        if let Err(error) = save_unlocked(record) {
-            drop(listener);
-            let _ = std::fs::remove_file(&socket);
-            return Err(error);
-        }
-        Ok(listener)
-    })?;
+    let listener = register_runner(record)?;
     Ok((listener, profile_guard))
 }
 
@@ -795,18 +886,16 @@ fn save_unlocked(record: &WorkerRecord) -> Result<()> {
         stop_intent(&record.session_id)?.is_none()
             || current
                 .as_ref()
-                .is_some_and(|current| same_selected_runner(current, record)),
+                .is_some_and(|current| same_runner(current, record)),
         "worker publication cancelled by a stop request"
     );
     let path = record_path(&record.session_id)?;
     crate::session::atomic_write(&path, &serde_json::to_vec_pretty(record)?)
-        .context("publishing worker record")
+        .context("publishing worker record")?;
+    crate::session::sync_parent_directory(&path).context("committing worker record")
 }
 
-pub(crate) fn with_registry_lock<T>(
-    session_id: &str,
-    operation: impl FnOnce() -> Result<T>,
-) -> Result<T> {
+fn acquire_registry_lock(session_id: &str) -> Result<std::fs::File> {
     validate_session_id(session_id)?;
     let lock_path = workers_dir()?.join(format!("{session_id}.lock"));
     let lock_file = std::fs::OpenOptions::new()
@@ -824,6 +913,14 @@ pub(crate) fn with_registry_lock<T>(
     lock_file
         .lock_exclusive()
         .with_context(|| format!("locking worker registry entry {session_id}"))?;
+    Ok(lock_file)
+}
+
+pub(crate) fn with_registry_lock<T>(
+    session_id: &str,
+    operation: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    let lock_file = acquire_registry_lock(session_id)?;
     let result = operation();
     let unlock = fs2::FileExt::unlock(&lock_file)
         .with_context(|| format!("unlocking worker registry entry {session_id}"));
@@ -913,13 +1010,23 @@ fn list_records(include_orphans: bool) -> Result<Vec<WorkerRecord>> {
                 .cmp(&right.session_id)
                 .then_with(|| left.pid.cmp(&right.pid))
                 .then_with(|| left.generation.cmp(&right.generation))
-                .then_with(|| left.process_identity.cmp(&right.process_identity))
+                .then_with(|| {
+                    left.runner_identity
+                        .as_ref()
+                        .map(|identity| (&identity.boot_id, &identity.start_id))
+                        .cmp(
+                            &right
+                                .runner_identity
+                                .as_ref()
+                                .map(|identity| (&identity.boot_id, &identity.start_id)),
+                        )
+                })
         });
         out.dedup_by(|left, right| {
             left.session_id == right.session_id
                 && left.pid == right.pid
                 && left.generation == right.generation
-                && left.process_identity == right.process_identity
+                && left.runner_identity == right.runner_identity
         });
     }
     Ok(out)
@@ -950,24 +1057,15 @@ fn retire_record_files(session_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// A replacement save uses the same lock, so it lands either before the check or after cleanup.
-pub fn delete_if_owned(session_id: &str, owner_pid: u32) -> Result<bool> {
-    with_registry_lock(session_id, || match load_strict_unlocked(session_id)? {
-        Some(record) if record.pid == owner_pid => {
-            delete_unlocked(session_id)?;
-            Ok(true)
+pub(crate) fn retire_if_owned(selected: &WorkerRecord) -> Result<bool> {
+    with_registry_lock(&selected.session_id, || {
+        match load_strict_unlocked(&selected.session_id)? {
+            Some(current) if same_runner(&current, selected) => {
+                delete_unlocked(&selected.session_id)?;
+                Ok(true)
+            }
+            _ => Ok(false),
         }
-        Some(record) => {
-            debug!(
-                target: "acp.registry",
-                session = %session_id,
-                owner_pid,
-                current_pid = record.pid,
-                "skipping cleanup owned by a replacement runner"
-            );
-            Ok(false)
-        }
-        None => Ok(false),
     })
 }
 
@@ -1163,19 +1261,19 @@ pub fn pid_source_for(session_id: &str) -> Option<u32> {
 struct RunnerIdentity {
     pid: u32,
     generation: Option<u64>,
-    process_identity: Option<crate::process::KernelProcessIdentity>,
+    runner_identity: Option<crate::process::ProcessBirthFingerprint>,
 }
 
 #[cfg(unix)]
 fn ensure_process_birth(
     pid: u32,
-    expected: Option<crate::process::KernelProcessIdentity>,
+    expected: Option<crate::process::ProcessBirthFingerprint>,
 ) -> Result<()> {
-    let expected = expected.context("ACP runner kernel birth is unknown")?;
-    anyhow::ensure!(
-        crate::process::kernel_process_identity(pid)? == Some(expected),
-        "ACP runner kernel birth changed"
-    );
+    let expected = expected.context("ACP runner birth is unknown")?;
+    let actual = crate::process::process_birth_identity(pid)?
+        .as_ref()
+        .map(crate::process::ProcessBirthIdentity::fingerprint);
+    anyhow::ensure!(actual == Some(expected), "ACP runner birth changed");
     Ok(())
 }
 
@@ -1184,29 +1282,19 @@ thread_local! {
     static AFTER_FENCED_RUNNER_SIGNAL: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
 }
 #[cfg(unix)]
-type SocketArtifactIdentity = (u64, u64, std::time::SystemTime);
+use crate::process::SocketArtifactIdentity;
 
 #[cfg(unix)]
 fn socket_artifact_identity(path: &Path) -> Result<Option<SocketArtifactIdentity>> {
-    use std::os::unix::fs::MetadataExt;
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error).with_context(|| format!("inspecting {}", path.display())),
-    };
-    Ok(Some((
-        metadata.dev(),
-        metadata.ino(),
-        metadata
-            .created()
-            .with_context(|| format!("reading creation identity of {}", path.display()))?,
-    )))
+    crate::process::socket_artifact_identity(path)
+        .with_context(|| format!("inspecting socket identity of {}", path.display()))
 }
 
 #[cfg(unix)]
 struct PurgeSocketEvidence {
     paths: [PathBuf; 2],
     initial: Option<[Option<SocketArtifactIdentity>; 2]>,
+    pins: [Option<crate::process::SocketArtifactPin>; 2],
 }
 
 #[cfg(unix)]
@@ -1217,13 +1305,14 @@ impl PurgeSocketEvidence {
         Ok(Self {
             paths: [base, control],
             initial: None,
+            pins: [None, None],
         })
     }
 
     fn inspect(
         &self,
         pid: u32,
-        process_identity: Option<crate::process::KernelProcessIdentity>,
+        fingerprint: Option<crate::process::ProcessBirthFingerprint>,
     ) -> Result<([Option<SocketArtifactIdentity>; 2], [Option<u32>; 2])> {
         let identities = [
             socket_artifact_identity(&self.paths[0])?,
@@ -1241,7 +1330,7 @@ impl PurgeSocketEvidence {
             );
         }
         if peers.iter().any(Option::is_some) {
-            ensure_process_birth(pid, process_identity)?;
+            ensure_process_birth(pid, fingerprint)?;
         }
         if let Some(initial) = self.initial.as_ref() {
             for (index, current) in identities.iter().enumerate() {
@@ -1259,9 +1348,9 @@ impl PurgeSocketEvidence {
         &mut self,
         pid: u32,
         registered: bool,
-        process_identity: Option<crate::process::KernelProcessIdentity>,
+        fingerprint: Option<crate::process::ProcessBirthFingerprint>,
     ) -> Result<([Option<u32>; 2], bool)> {
-        let (identities, peers) = self.inspect(pid, process_identity)?;
+        let (identities, peers) = self.inspect(pid, fingerprint)?;
         if self.initial.is_none() && !registered {
             for (index, identity) in identities.iter().enumerate() {
                 anyhow::ensure!(
@@ -1273,6 +1362,14 @@ impl PurgeSocketEvidence {
         }
         let control_present = identities[1].is_some();
         if self.initial.is_none() {
+            for (index, identity) in identities.iter().enumerate() {
+                if let Some(identity) = identity {
+                    self.pins[index] = Some(crate::process::pin_socket_artifact(
+                        &self.paths[index],
+                        *identity,
+                    )?);
+                }
+            }
             self.initial = Some(identities);
         }
         Ok((peers, control_present))
@@ -1281,13 +1378,13 @@ impl PurgeSocketEvidence {
     fn verify_cleanup(
         &self,
         pid: u32,
-        process_identity: Option<crate::process::KernelProcessIdentity>,
+        fingerprint: Option<crate::process::ProcessBirthFingerprint>,
     ) -> Result<()> {
         anyhow::ensure!(
             self.initial.is_some(),
             "ACP runner socket evidence was not captured"
         );
-        self.inspect(pid, process_identity)?;
+        self.inspect(pid, fingerprint)?;
         Ok(())
     }
 
@@ -1335,7 +1432,10 @@ fn signal_runner_if_owned(
         let tracked = orphan.as_ref().map(|record| RunnerIdentity {
             pid: record.pid,
             generation: Some(record.generation),
-            process_identity: record.process_identity,
+            runner_identity: record
+                .runner_identity
+                .as_ref()
+                .map(crate::process::ProcessBirthIdentity::fingerprint),
         });
         let record = load_strict_unlocked(session_id)?;
         let fallback_paths = if purge_artifacts.is_none() && record.is_none() {
@@ -1349,7 +1449,10 @@ fn signal_runner_if_owned(
             RunnerIdentity {
                 pid: record.pid,
                 generation: Some(record.generation),
-                process_identity: record.process_identity,
+                runner_identity: record
+                    .runner_identity
+                    .as_ref()
+                    .map(crate::process::ProcessBirthIdentity::fingerprint),
             }
         } else {
             let known = fence
@@ -1358,7 +1461,10 @@ fn signal_runner_if_owned(
                     current.runner_pid.map(|pid| RunnerIdentity {
                         pid,
                         generation: current.runner_generation,
-                        process_identity: current.runner_process_identity,
+                        runner_identity: current
+                            .runner_identity
+                            .as_ref()
+                            .map(crate::process::ProcessBirthIdentity::fingerprint),
                     })
                 })
                 .or(tracked);
@@ -1385,7 +1491,9 @@ fn signal_runner_if_owned(
                 RunnerIdentity {
                     pid,
                     generation: None,
-                    process_identity: crate::process::kernel_process_identity(pid)?,
+                    runner_identity: crate::process::process_birth_identity(pid)?
+                        .as_ref()
+                        .map(crate::process::ProcessBirthIdentity::fingerprint),
                 }
             }
         };
@@ -1403,7 +1511,7 @@ fn signal_runner_if_owned(
                     && identity
                         .generation
                         .is_none_or(|generation| Some(generation) == tracked.generation)
-                    && identity.process_identity == tracked.process_identity,
+                    && identity.runner_identity == tracked.runner_identity,
                 "ACP runner conflicts with orphan tracking evidence"
             );
         }
@@ -1412,7 +1520,10 @@ fn signal_runner_if_owned(
                 let recorded = RunnerIdentity {
                     pid,
                     generation: current.runner_generation,
-                    process_identity: current.runner_process_identity,
+                    runner_identity: current
+                        .runner_identity
+                        .as_ref()
+                        .map(crate::process::ProcessBirthIdentity::fingerprint),
                 };
                 anyhow::ensure!(
                     recorded == identity,
@@ -1421,7 +1532,15 @@ fn signal_runner_if_owned(
             } else {
                 current.runner_pid = Some(identity.pid);
                 current.runner_generation = identity.generation;
-                current.runner_process_identity = identity.process_identity;
+                let birth = crate::process::process_birth_identity(identity.pid)?;
+                anyhow::ensure!(
+                    birth
+                        .as_ref()
+                        .map(crate::process::ProcessBirthIdentity::fingerprint)
+                        == identity.runner_identity,
+                    "ACP runner birth changed before fencing"
+                );
+                current.runner_identity = birth;
                 let path = purge_fence_path(session_id)?;
                 let bytes =
                     serde_json::to_vec(current).context("serializing runner purge evidence")?;
@@ -1429,7 +1548,7 @@ fn signal_runner_if_owned(
                 crate::session::sync_parent_directory(&path)?;
             }
         }
-        let group_alive = runner_group_alive(identity.pid, identity.process_identity);
+        let group_alive = runner_group_alive(identity.pid, identity.runner_identity);
         if expected_fence.is_none() && expected_runner.is_some() && group_alive {
             if orphan.is_none() {
                 write_orphan_tracking_unlocked(
@@ -1445,7 +1564,7 @@ fn signal_runner_if_owned(
             let (peers, control_present) = evidence.capture_or_check(
                 identity.pid,
                 record.is_some(),
-                identity.process_identity,
+                identity.runner_identity,
             )?;
             if let Some(record) = record.as_ref() {
                 if record.socket_path == evidence.paths[0] {
@@ -1480,12 +1599,13 @@ fn signal_runner_if_owned(
                 anyhow::bail!("ACP runner identity cannot be confirmed through its control socket")
             }
         }
-        ensure_process_birth(identity.pid, identity.process_identity)?;
-        if force_kill {
-            crate::process::worker::kill_process_group(identity.pid);
+        let runner =
+            crate::process::RunnerProcessGuard::capture(identity.pid, identity.runner_identity)?;
+        runner.signal(if force_kill {
+            libc::SIGKILL
         } else {
-            crate::process::worker::terminate_process_group(identity.pid);
-        }
+            libc::SIGTERM
+        })?;
         Ok(Some(identity))
     })
 }
@@ -1493,12 +1613,12 @@ fn signal_runner_if_owned(
 #[cfg(unix)]
 async fn wait_for_runner_group_exit(
     pid: u32,
-    process_identity: Option<crate::process::KernelProcessIdentity>,
+    fingerprint: Option<crate::process::ProcessBirthFingerprint>,
 ) {
     use std::time::Duration;
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-    while runner_group_alive(pid, process_identity) && tokio::time::Instant::now() < deadline {
+    while runner_group_alive(pid, fingerprint) && tokio::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
@@ -1506,13 +1626,24 @@ async fn wait_for_runner_group_exit(
 #[cfg(unix)]
 fn wait_for_runner_group_exit_sync(
     pid: u32,
-    process_identity: Option<crate::process::KernelProcessIdentity>,
+    fingerprint: Option<crate::process::ProcessBirthFingerprint>,
 ) {
     use std::time::{Duration, Instant};
 
     let deadline = Instant::now() + Duration::from_secs(2);
-    while runner_group_alive(pid, process_identity) && Instant::now() < deadline {
+    while runner_group_alive(pid, fingerprint) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Settles a selected runner and its native runtime before retiring ownership.
+pub fn terminate(session_id: &str) -> Result<()> {
+    if let Some(record) = load(session_id)? {
+        settle_runner_sync(&record, std::time::Duration::from_secs(2))?;
+        cleanup_runtime(&record)?;
+        retire_selected(&record)
+    } else {
+        delete_if_absent(session_id).map(|_| ())
     }
 }
 
@@ -1525,6 +1656,17 @@ pub fn terminate_and_confirm_stopped(
     #[cfg(unix)]
     {
         let fence = Some((source_profile, generation));
+        let cleanup_record = with_registry_lock(session_id, || {
+            let current = load_strict_unlocked(session_id)?;
+            let orphan = load_orphan_tracking_unlocked(session_id)?;
+            if let (Some(current), Some(orphan)) = (&current, &orphan) {
+                anyhow::ensure!(
+                    same_runner(current, orphan),
+                    "registry and orphan cleanup identities disagree"
+                );
+            }
+            Ok(current.or(orphan))
+        })?;
         let mut artifacts = PurgeSocketEvidence::new(session_id)?;
         let Some(identity) =
             signal_runner_if_owned(session_id, fence, None, false, Some(&mut artifacts))?
@@ -1549,8 +1691,8 @@ pub fn terminate_and_confirm_stopped(
                 hook();
             }
         });
-        wait_for_runner_group_exit_sync(identity.pid, identity.process_identity);
-        if runner_group_alive(identity.pid, identity.process_identity) {
+        wait_for_runner_group_exit_sync(identity.pid, identity.runner_identity);
+        if runner_group_alive(identity.pid, identity.runner_identity) {
             anyhow::ensure!(
                 signal_runner_if_owned(
                     session_id,
@@ -1561,13 +1703,28 @@ pub fn terminate_and_confirm_stopped(
                 )? == Some(identity),
                 "ACP runner identity changed before SIGKILL escalation"
             );
-            wait_for_runner_group_exit_sync(identity.pid, identity.process_identity);
+            wait_for_runner_group_exit_sync(identity.pid, identity.runner_identity);
         }
         anyhow::ensure!(
-            !runner_group_alive(identity.pid, identity.process_identity),
+            !runner_group_alive(identity.pid, identity.runner_identity),
             "ACP runner process group {} is still alive after SIGKILL",
             identity.pid
         );
+        if let Some(record) = cleanup_record.as_ref() {
+            let selected = RunnerIdentity {
+                pid: record.pid,
+                generation: Some(record.generation),
+                runner_identity: record
+                    .runner_identity
+                    .as_ref()
+                    .map(crate::process::ProcessBirthIdentity::fingerprint),
+            };
+            anyhow::ensure!(
+                selected == identity,
+                "native runtime ownership changed while terminating the fenced runner"
+            );
+            cleanup_runtime(record)?;
+        }
         with_registry_lock(session_id, || {
             let current_fence = load_purge_fence_unlocked(session_id)?;
             anyhow::ensure!(
@@ -1576,7 +1733,7 @@ pub fn terminate_and_confirm_stopped(
                 "ACP purge fence changed while terminating the runner"
             );
             anyhow::ensure!(
-                !runner_group_alive(identity.pid, identity.process_identity),
+                !runner_group_alive(identity.pid, identity.runner_identity),
                 "ACP runner process group {} became live before registry cleanup",
                 identity.pid
             );
@@ -1596,9 +1753,9 @@ pub fn terminate_and_confirm_stopped(
                     "orphan tracking changed while terminating the fenced runner"
                 );
             }
-            artifacts.verify_cleanup(identity.pid, identity.process_identity)?;
+            artifacts.verify_cleanup(identity.pid, identity.runner_identity)?;
             anyhow::ensure!(
-                !runner_group_alive(identity.pid, identity.process_identity),
+                !runner_group_alive(identity.pid, identity.runner_identity),
                 "ACP runner group became live before artifact cleanup"
             );
             artifacts.remove()?;
@@ -1626,7 +1783,13 @@ fn finalize_orphan_unlocked(record: &WorkerRecord, tracked: Option<&WorkerRecord
         );
     }
     if load_purge_fence_unlocked(&record.session_id)?.is_some()
-        || runner_group_alive(record.pid, record.process_identity)
+        || runner_group_alive(
+            record.pid,
+            record
+                .runner_identity
+                .as_ref()
+                .map(crate::process::ProcessBirthIdentity::fingerprint),
+        )
     {
         return Ok(false);
     }
@@ -1658,11 +1821,12 @@ fn finalize_orphan_unlocked(record: &WorkerRecord, tracked: Option<&WorkerRecord
         true
     } else if peers.iter().any(Option::is_some) {
         let recorded = record
-            .process_identity
-            .context("orphan peer kernel identity is unknown")?;
-        let actual = crate::process::kernel_process_identity(record.pid)?
+            .runner_identity
+            .as_ref()
+            .context("orphan peer birth identity is unknown")?;
+        let actual = crate::process::process_birth_identity(record.pid)?
             .context("orphan peer disappeared during birth inspection")?;
-        actual != recorded
+        &actual != recorded
     } else {
         false
     };
@@ -1673,7 +1837,13 @@ fn finalize_orphan_unlocked(record: &WorkerRecord, tracked: Option<&WorkerRecord
         return Ok(tracked.is_some());
     }
     anyhow::ensure!(
-        !runner_group_alive(record.pid, record.process_identity),
+        !runner_group_alive(
+            record.pid,
+            record
+                .runner_identity
+                .as_ref()
+                .map(crate::process::ProcessBirthIdentity::fingerprint),
+        ),
         "orphan group became live before cleanup"
     );
     if current.is_none() {
@@ -1696,11 +1866,12 @@ fn finalize_orphan_unlocked(record: &WorkerRecord, tracked: Option<&WorkerRecord
 pub(crate) enum OrphanTracking {
     Untracked,
     Pending,
+    Reclaimable,
     Reclaimed,
 }
 
 #[cfg(unix)]
-pub(crate) fn cleanup_dead_orphan_tracking(record: &WorkerRecord) -> Result<OrphanTracking> {
+pub(crate) fn orphan_tracking_state(record: &WorkerRecord) -> Result<OrphanTracking> {
     with_registry_lock(&record.session_id, || {
         let tracked = load_orphan_tracking_unlocked(&record.session_id)?;
         let Some(tracked) = tracked
@@ -1709,7 +1880,45 @@ pub(crate) fn cleanup_dead_orphan_tracking(record: &WorkerRecord) -> Result<Orph
         else {
             return Ok(OrphanTracking::Untracked);
         };
-        if finalize_orphan_unlocked(record, Some(tracked))? {
+        if runner_group_alive(
+            tracked.pid,
+            tracked
+                .runner_identity
+                .as_ref()
+                .map(crate::process::ProcessBirthIdentity::fingerprint),
+        ) {
+            Ok(OrphanTracking::Pending)
+        } else {
+            Ok(OrphanTracking::Reclaimable)
+        }
+    })
+}
+
+#[cfg(unix)]
+pub(crate) fn cleanup_dead_orphan_tracking(record: &WorkerRecord) -> Result<OrphanTracking> {
+    match orphan_tracking_state(record)? {
+        OrphanTracking::Untracked => return Ok(OrphanTracking::Untracked),
+        OrphanTracking::Pending => return Ok(OrphanTracking::Pending),
+        OrphanTracking::Reclaimable => {}
+        OrphanTracking::Reclaimed => unreachable!("state inspection does not reclaim evidence"),
+    }
+    let tracked = with_registry_lock(&record.session_id, || {
+        Ok(load_orphan_tracking_unlocked(&record.session_id)?
+            .filter(|tracked| same_runner(tracked, record)))
+    })?;
+    let Some(tracked) = tracked else {
+        return Ok(OrphanTracking::Untracked);
+    };
+    cleanup_runtime(&tracked)?;
+    with_registry_lock(&record.session_id, || {
+        let current = load_orphan_tracking_unlocked(&record.session_id)?;
+        let Some(current) = current
+            .as_ref()
+            .filter(|current| same_runner(current, &tracked))
+        else {
+            return Ok(OrphanTracking::Untracked);
+        };
+        if finalize_orphan_unlocked(&tracked, Some(current))? {
             Ok(OrphanTracking::Reclaimed)
         } else {
             Ok(OrphanTracking::Pending)
@@ -1721,27 +1930,32 @@ pub async fn terminate_orphan_and_confirm_stopped(record: &WorkerRecord) -> Resu
     let expected = RunnerIdentity {
         pid: record.pid,
         generation: Some(record.generation),
-        process_identity: record.process_identity,
+        runner_identity: record
+            .runner_identity
+            .as_ref()
+            .map(crate::process::ProcessBirthIdentity::fingerprint),
     };
     let Some(identity) =
         signal_runner_if_owned(&record.session_id, None, Some(expected), false, None)?
     else {
         return Ok(false);
     };
-    wait_for_runner_group_exit(identity.pid, identity.process_identity).await;
-    if runner_group_alive(identity.pid, identity.process_identity) {
+    wait_for_runner_group_exit(identity.pid, identity.runner_identity).await;
+    if runner_group_alive(identity.pid, identity.runner_identity) {
         anyhow::ensure!(
             signal_runner_if_owned(&record.session_id, None, Some(identity), true, None)?
                 == Some(identity),
             "ACP runner identity changed before SIGKILL escalation"
         );
-        wait_for_runner_group_exit(identity.pid, identity.process_identity).await;
+        wait_for_runner_group_exit(identity.pid, identity.runner_identity).await;
     }
     anyhow::ensure!(
-        !runner_group_alive(identity.pid, identity.process_identity),
+        !runner_group_alive(identity.pid, identity.runner_identity),
         "ACP runner process group {} is still alive after SIGKILL",
         identity.pid
     );
+    let runtime = record.clone();
+    tokio::task::spawn_blocking(move || cleanup_runtime(&runtime)).await??;
     with_registry_lock(&record.session_id, || {
         let tracked = load_orphan_tracking_unlocked(&record.session_id)?;
         finalize_orphan_unlocked(record, tracked.as_ref())
@@ -1751,20 +1965,11 @@ pub async fn terminate_orphan_and_confirm_stopped(record: &WorkerRecord) -> Resu
 #[cfg(unix)]
 fn runner_group_alive(
     pid: u32,
-    process_identity: Option<crate::process::KernelProcessIdentity>,
+    fingerprint: Option<crate::process::ProcessBirthFingerprint>,
 ) -> bool {
-    crate::process::process_group_has_writers(pid, process_identity).unwrap_or(true)
-}
-
-/// Settles a selected runner and its native runtime before retiring ownership.
-pub fn terminate(session_id: &str) -> Result<()> {
-    if let Some(record) = load(session_id)? {
-        settle_runner_sync(&record, std::time::Duration::from_secs(2))?;
-        cleanup_runtime(&record)?;
-        retire_selected(&record)
-    } else {
-        delete_if_absent(session_id).map(|_| ())
-    }
+    crate::process::RunnerProcessGuard::capture(pid, fingerprint)
+        .and_then(|runner| runner.executing())
+        .unwrap_or(true)
 }
 
 fn settle_runner_sync(record: &WorkerRecord, grace: std::time::Duration) -> Result<()> {
@@ -1816,7 +2021,7 @@ pub(crate) async fn terminate_record_and_wait(
         ensure_publication_unfenced(&record.session_id)?;
         anyhow::ensure!(
             load_strict_unlocked(&record.session_id)?
-                .is_some_and(|current| same_selected_runner(&current, &record)),
+                .is_some_and(|current| same_runner(&current, &record)),
             "worker generation changed before termination"
         );
         Ok(())
@@ -1850,29 +2055,49 @@ pub(crate) fn cleanup_runtime(record: &WorkerRecord) -> anyhow::Result<()> {
 /// Retires only missing-route Prime evidence after the caller confirms external native shutdown.
 pub(crate) fn recover_untracked_prime(selected: &WorkerRecord) -> Result<()> {
     with_registry_lock(&selected.session_id, || {
-        let current = load_strict_unlocked(&selected.session_id)?
-            .ok_or_else(|| anyhow::anyhow!("worker record disappeared before recovery"))?;
+        let current = load_strict_unlocked(&selected.session_id)?;
+        #[cfg(unix)]
+        let orphan = load_orphan_tracking_unlocked(&selected.session_id)?;
+        #[cfg(not(unix))]
+        let orphan: Option<WorkerRecord> = None;
+        if let (Some(current), Some(orphan)) = (&current, &orphan) {
+            anyhow::ensure!(
+                same_runner(current, orphan),
+                "registry and orphan recovery identities disagree"
+            );
+        }
+        let candidate = current
+            .as_ref()
+            .or(orphan.as_ref())
+            .ok_or_else(|| anyhow::anyhow!("worker evidence disappeared before recovery"))?;
         anyhow::ensure!(
-            same_selected_runner(&current, selected),
+            same_runner(candidate, selected),
             "worker generation changed before recovery"
         );
         anyhow::ensure!(
-            (current.agent_key == "prime-agent" || current.prime_runtime.is_some())
-                && current
+            (candidate.agent_key == "prime-agent" || candidate.prime_runtime.is_some())
+                && candidate
                     .prime_runtime
                     .as_ref()
                     .is_none_or(|runtime| runtime.proof_path.is_none()),
             "recovery is only for Prime records without a native ownership route"
         );
         anyhow::ensure!(
-            current.runner_identity.as_ref().map_or_else(
-                || Ok(!is_pid_alive(current.pid)),
-                |expected| crate::process::runner_birth_identity(current.pid)
+            candidate.runner_identity.as_ref().map_or_else(
+                || Ok(!is_pid_alive(candidate.pid)),
+                |expected| crate::process::runner_birth_identity(candidate.pid)
                     .map(|actual| actual.as_ref() != Some(expected))
             )?,
             "runner is still alive; recovery refused"
         );
-        delete_unlocked(&selected.session_id)
+        if current.is_some() {
+            delete_unlocked(&selected.session_id)?;
+        }
+        #[cfg(unix)]
+        if orphan.is_some() {
+            remove_orphan_tracking_unlocked(&selected.session_id)?;
+        }
+        Ok(())
     })
 }
 
@@ -2032,6 +2257,8 @@ mod tests {
             Some(std::process::id())
         );
         let latest = request_stop(&record).unwrap();
+        assert!(load(id).unwrap().is_some());
+        assert!(admit_resume(id, ResumeAuthority::Explicit, &Some(latest.clone())).is_err());
         drop(listener);
         retire_selected(&record).unwrap();
         assert!(admit_resume(id, ResumeAuthority::Explicit, &Some(first)).is_err());
@@ -2044,6 +2271,24 @@ mod tests {
         assert!(retire_selected(&record).is_err());
         assert_eq!(stop_intent(id).unwrap(), Some(newer));
         assert_eq!(load(id).unwrap().unwrap().generation, 2);
+        drop(listener);
+    }
+    #[test]
+    #[serial]
+    fn rejected_publication_cannot_retire_an_unrecorded_socket_owner() {
+        let root = TempDir::with_prefix_in("aoe-publish-", "/tmp").unwrap();
+        let _home = crate::session::test_support::isolate_app_dir_at(root.path());
+        let id = "foreign-socket";
+        let socket = socket_path_for(id).unwrap();
+        let control = crate::process::worker::control_socket_sibling(&socket);
+        let listener = std::os::unix::net::UnixListener::bind(&control).unwrap();
+        let selected = new_record(id, std::process::id(), socket);
+
+        assert!(!retire_if_owned(&selected).unwrap());
+        assert_eq!(
+            crate::process::worker::peer_pid_from_socket(&control),
+            Some(std::process::id())
+        );
         drop(listener);
     }
 
@@ -2343,6 +2588,7 @@ mod tests {
             return;
         };
         let marker = std::env::var_os("AOE_TEST_CONTROL_RUNNER_MARKER");
+        let listener = UnixListener::bind(socket_path).expect("bind helper control socket");
         let Some(marker) = marker else {
             return;
         };
@@ -2363,7 +2609,6 @@ mod tests {
             nix::sys::signal::sigaction(nix::sys::signal::Signal::SIGTERM, &action)
                 .expect("install helper SIGTERM handler");
         }
-        let listener = UnixListener::bind(socket_path).expect("bind helper control socket");
         listener.set_nonblocking(true).unwrap();
         loop {
             match listener.accept() {
@@ -2667,7 +2912,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn delete_if_owned_preserves_replacement_record_and_socket() {
+    fn retirement_preserves_replacement_record_and_socket() {
         with_temp_home(|| {
             let session_id = "replacement";
             let socket = socket_path_for(session_id).unwrap();
@@ -2675,13 +2920,14 @@ mod tests {
             let replacement_control = crate::process::worker::control_socket_sibling(&socket);
             let mut record = new_record(session_id, 111, socket);
             save(&record).unwrap();
+            let selected = record.clone();
             record.pid = 222;
             save(&record).unwrap();
 
-            assert!(!delete_if_owned(session_id, 111).unwrap());
+            assert!(!retire_if_owned(&selected).unwrap());
             assert_eq!(load(session_id).unwrap().unwrap().pid, 222);
             assert!(replacement_control.exists());
-            assert!(delete_if_owned(session_id, 222).unwrap());
+            assert!(retire_if_owned(&record).unwrap());
             assert!(load(session_id).unwrap().is_none());
             assert!(!replacement_control.exists());
         });
@@ -3079,14 +3325,16 @@ mod tests {
             .unwrap()
             .lifecycle_generation;
 
+        let fingerprint = fence
+            .runner_identity
+            .as_ref()
+            .map(crate::process::ProcessBirthIdentity::fingerprint);
         crate::process::worker::kill_process_group(pid);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while runner_group_alive(pid, fence.runner_process_identity)
-            && std::time::Instant::now() < deadline
-        {
+        while runner_group_alive(pid, fingerprint) && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        assert!(!runner_group_alive(pid, fence.runner_process_identity));
+        assert!(!runner_group_alive(pid, fingerprint));
         terminate_and_confirm_stopped(session_id, "profile", retry_generation).unwrap();
         assert!(!record_path(session_id).unwrap().exists());
         assert!(!socket_exists(&socket_path_for(session_id).unwrap()));
@@ -3284,7 +3532,13 @@ mod tests {
         assert!(is_purge_fenced(id).unwrap());
         assert!(workspace.join("retained").exists());
         crate::process::worker::kill_process_group(pid);
-        while runner_group_alive(pid, record.process_identity) {
+        while runner_group_alive(
+            pid,
+            record
+                .runner_identity
+                .as_ref()
+                .map(crate::process::ProcessBirthIdentity::fingerprint),
+        ) {
             assert!(
                 std::time::Instant::now() < deadline,
                 "owned group did not stop"
@@ -3546,6 +3800,30 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     #[tokio::test]
     #[serial]
+    async fn purge_fence_rejects_publication_without_a_prior_owner() {
+        let temp = TempDir::with_prefix_in("aoe-", "/tmp").unwrap();
+        let _home = crate::session::test_support::isolate_app_dir_at(temp.path());
+        let session_id = "fenced-empty";
+        fence_for_purge(session_id, "profile", 9).unwrap();
+        let record = new_record(
+            session_id,
+            std::process::id(),
+            socket_path_for(session_id).unwrap(),
+        )
+        .with_generation(1);
+
+        assert!(publish_runner(&record).is_err());
+        assert!(load(session_id).unwrap().is_none());
+        assert!(
+            !crate::process::worker::control_socket_sibling(&record.socket_path)
+                .try_exists()
+                .unwrap()
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    #[tokio::test]
+    #[serial]
     async fn orphan_tracking_failure_prevents_graceful_shutdown() {
         let temp = TempDir::with_prefix_in("aoe-", "/tmp").unwrap();
         let _home = crate::session::test_support::isolate_app_dir_at(temp.path());
@@ -3571,6 +3849,101 @@ mod tests {
         assert!(load(session_id).unwrap().is_some());
         crate::process::worker::kill_process_group(pid);
         child.wait().unwrap();
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    #[tokio::test]
+    #[serial]
+    async fn orphan_reaper_retains_prime_ownership_without_a_native_route() {
+        let temp = TempDir::with_prefix_in("aoe-", "/tmp").unwrap();
+        let _home = crate::session::test_support::isolate_app_dir_at(temp.path());
+        let session_id = "prime-orphan";
+        let (mut child, pid, _, _) = spawn_control_socket_runner(session_id, false, None, None);
+        let _kill_group = KillProcessGroupOnDrop(pid);
+        let mut record =
+            new_record(session_id, pid, socket_path_for(session_id).unwrap()).with_generation(5);
+        record.agent_key = "prime-agent".into();
+        save(&record).unwrap();
+        with_registry_lock(session_id, || write_orphan_tracking_unlocked(&record)).unwrap();
+        crate::process::worker::kill_process_group(pid);
+        child.wait().unwrap();
+
+        assert!(matches!(
+            orphan_tracking_state(&record).unwrap(),
+            OrphanTracking::Reclaimable
+        ));
+        assert!(terminate_orphan_and_confirm_stopped(&record).await.is_err());
+        assert!(cleanup_dead_orphan_tracking(&record).is_err());
+        assert!(same_runner(&load(session_id).unwrap().unwrap(), &record));
+        assert!(orphan_tracking_path(session_id).unwrap().exists());
+
+        fence_for_purge(session_id, "profile", 9).unwrap();
+        assert!(terminate_and_confirm_stopped(session_id, "profile", 9).is_err());
+        assert!(same_runner(&load(session_id).unwrap().unwrap(), &record));
+        assert!(orphan_tracking_path(session_id).unwrap().exists());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    #[test]
+    #[serial]
+    fn confirmed_prime_recovery_retires_orphan_only_evidence() {
+        let temp = TempDir::with_prefix_in("aoe-", "/tmp").unwrap();
+        let _home = crate::session::test_support::isolate_app_dir_at(temp.path());
+        let session_id = "prime-orphan-only";
+        let mut child = KillOnDrop(
+            std::process::Command::new("sleep")
+                .arg("30")
+                .spawn()
+                .unwrap(),
+        );
+        let mut record = new_record(
+            session_id,
+            child.0.id(),
+            socket_path_for(session_id).unwrap(),
+        )
+        .with_generation(7);
+        record.agent_key = "prime-agent".into();
+        save(&record).unwrap();
+        with_registry_lock(session_id, || write_orphan_tracking_unlocked(&record)).unwrap();
+        std::fs::remove_file(record_path(session_id).unwrap()).unwrap();
+        child.0.kill().unwrap();
+        child.0.wait().unwrap();
+
+        let selected = load_recovery_candidate(session_id).unwrap().unwrap();
+        assert!(same_runner(&selected, &record));
+        recover_untracked_prime(&selected).unwrap();
+        assert!(load_recovery_candidate(session_id).unwrap().is_none());
+        assert!(!orphan_tracking_path(session_id).unwrap().exists());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    #[test]
+    #[serial]
+    fn confirmed_worker_recovery_retires_orphan_only_evidence() {
+        let temp = TempDir::with_prefix_in("aoe-", "/tmp").unwrap();
+        let _home = crate::session::test_support::isolate_app_dir_at(temp.path());
+        let session_id = "worker-orphan-only";
+        let mut child = KillOnDrop(
+            std::process::Command::new("sleep")
+                .arg("30")
+                .spawn()
+                .unwrap(),
+        );
+        let record = new_record(
+            session_id,
+            child.0.id(),
+            socket_path_for(session_id).unwrap(),
+        )
+        .with_generation(8);
+        save(&record).unwrap();
+        with_registry_lock(session_id, || write_orphan_tracking_unlocked(&record)).unwrap();
+        std::fs::remove_file(record_path(session_id).unwrap()).unwrap();
+        child.0.kill().unwrap();
+        child.0.wait().unwrap();
+
+        recover_worker(session_id).unwrap();
+        assert!(load_recovery_candidate(session_id).unwrap().is_none());
+        assert!(!orphan_tracking_path(session_id).unwrap().exists());
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     #[test]
@@ -3773,7 +4146,13 @@ mod tests {
             }
             crate::process::worker::kill_process_group(pid);
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-            while runner_group_alive(pid, initial.runner_process_identity) {
+            while runner_group_alive(
+                pid,
+                initial
+                    .runner_identity
+                    .as_ref()
+                    .map(crate::process::ProcessBirthIdentity::fingerprint),
+            ) {
                 assert!(std::time::Instant::now() < deadline);
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
@@ -4208,7 +4587,6 @@ mod tests {
         let committed = transaction.run_hooks().begin_irreversible().unwrap();
         let _clear_hook = ClearSignalHook;
         let replacement_path = control.clone();
-        let retired = temp.path().join("retired.sock");
         AFTER_FENCED_RUNNER_SIGNAL.with(|hook| {
             *hook.borrow_mut() = Some(Box::new(move || {
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
@@ -4220,7 +4598,7 @@ mod tests {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 }
                 assert!(runner_group_alive(pid, None));
-                std::fs::rename(&replacement_path, retired).unwrap();
+                std::fs::remove_file(&replacement_path).unwrap();
                 let replacement =
                     std::os::unix::net::UnixListener::bind(&replacement_path).unwrap();
                 drop(replacement);
@@ -4358,9 +4736,14 @@ mod tests {
             let _group = KillProcessGroupOnDrop(pid);
             let mut record = new_record(id, pid, socket_path_for(id).unwrap()).with_generation(5);
             if legacy {
-                record.process_identity = None;
+                record.runner_identity = None;
             } else {
-                record.process_identity.as_mut().unwrap().start_id += 1;
+                record
+                    .runner_identity
+                    .as_mut()
+                    .unwrap()
+                    .start_id
+                    .push_str("-reused");
             }
             save(&record).unwrap();
             fence_for_purge(id, "profile", 7).unwrap();
@@ -4379,7 +4762,48 @@ mod tests {
             assert!(is_purge_fenced(id).unwrap());
             crate::process::worker::kill_process_group(pid);
             child.wait().unwrap();
+            terminate_and_confirm_stopped(id, "profile", 7)
+                .expect("retry must complete after external settlement");
+            assert!(load(id).unwrap().is_none());
+            assert!(is_purge_fenced(id).unwrap());
+            assert!(clear_purge_fence_if_owned(id, "profile", 7).unwrap());
+            assert!(!is_purge_fenced(id).unwrap());
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn explicit_recovery_retires_unknown_birth_without_touching_a_live_pid() {
+        use std::os::unix::process::CommandExt as _;
+
+        let temp = TempDir::with_prefix_in("aoe-", "/tmp").unwrap();
+        let _home = crate::session::test_support::isolate_app_dir_at(temp.path());
+        let id = "unknown-birth";
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "trap '' TERM; sleep 30"])
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let _group = KillProcessGroupOnDrop(pid);
+        let mut record = new_record(id, pid, socket_path_for(id).unwrap()).with_generation(5);
+        record.runner_identity = None;
+        save(&record).unwrap();
+        fence_for_purge(id, "profile", 7).unwrap();
+
+        recover_worker(id).unwrap();
+
+        assert!(is_pid_alive(pid));
+        assert!(load(id).unwrap().is_none());
+        let fence = load_purge_fence_unlocked(id).unwrap().unwrap();
+        assert!(fence.runner_pid.is_none());
+        assert!(fence.runner_identity.is_none());
+        terminate_and_confirm_stopped(id, "profile", 7).unwrap();
+        assert!(clear_purge_fence_if_owned(id, "profile", 7).unwrap());
+        assert!(is_pid_alive(pid));
+        crate::process::worker::kill_process_group(pid);
+        child.wait().unwrap();
     }
 
     #[cfg(unix)]
@@ -4439,60 +4863,5 @@ mod tests {
         leader.0.wait().unwrap();
         assert!(result.is_err());
         assert!(same_runner(&load("zombie-live").unwrap().unwrap(), &record));
-    }
-
-    #[test]
-    #[serial]
-    fn runtime_birth_migration_preserves_unknown_and_known_ownership_without_inventing_birth() {
-        let temp = TempDir::with_prefix_in("aoe-", "/tmp").unwrap();
-        let _home = crate::session::test_support::isolate_app_dir_at(temp.path());
-        let mut original = serde_json::to_value(new_record(
-            "legacy",
-            std::process::id(),
-            socket_path_for("legacy").unwrap(),
-        ))
-        .unwrap();
-        original.as_object_mut().unwrap().remove("process_identity");
-        original["future_metadata"] = serde_json::json!({"retained":[1,2,3]});
-        let dir = workers_dir().unwrap();
-        for name in ["legacy.json", "legacy.orphan-stop"] {
-            std::fs::write(dir.join(name), serde_json::to_vec(&original).unwrap()).unwrap();
-        }
-        let fence = serde_json::json!({"source_profile":"profile", "lifecycle_generation":8,"runner_pid":std::process::id(),"runner_generation":5});
-        std::fs::write(
-            dir.join("legacy.purge-fence"),
-            serde_json::to_vec(&fence).unwrap(),
-        )
-        .unwrap();
-        let known = new_record(
-            "known",
-            std::process::id(),
-            socket_path_for("known").unwrap(),
-        );
-        save(&known).unwrap();
-        let known_bytes = std::fs::read(record_path("known").unwrap()).unwrap();
-        assert_eq!(migrate_kernel_identities().unwrap(), 3);
-        assert!(load("legacy").unwrap().unwrap().process_identity.is_none());
-        assert!(load_purge_fence_unlocked("legacy")
-            .unwrap()
-            .unwrap()
-            .runner_process_identity
-            .is_none());
-        assert_eq!(
-            load("known").unwrap().unwrap().process_identity,
-            known.process_identity
-        );
-        assert_eq!(
-            std::fs::read(record_path("known").unwrap()).unwrap(),
-            known_bytes
-        );
-        for name in ["legacy.json", "legacy.orphan-stop"] {
-            let value: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(dir.join(name)).unwrap()).unwrap();
-            assert!(value["process_identity"].is_null());
-            assert_eq!(value["future_metadata"], original["future_metadata"]);
-            assert_eq!(value["pid"], original["pid"]);
-        }
-        assert_eq!(migrate_kernel_identities().unwrap(), 0);
     }
 }

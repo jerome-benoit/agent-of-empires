@@ -8,8 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 
 use super::Config;
-use crate::session::get_profile_dir;
-
 /// Profile-specific settings, stored as a sparse override tree (#1692).
 ///
 /// Every override is a section table keyed by config-section name (e.g.
@@ -115,20 +113,25 @@ pub(crate) fn overrides_ignored_keys(overrides: &serde_json::Value) -> Vec<Strin
     ignored
 }
 
-/// Save profile-specific config
+/// Save profile-specific config without creating a missing profile.
 pub fn save_profile_config(profile: &str, config: &ProfileConfig) -> Result<()> {
-    let path = get_profile_config_path(profile)?;
+    let base = crate::session::get_app_dir()?;
+    let _transition = crate::session::storage::acquire_storage_shared_flock(
+        &base,
+        crate::migrations::v027_isolate_sandbox_stores::LOCK,
+    )?;
+    let profile = crate::session::resolve_existing_profile(profile)?;
+    crate::session::profile_rename::ensure_profile_available(&profile)?;
+    let path = get_profile_config_path(&profile)?;
     let content = toml::to_string_pretty(config)?;
     crate::session::atomic_write(&path, content.as_bytes())?;
+    crate::session::sync_parent_directory(&path)?;
     Ok(())
 }
 
-/// Get the path to a profile's config file. This goes through the
-/// creating [`get_profile_dir`] because the only remaining caller is
-/// [`save_profile_config`], which needs the directory to exist before
-/// the atomic write.
+/// Get the path to a profile's config file without creating it.
 pub fn get_profile_config_path(profile: &str) -> Result<std::path::PathBuf> {
-    Ok(get_profile_dir(profile)?.join("config.toml"))
+    Ok(crate::session::get_profile_dir_path(profile)?.join("config.toml"))
 }
 
 /// Check if a profile has any overrides set
@@ -397,6 +400,25 @@ mod tests {
             !app.join("profiles").exists(),
             "read-only lookup created a bootstrap profile"
         );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn save_does_not_recreate_a_deleted_profile() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let _home = crate::session::test_support::isolate_app_dir_at(temp.path());
+        crate::session::create_profile("victim").unwrap();
+        crate::session::create_profile("keeper").unwrap();
+        crate::session::delete_profile("victim").unwrap();
+
+        assert!(save_profile_config("victim", &ProfileConfig::default()).is_err());
+        assert!(!crate::session::get_profile_dir_path("victim")
+            .unwrap()
+            .exists());
+        assert!(!crate::session::get_profile_dir_path("keeper")
+            .unwrap()
+            .join("config.toml")
+            .exists());
     }
 
     /// Build a `ProfileConfig` from a sparse override object (the on-disk shape).

@@ -75,6 +75,8 @@ impl Instance {
             base_branch_override: None,
             color: None,
             view: View::Terminal,
+            terminal_handoff_pending: false,
+            terminal_handoff_completion: false,
             agent_name: None,
             agent_model: None,
             agent_provider: None,
@@ -117,7 +119,7 @@ impl Instance {
     /// stored field as it is.
     pub(crate) fn persist_sandbox_provider(&self) -> anyhow::Result<()> {
         let provider = self.sandbox_info.as_ref().and_then(|s| s.provider.clone());
-        crate::session::Storage::new(&self.source_profile, self.resolve_file_watch())?.update(
+        crate::session::Storage::open(&self.source_profile, self.resolve_file_watch())?.update(
             |instances, _groups| {
                 if let Some(sandbox) = instances
                     .iter_mut()
@@ -184,6 +186,15 @@ impl Instance {
     /// Native execution identity; explicit targets never trust status aliases.
     pub(crate) fn resolved_agent(&self) -> Option<&'static crate::agents::AgentDef> {
         self.execution_agent().ok()
+    }
+    pub(super) fn active_execution_matches_current_tool(&self) -> bool {
+        let Some(active) = self.active_execution.as_ref() else {
+            return true;
+        };
+        !active.publication_retired()
+            && self
+                .execution_agent()
+                .is_ok_and(|agent| agent.name == active.binding.agent)
     }
 
     pub(crate) fn status_agent(&self) -> Option<&'static crate::agents::AgentDef> {
@@ -377,6 +388,9 @@ impl Instance {
         let Some(active) = &self.active_execution else {
             return self.resolved_session_support();
         };
+        if active.publication_retired() {
+            return None;
+        }
         let capture = crate::agents::get_agent(&active.binding.agent)?
             .session_support
             .as_ref()?
@@ -585,6 +599,9 @@ impl Instance {
     /// are healed on reload by the server's structured row repair path.
     pub fn is_structured(&self) -> bool {
         self.view == View::Structured
+    }
+    pub(crate) fn requires_acp_settlement(&self) -> bool {
+        self.is_structured() || self.terminal_handoff_pending
     }
 
     /// Move a structured row to the terminal view, keeping the store an
@@ -1159,6 +1176,34 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn retired_execution_is_not_a_publication_source() {
+        let mut inst = tool_instance("codex", "/tmp/retired-capture");
+        let mut active = ActiveExecution {
+            launch_id: "outgoing-launch".into(),
+            binding: ExecutionBinding {
+                agent: "codex".into(),
+                stores: vec!["/tmp/retired-store".into()],
+                configuration: Vec::new(),
+                exported_default_store: Some(false),
+                cwd: "/tmp/retired-capture".into(),
+                cwd_filesystem: "host".into(),
+                filesystem: "host".into(),
+            },
+            capture: Some(CaptureContext::Store {
+                root: "/tmp/retired-store".into(),
+                cwd: "/tmp/retired-capture".into(),
+            }),
+            container: None,
+        };
+        assert!(inst.resolved_session_support().is_some());
+        active.retire_publication();
+        inst.active_execution = Some(active);
+
+        assert!(inst.source_session_support().is_none());
+        assert!(!inst.active_execution_matches_current_tool());
+    }
+
     #[test]
     #[serial_test::serial]
     fn handoff_accepts_a_session_home_store() {

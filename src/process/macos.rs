@@ -5,73 +5,51 @@ use anyhow::Context as _;
 use std::collections::HashMap;
 use std::process::Command;
 
-pub(super) fn kernel_process_state(pid: u32) -> anyhow::Result<Option<super::KernelProcessState>> {
-    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-    let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-    // The kernel initializes the complete BSD record; partial results are never read.
-    let bytes = unsafe {
-        libc::proc_pidinfo(
-            pid as i32,
-            libc::PROC_PIDTBSDINFO,
-            0,
-            info.as_mut_ptr().cast(),
-            size,
-        )
+pub(super) fn socket_artifact_identity(
+    path: &std::path::Path,
+) -> std::io::Result<Option<super::SocketArtifactIdentity>> {
+    use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _};
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
     };
-    if bytes != size {
-        let error = std::io::Error::last_os_error();
-        if bytes == 0 && error.raw_os_error() == Some(libc::ESRCH) {
-            return Ok(None);
-        }
-        return Err(anyhow::anyhow!(
-            "kernel process information incomplete: {error}"
-        ));
+    if !metadata.file_type().is_socket() {
+        return Err(std::io::Error::other("worker artifact is not a socket"));
     }
-    let info = unsafe { info.assume_init() };
-    anyhow::ensure!(info.pbi_pid == pid, "kernel process identity changed");
-    let start_id = info
-        .pbi_start_tvsec
-        .checked_mul(1_000_000)
-        .and_then(|seconds| seconds.checked_add(info.pbi_start_tvusec))
-        .ok_or_else(|| anyhow::anyhow!("kernel process birth overflow"))?;
-    // Darwin p_stat ABI: SZOMB is 5; sleeping and stopped processes remain writers.
-    Ok(Some(super::KernelProcessState {
-        start_id,
-        group: info.pbi_pgid,
-        writing: info.pbi_status != 5,
+    Ok(Some(super::SocketArtifactIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        created: Some(metadata.created()?),
     }))
 }
 
-pub(super) fn group_has_writers(group: u32) -> anyhow::Result<bool> {
-    use anyhow::Context as _;
-    let output = Command::new("ps")
-        .args(["-axo", "pid=,pgid=,state="])
-        .output()?;
-    anyhow::ensure!(output.status.success(), "process group enumeration failed");
-    let text = std::str::from_utf8(&output.stdout)?;
-    let mut observed = false;
-    for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        let mut fields = line.split_whitespace();
-        let _: u32 = fields.next().context("process PID absent")?.parse()?;
-        let pgid: u32 = fields.next().context("process group absent")?.parse()?;
-        let state = fields.next().context("process state absent")?.as_bytes();
-        anyhow::ensure!(
-            !state.is_empty() && state[0].is_ascii_alphabetic() && fields.next().is_none(),
-            "invalid process group observation"
-        );
-        observed = true;
-        if pgid == group && state[0] != b'Z' {
-            return Ok(true);
-        }
+pub(super) fn pin_socket_artifact(
+    path: &std::path::Path,
+    expected: super::SocketArtifactIdentity,
+) -> std::io::Result<super::SocketArtifactPin> {
+    if socket_artifact_identity(path)? != Some(expected) {
+        return Err(std::io::Error::other(
+            "worker socket changed during capture",
+        ));
     }
-    anyhow::ensure!(observed, "empty process namespace observation");
-    Ok(false)
+    Ok(super::SocketArtifactPin {})
 }
 
 pub(super) use super::unix::{
     close_frozen_payload, configure_process_group, exec_command, kill_process_group,
     restore_environment_value, terminate_process_group,
 };
+pub(super) fn directory_identity(
+    metadata: &std::fs::Metadata,
+) -> std::io::Result<super::DirectoryIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(super::DirectoryIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+    })
+}
+
 pub(super) fn rename_exclusive(
     source_dir: &std::os::fd::OwnedFd,
     source: &std::ffi::OsStr,
@@ -303,37 +281,50 @@ fn audit_start_id(token: &AuditToken) -> String {
     value
 }
 
-pub(super) fn process_start_id(pid: u32) -> anyhow::Result<Option<String>> {
-    Ok(audit_token(pid)?.as_ref().map(audit_start_id))
+fn stable_start_id(info: &libc::proc_bsdinfo) -> String {
+    format!(
+        "birth:{:016x}:{:016x}",
+        info.pbi_start_tvsec, info.pbi_start_tvusec
+    )
 }
 
-pub(super) struct ProcessHandle(AuditToken);
+pub(super) fn process_start_id(pid: u32) -> anyhow::Result<Option<String>> {
+    Ok(process_membership(pid)?.as_ref().map(stable_start_id))
+}
+
+pub(super) struct ProcessHandle {
+    pid: u32,
+    start_id: String,
+}
 
 impl ProcessHandle {
     pub(super) fn capture(identity: &super::PrimeProcessIdentity) -> anyhow::Result<Option<Self>> {
         anyhow::ensure!(
-            identity.start_id.starts_with("audit:"),
-            "process lacks incarnation-bound signal authority"
+            identity.start_id.starts_with("birth:"),
+            "process lacks exec-stable incarnation authority"
         );
-        let Some(token) = audit_token(identity.pid)? else {
+        let Some(info) = process_membership(identity.pid)? else {
             return Ok(None);
         };
-        if audit_start_id(&token) != identity.start_id {
+        if info.pbi_status == libc::SZOMB || stable_start_id(&info) != identity.start_id {
             return Ok(None);
         }
-        Ok(Some(Self(token)))
+        Ok(Some(Self {
+            pid: identity.pid,
+            start_id: identity.start_id.clone(),
+        }))
     }
 
     pub(super) fn exited(&self) -> anyhow::Result<bool> {
-        Ok(audit_token(self.0.values[5])?
-            .is_none_or(|current| current.values[7] != self.0.values[7]))
+        Ok(process_membership(self.pid)?.is_none_or(|info| {
+            info.pbi_status == libc::SZOMB || stable_start_id(&info) != self.start_id
+        }))
     }
 
     pub(super) fn signal(&self, signal: i32) -> anyhow::Result<()> {
         type Signal = unsafe extern "C" fn(*mut AuditToken, i32) -> i32;
-        static FUNCTION: std::sync::OnceLock<Option<Signal>> = std::sync::OnceLock::new();
-        let function = FUNCTION
-            .get_or_init(|| unsafe {
+        static FUNCTION: std::sync::LazyLock<Option<Signal>> =
+            std::sync::LazyLock::new(|| unsafe {
                 let library = libc::dlopen(
                     c"/usr/lib/libproc.dylib".as_ptr(),
                     libc::RTLD_LAZY | libc::RTLD_LOCAL,
@@ -348,9 +339,19 @@ impl ProcessHandle {
                 }
                 // The cached function keeps its library loaded for the process lifetime.
                 Some(std::mem::transmute::<*mut libc::c_void, Signal>(function))
-            })
+            });
+        let function = FUNCTION
+            .as_ref()
             .context("incarnation-bound signalling unavailable on this macOS version")?;
-        let mut token = self.0;
+        if self.exited()? {
+            return Ok(());
+        }
+        let Some(mut token) = audit_token(self.pid)? else {
+            return Ok(());
+        };
+        if self.exited()? {
+            return Ok(());
+        }
         let result = unsafe { function(&mut token, signal) };
         if result != 0 && result != libc::ESRCH {
             return Err(std::io::Error::from_raw_os_error(result))
@@ -422,7 +423,7 @@ fn process_membership(pid: u32) -> anyhow::Result<Option<libc::proc_bsdinfo>> {
     };
     if read != size {
         let error = std::io::Error::last_os_error();
-        if error.raw_os_error() == Some(libc::ESRCH) {
+        if error.raw_os_error() == Some(libc::ESRCH) || !super::worker::is_pid_alive(pid) {
             return Ok(None);
         }
         anyhow::bail!("process membership unavailable: {error}");
@@ -474,7 +475,6 @@ pub(super) fn prime_processes(
     )?;
     let mut samples = Vec::new();
     let mut bytes = Vec::new();
-    let mut legacy_observed = Vec::new();
     let mut known_zombies = Vec::new();
     for line in std::str::from_utf8(&output)?.lines() {
         let mut rest = line;
@@ -508,8 +508,16 @@ pub(super) fn prime_processes(
                 start_id: format!("ps:{start}"),
             },
             parent,
+            parent_start_id: None,
             marked,
         });
+    }
+    let sampled_starts: std::collections::HashMap<_, _> = samples
+        .iter()
+        .map(|sample| (sample.identity.pid, sample.identity.start_id.clone()))
+        .collect();
+    for sample in &mut samples {
+        sample.parent_start_id = sampled_starts.get(&sample.parent).cloned();
     }
     let candidate_known: Vec<_> = samples
         .iter()
@@ -522,6 +530,7 @@ pub(super) fn prime_processes(
         .collect();
     let candidates = super::prime_selection_mask(&samples, &candidate_known);
     let mut attested = Vec::new();
+    let mut normalized_known = Vec::new();
     for (mut sample, candidate) in samples.into_iter().zip(candidates) {
         if !candidate {
             continue;
@@ -533,6 +542,17 @@ pub(super) fn prime_processes(
         let Some(membership) = process_membership(pid)? else {
             continue;
         };
+        let parent = membership.pbi_ppid;
+        let parent_before = process_membership(parent)?.as_ref().map(stable_start_id);
+        let marked = match prime_launch_marker(pid, marker, socket, &mut bytes) {
+            Ok(marked) => marked,
+            Err(error) if known.iter().any(|identity| identity.pid == pid) => return Err(error),
+            Err(_) => false,
+        };
+        let Some(confirmed) = process_membership(pid)? else {
+            continue;
+        };
+        let parent_after = process_membership(parent)?.as_ref().map(stable_start_id);
         let Some(after) = audit_token(pid)? else {
             continue;
         };
@@ -540,14 +560,40 @@ pub(super) fn prime_processes(
             after == token,
             "owned process incarnation changed during census"
         );
-        if !sample.marked && known.iter().any(|known| known == &sample.identity) {
-            legacy_observed.push(super::PrimeProcessIdentity {
-                pid,
-                start_id: audit_start_id(&token),
-            });
+        sample.identity.start_id = stable_start_id(&confirmed);
+        sample.parent = confirmed.pbi_ppid;
+        sample.parent_start_id = (stable_start_id(&membership) == sample.identity.start_id
+            && confirmed.pbi_ppid == parent
+            && parent_before.is_some()
+            && parent_before == parent_after)
+            .then_some(parent_before)
+            .flatten();
+        sample.marked = marked;
+        let current_audit = audit_start_id(&token);
+        let mut normalize = false;
+        for prior in known.iter().filter(|identity| identity.pid == pid) {
+            if prior.start_id == sample.identity.start_id {
+                normalize = true;
+            } else if prior.start_id.starts_with("ps:") {
+                anyhow::ensure!(
+                    sample.marked,
+                    "legacy Prime process {pid} lost its ownership marker; retained ownership"
+                );
+            } else if prior.start_id.starts_with("audit:") {
+                anyhow::ensure!(
+                    prior.start_id == current_audit,
+                    "owned Prime process {pid} changed audit identity; retained ownership until its exec-stable birth is confirmed"
+                );
+                normalize = true;
+            } else if prior.start_id.starts_with("birth:") {
+                // The supported birth differs, so this PID now names another process.
+            } else {
+                anyhow::bail!("unsupported owned Prime process identity for PID {pid}");
+            }
         }
-        sample.identity.start_id = audit_start_id(&token);
-        sample.parent = membership.pbi_ppid;
+        if normalize {
+            normalized_known.push(sample.identity.clone());
+        }
         attested.push(sample);
     }
     let samples = attested;
@@ -563,15 +609,7 @@ pub(super) fn prime_processes(
             );
         }
     }
-    let owned = super::select_stable_prime_processes(samples, known)?;
-    for identity in legacy_observed {
-        anyhow::ensure!(
-            owned.contains(&identity)
-                || process_start_id(identity.pid)?.as_deref() != Some(&identity.start_id),
-            "legacy worker birth is unproven; retain ownership until external settlement"
-        );
-    }
-    Ok(owned)
+    super::select_stable_prime_processes(samples, &normalized_known)
 }
 
 fn prime_launch_marker(
@@ -1125,14 +1163,16 @@ mod tests {
             } else {
                 assert!(super::super::runner_birth_identity(pid).unwrap().is_none());
                 let guard = super::super::RunnerProcessGuard::capture(pid, None).unwrap();
-                let mut words = [0; 8];
-                words[5] = pid;
+                let unknown_birth = "birth:foreign".to_string();
                 guard.members.lock().push((
                     super::super::PrimeProcessIdentity {
                         pid,
-                        start_id: audit_start_id(&AuditToken { values: words }),
+                        start_id: unknown_birth.clone(),
                     },
-                    ProcessHandle(AuditToken { values: words }),
+                    ProcessHandle {
+                        pid,
+                        start_id: unknown_birth,
+                    },
                 ));
                 let auxiliary = Command::new("cat")
                     .process_group(0)

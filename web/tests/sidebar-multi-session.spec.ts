@@ -50,13 +50,15 @@ async function mockApis(
   await page.route("**/api/settings**", (r) => {
     const pathname = new URL(r.request().url()).pathname;
     if (pathname === "/api/settings/schema") return r.fulfill({ json: ROW_TAG_SCHEMA });
-    if (pathname === "/api/settings") return r.fulfill({ json: { session: { row_tag: rowTag } } });
+    if (pathname === "/api/settings") {
+      if (r.request().method() === "PATCH") {
+        const body = r.request().postDataJSON() as { session?: { row_tag?: typeof rowTag } };
+        rowTag = body.session?.row_tag ?? rowTag;
+        return r.fulfill({ json: { ok: true } });
+      }
+      return r.fulfill({ json: { session: { row_tag: rowTag } } });
+    }
     return r.fulfill({ status: 404 });
-  });
-  await page.route("**/api/profiles/*/settings", async (r) => {
-    const body = r.request().postDataJSON() as { session?: { row_tag?: typeof rowTag } };
-    rowTag = body.session?.row_tag ?? rowTag;
-    return r.fulfill({ json: { ok: true } });
   });
   await page.route("**/api/sessions", (r) => {
     if (r.request().method() !== "GET") return r.fulfill({ status: 400 });
@@ -178,9 +180,13 @@ test.describe("Sidebar multi-session (#956)", () => {
 
     await page.goto("/settings/session");
     await expect(page.getByText("Row Tag", { exact: true })).toBeVisible();
-    const refreshedSettings = page.waitForResponse((response) => {
+    const refreshedSettings = page.waitForResponse(async (response) => {
       const request = response.request();
-      return request.method() === "GET" && new URL(response.url()).pathname === "/api/settings";
+      return (
+        request.method() === "GET" &&
+        new URL(response.url()).pathname === "/api/settings" &&
+        (await response.json()).session?.row_tag === "none"
+      );
     });
     await page.getByRole("combobox").last().selectOption("none");
     await refreshedSettings;

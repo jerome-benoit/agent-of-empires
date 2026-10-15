@@ -261,7 +261,7 @@ impl HomeView {
         if !self.storages.contains_key(&target_profile) {
             self.storages.insert(
                 target_profile.clone(),
-                Storage::new(&target_profile, self.file_watch.clone())?,
+                Storage::open(&target_profile, self.file_watch.clone())?,
             );
         }
 
@@ -283,30 +283,38 @@ impl HomeView {
         Ok(session_id)
     }
 
-    /// A trashed/archived row's agent was stopped deliberately, so refuse a start
-    /// visibly and point at the restore key instead of swallowing the press.
+    /// Refuse a launch that durable lifecycle state currently blocks.
     pub(in crate::tui) fn refuse_start_if_shelved(&mut self, id: &str) -> bool {
-        let shelved = self.get_instance(id).and_then(|inst| {
-            // A row mid-purge gets no restore hint: it would race the in-flight delete.
+        let blocked = self.get_instance(id).and_then(|inst| {
             if inst.status == Status::Deleting {
                 return None;
             }
+            let key = if self.strict_hotkeys { "Z" } else { "z" };
             match inst.ensure_startable() {
-                Err(StartBlocked::Trashed) => Some(("Session in trash", "in the trash", "restore")),
-                Err(StartBlocked::Archived) => Some(("Session archived", "archived", "unarchive")),
+                Err(StartBlocked::Trashed) => Some((
+                    "Session in trash",
+                    format!(
+                        "This session is in the trash; its agent stays stopped. Press {key} to restore it first."
+                    ),
+                )),
+                Err(StartBlocked::Archived) => Some((
+                    "Session archived",
+                    format!(
+                        "This session is archived; its agent stays stopped. Press {key} to unarchive it first."
+                    ),
+                )),
+                Err(StartBlocked::HandoffPending) => Some((
+                    "Terminal handoff pending",
+                    "This session is still switching from structured view to terminal view. Retry shortly."
+                        .to_string(),
+                )),
                 Ok(()) => None,
             }
         });
-        let Some((dialog_title, state, verb)) = shelved else {
+        let Some((dialog_title, message)) = blocked else {
             return false;
         };
-        let key = if self.strict_hotkeys { "Z" } else { "z" };
-        self.info_dialog = Some(InfoDialog::new(
-            dialog_title,
-            &format!(
-                "This session is {state}; its agent stays stopped. Press {key} to {verb} it first."
-            ),
-        ));
+        self.info_dialog = Some(InfoDialog::new(dialog_title, &message));
         true
     }
 
@@ -857,6 +865,7 @@ impl HomeView {
         self.deletes_in_flight.insert(
             request.session_id.clone(),
             super::DeleteAttempt {
+                worker: super::DeleteWorker::Purge,
                 forced: request.force_delete,
                 trashed_at: request.instance.trashed_at,
                 trash_lifecycle_id: request.instance.trash_lifecycle_id.clone(),
@@ -890,6 +899,7 @@ impl HomeView {
         self.deletes_in_flight.insert(
             instance.id.clone(),
             super::DeleteAttempt {
+                worker: super::DeleteWorker::Drop,
                 forced: true,
                 trashed_at: instance.trashed_at,
                 trash_lifecycle_id: instance.trash_lifecycle_id.clone(),
@@ -912,6 +922,7 @@ impl HomeView {
         self.deletes_in_flight.insert(
             inst.id.clone(),
             super::DeleteAttempt {
+                worker: super::DeleteWorker::Drop,
                 forced: true,
                 trashed_at: inst.trashed_at,
                 trash_lifecycle_id: inst.trash_lifecycle_id.clone(),
@@ -932,7 +943,13 @@ impl HomeView {
             return false;
         };
         let inst = result.instance;
-        self.deletes_in_flight.remove(&inst.id);
+        if self
+            .deletes_in_flight
+            .get(&inst.id)
+            .is_some_and(|attempt| attempt.worker == super::DeleteWorker::Drop)
+        {
+            self.deletes_in_flight.remove(&inst.id);
+        }
         if self.instances.get(&inst.id).is_some_and(|current| {
             current.source_profile != inst.source_profile
                 || current.lifecycle_generation != inst.lifecycle_generation
@@ -1258,7 +1275,7 @@ impl HomeView {
             .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
         let source_profile = live.source_profile.clone();
         let _identity_lock = acquire_session_identity_lock()?;
-        let storage = Storage::new(&source_profile, self.file_watch.clone())?;
+        let storage = Storage::open(&source_profile, self.file_watch.clone())?;
         let _lifecycle_lock = storage.acquire_instance_lifecycle_lock(&id)?;
         let authoritative_instances = storage.load()?;
         let mut authoritative = authoritative_instances
@@ -1906,9 +1923,9 @@ impl HomeView {
         // through the archive so `aoe send` cannot relaunch or type into the session between.
         let lifecycle_lock = match self.instances.get(&id) {
             Some(inst) => {
-                let storage = Storage::new(&inst.effective_profile(), self.file_watch.clone())?;
+                let storage = Storage::open(&inst.effective_profile(), self.file_watch.clone())?;
                 let lock = storage.acquire_instance_lifecycle_lock(&id)?;
-                inst.stop_all_tmux_sessions_locked(&storage);
+                inst.stop_all_tmux_sessions_locked(&storage)?;
                 Some(lock)
             }
             None => None,
@@ -2292,7 +2309,7 @@ impl HomeView {
         lock_order.sort_by(|a, b| a.id.cmp(&b.id));
         let mut lifecycle_locks = Vec::with_capacity(lock_order.len());
         for inst in lock_order {
-            let storage = Storage::new(&inst.effective_profile(), self.file_watch.clone())?;
+            let storage = Storage::open(&inst.effective_profile(), self.file_watch.clone())?;
             lifecycle_locks.push(storage.acquire_instance_lifecycle_lock(&inst.id)?);
         }
         self.bulk_apply_user_action(&ids, |inst| inst.archive())?;
@@ -2301,15 +2318,21 @@ impl HomeView {
         // thread. Mirrors `force_remove_session`.
         std::thread::spawn(move || {
             for inst in kill_targets {
-                if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     inst.kill_all_tmux_sessions()
                 })) {
-                    tracing::error!(
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => tracing::warn!(
+                        target: "session.tmux_cleanup",
+                        session_id = %inst.id,
+                        "archive_selected_group tmux teardown failed: {error:#}"
+                    ),
+                    Err(panic) => tracing::error!(
                         target: "session.tmux_cleanup",
                         session_id = %inst.id,
                         "archive_selected_group tmux teardown panicked: {:?}",
                         panic
-                    );
+                    ),
                 }
             }
         });
@@ -2519,15 +2542,27 @@ fn should_clear_drop_retry_state(
 /// input.
 fn spawn_force_teardown(inst: Instance) {
     std::thread::spawn(move || {
-        if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             inst.kill_all_tmux_sessions_without_lifecycle_row()
         })) {
-            tracing::error!(
-                target: "session.delete",
-                session_id = %inst.id,
-                "force_remove tmux teardown panicked: {:?}",
-                panic
-            );
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    target: "session.delete",
+                    session_id = %inst.id,
+                    "force_remove tmux teardown failed; retaining remaining resources: {error:#}"
+                );
+                return;
+            }
+            Err(panic) => {
+                tracing::error!(
+                    target: "session.delete",
+                    session_id = %inst.id,
+                    "force_remove tmux teardown panicked: {:?}",
+                    panic
+                );
+                return;
+            }
         }
         if inst.sandbox_info.as_ref().is_some_and(|s| s.enabled) {
             let container = crate::containers::DockerContainer::from_session_id(&inst.id);

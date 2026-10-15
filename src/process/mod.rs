@@ -54,6 +54,95 @@ mod platform {
             "process replacement requires Linux or macOS",
         )
     }
+
+    pub(super) fn directory_identity(
+        metadata: &std::fs::Metadata,
+    ) -> std::io::Result<super::DirectoryIdentity> {
+        #[cfg(not(unix))]
+        {
+            Ok(super::DirectoryIdentity {
+                created: metadata.created()?,
+            })
+        }
+        #[cfg(unix)]
+        {
+            let _ = metadata;
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "directory identity requires Linux or macOS",
+            ))
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DirectoryIdentity {
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+    #[cfg(not(unix))]
+    created: std::time::SystemTime,
+}
+
+impl DirectoryIdentity {
+    pub(crate) fn read(path: &Path) -> anyhow::Result<Option<Self>> {
+        let metadata = match std::fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        anyhow::ensure!(metadata.is_dir(), "profile is not a directory");
+        Ok(Some(platform::directory_identity(&metadata)?))
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SocketArtifactIdentity {
+    device: u64,
+    inode: u64,
+    created: Option<std::time::SystemTime>,
+}
+
+#[cfg(unix)]
+pub(crate) struct SocketArtifactPin {
+    #[cfg(target_os = "linux")]
+    _file: std::fs::File,
+}
+
+#[cfg(unix)]
+pub(crate) fn socket_artifact_identity(
+    path: &std::path::Path,
+) -> std::io::Result<Option<SocketArtifactIdentity>> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    return platform::socket_artifact_identity(path);
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = path;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "socket artifact identity is unsupported",
+        ))
+    }
+}
+
+#[cfg(unix)]
+pub(crate) fn pin_socket_artifact(
+    path: &std::path::Path,
+    expected: SocketArtifactIdentity,
+) -> std::io::Result<SocketArtifactPin> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    return platform::pin_socket_artifact(path, expected);
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (path, expected);
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "socket artifact pinning is unsupported",
+        ))
+    }
 }
 
 pub(crate) const LIVE_PANE_ENV_KEYS: [&str; 3] = ["TERM", "TMUX", "TMUX_PANE"];
@@ -214,94 +303,6 @@ pub fn exec_post_login_opencode_yolo() -> anyhow::Result<()> {
         None => eprintln!("OpenCode --help did not establish a generation; YOLO was not applied"),
     }
     Err(platform::exec_command(&mut command).into())
-}
-
-#[derive(
-    Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord,
-)]
-pub struct KernelProcessIdentity {
-    boot_id: uuid::Uuid,
-    start_id: u64,
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-struct KernelProcessState {
-    start_id: u64,
-    group: u32,
-    writing: bool,
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn kernel_boot_id() -> anyhow::Result<uuid::Uuid> {
-    static BOOT: std::sync::OnceLock<uuid::Uuid> = std::sync::OnceLock::new();
-    if let Some(boot) = BOOT.get() {
-        return Ok(*boot);
-    }
-    let text =
-        platform::boot_id().ok_or_else(|| anyhow::anyhow!("kernel boot identity unavailable"))?;
-    let boot = uuid::Uuid::parse_str(&text)?;
-    let _ = BOOT.set(boot);
-    Ok(boot)
-}
-
-pub(crate) fn kernel_process_identity(pid: u32) -> anyhow::Result<Option<KernelProcessIdentity>> {
-    anyhow::ensure!(
-        pid > 0 && pid <= i32::MAX as u32,
-        "invalid process identity PID"
-    );
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        let Some(state) = platform::kernel_process_state(pid)? else {
-            return Ok(None);
-        };
-        Ok(Some(KernelProcessIdentity {
-            boot_id: kernel_boot_id()?,
-            start_id: state.start_id,
-        }))
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    anyhow::bail!("kernel process identity unavailable on this platform")
-}
-
-pub(crate) fn process_group_has_writers(
-    pid: u32,
-    identity: Option<KernelProcessIdentity>,
-) -> anyhow::Result<bool> {
-    anyhow::ensure!(
-        pid > 0 && pid <= i32::MAX as u32,
-        "invalid process group PID"
-    );
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        if let Some(identity) = identity {
-            if identity.boot_id != kernel_boot_id()? {
-                return Ok(false);
-            }
-        }
-        if let Some(state) = platform::kernel_process_state(pid)? {
-            if state.writing {
-                let identity = identity.ok_or_else(|| {
-                    anyhow::anyhow!("live process group leader identity is unknown")
-                })?;
-                anyhow::ensure!(
-                    identity.start_id == state.start_id,
-                    "live process group leader identity changed"
-                );
-                if state.group == pid {
-                    return Ok(true);
-                }
-            }
-        }
-        if !worker::is_process_group_alive(pid) {
-            return Ok(false);
-        }
-        platform::group_has_writers(pid)
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        let _ = identity;
-        anyhow::bail!("process group writer proof unavailable on this platform")
-    }
 }
 
 /// Lower the child's scheduling and I/O priority where the OS supports it.
@@ -608,7 +609,7 @@ pub fn processes_matching(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PrimeProcessIdentity {
     pub pid: u32,
     pub start_id: String,
@@ -617,6 +618,7 @@ pub(crate) struct PrimeProcessIdentity {
 pub(super) struct PrimeProcessSample {
     pub identity: PrimeProcessIdentity,
     pub parent: u32,
+    pub parent_start_id: Option<String>,
     pub marked: bool,
 }
 
@@ -629,11 +631,16 @@ fn prime_selection_mask(
         .iter()
         .map(|identity| (identity.pid, &identity.start_id))
         .collect();
-    let mut children: HashMap<u32, Vec<usize>> = HashMap::new();
+    let mut children: HashMap<(u32, &str), Vec<usize>> = HashMap::new();
     let mut selected = vec![false; samples.len()];
     let mut pending = Vec::new();
     for (index, sample) in samples.iter().enumerate() {
-        children.entry(sample.parent).or_default().push(index);
+        if let Some(parent_start_id) = sample.parent_start_id.as_deref() {
+            children
+                .entry((sample.parent, parent_start_id))
+                .or_default()
+                .push(index);
+        }
         if sample.marked
             || known
                 .get(&sample.identity.pid)
@@ -644,7 +651,8 @@ fn prime_selection_mask(
         }
     }
     while let Some(index) = pending.pop() {
-        if let Some(descendants) = children.get(&samples[index].identity.pid) {
+        let parent = &samples[index].identity;
+        if let Some(descendants) = children.get(&(parent.pid, parent.start_id.as_str())) {
             for &child in descendants {
                 if !selected[child] {
                     selected[child] = true;
@@ -703,7 +711,7 @@ pub(super) fn select_stable_prime_processes(
     if let Some(error) = failure {
         return Err(error);
     }
-    Ok(select_prime_processes(samples, known))
+    Ok(samples.into_iter().map(|sample| sample.identity).collect())
 }
 
 pub(crate) fn prime_processes(
@@ -1355,14 +1363,16 @@ mod tests {
 
     #[test]
     fn prime_process_selection_preserves_scope_across_pid_reuse() {
-        let sample = |pid, parent, start: &str, marked| PrimeProcessSample {
-            identity: PrimeProcessIdentity {
-                pid,
-                start_id: start.into(),
-            },
-            parent,
-            marked,
-        };
+        let sample =
+            |pid, parent, parent_start: Option<&str>, start: &str, marked| PrimeProcessSample {
+                identity: PrimeProcessIdentity {
+                    pid,
+                    start_id: start.into(),
+                },
+                parent,
+                parent_start_id: parent_start.map(str::to_owned),
+                marked,
+            };
         let known = PrimeProcessIdentity {
             pid: 10,
             start_id: "proc:100".into(),
@@ -1370,10 +1380,10 @@ mod tests {
         for (start, expected) in [("proc:100", vec![10, 11, 12]), ("proc:200", vec![])] {
             let selected = select_prime_processes(
                 vec![
-                    sample(10, 1, start, false),
-                    sample(11, 10, "proc:101", false),
-                    sample(12, 11, "proc:102", false),
-                    sample(20, 1, "proc:103", false),
+                    sample(10, 1, None, start, false),
+                    sample(11, 10, Some(start), "proc:101", false),
+                    sample(12, 11, Some("proc:101"), "proc:102", false),
+                    sample(20, 1, None, "proc:103", false),
                 ],
                 std::slice::from_ref(&known),
             );
@@ -1387,11 +1397,11 @@ mod tests {
         }
         let selected = select_prime_processes(
             vec![
-                sample(10, 1, "proc:200", false),
-                sample(30, 1, "proc:300", true),
-                sample(31, 30, "proc:301", false),
+                sample(10, 1, None, "proc:200", false),
+                sample(30, 1, None, "proc:300", true),
+                sample(31, 30, Some("proc:300"), "proc:301", false),
             ],
-            &[known],
+            std::slice::from_ref(&known),
         );
         assert_eq!(
             selected
@@ -1400,30 +1410,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             [30, 31]
         );
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[test]
-    fn live_process_group_leader_requires_its_recorded_birth_identity() {
-        use std::os::unix::process::CommandExt as _;
-
-        let mut child = std::process::Command::new("sleep")
-            .arg("30")
-            .process_group(0)
-            .spawn()
-            .unwrap();
-        let pid = child.id();
-        let identity = kernel_process_identity(pid).unwrap().unwrap();
-        assert!(process_group_has_writers(pid, Some(identity)).unwrap());
-
-        let mut reused = identity;
-        reused.start_id += 1;
-        assert!(process_group_has_writers(pid, Some(reused)).is_err());
-        assert!(process_group_has_writers(pid, None).is_err());
-
-        child.kill().unwrap();
-        child.wait().unwrap();
-        assert!(!process_group_has_writers(pid, Some(identity)).unwrap());
+        let selected = select_prime_processes(
+            vec![
+                sample(10, 1, None, "proc:100", false),
+                sample(11, 10, Some("proc:999"), "proc:101", false),
+            ],
+            std::slice::from_ref(&known),
+        );
+        assert_eq!(selected, [known]);
     }
 
     #[cfg(target_os = "macos")]

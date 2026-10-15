@@ -1,5 +1,6 @@
 //! Durable journal for cross-profile session moves.
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -12,7 +13,8 @@ use super::storage::{atomic_write_verified, sync_parent_directory};
 /// carry no arbitration authority (see [`MoveJournalEntry::is_current`]).
 pub(crate) const MOVE_JOURNAL_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MoveJournalEntry {
     pub(crate) version: u32,
     /// Sorted session ids covered by one move batch.
@@ -35,6 +37,43 @@ impl MoveJournalEntry {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct FileIdentity {
+    #[cfg(unix)]
+    dev: u64,
+    #[cfg(unix)]
+    ino: u64,
+    #[cfg(not(unix))]
+    created: std::time::SystemTime,
+}
+
+impl FileIdentity {
+    fn from_metadata(metadata: &fs::Metadata) -> Result<Self> {
+        anyhow::ensure!(
+            metadata.file_type().is_file() && !metadata.file_type().is_symlink(),
+            "move journal entry is not a regular file"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            Ok(Self {
+                dev: metadata.dev(),
+                ino: metadata.ino(),
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(Self {
+                created: metadata.created()?,
+            })
+        }
+    }
+}
+
+pub(crate) fn file_identity(path: &Path) -> Result<FileIdentity> {
+    FileIdentity::from_metadata(&fs::symlink_metadata(path)?)
+}
+
 const JOURNAL_DIR_NAME: &str = ".move-journal";
 
 /// `.move-journal/` inside the directory holding `sessions_path`.
@@ -47,6 +86,7 @@ fn journal_dir_for(sessions_path: &Path) -> PathBuf {
 
 /// Persist one entry next to the source profile's `sessions.json` and return its path.
 pub(crate) fn record(entry: &MoveJournalEntry, source_sessions_path: &Path) -> Result<PathBuf> {
+    super::profile_rename::ensure_move_available()?;
     record_with_sync(entry, source_sessions_path, sync_parent_directory)
 }
 
@@ -77,16 +117,19 @@ where
 /// Nanosecond creation order encoded in record's filename. Used only as a
 /// durable tie-breaker when two entries share the millisecond JSON timestamp.
 pub(crate) fn file_created_at_nanos(path: &Path) -> Option<u128> {
-    path.file_stem()
+    let (nanos, pid) = path
+        .file_stem()
         .and_then(|name| name.to_str())
         .and_then(|name| name.strip_prefix("move-"))
-        .and_then(|name| name.split_once('-').map(|(nanos, _)| nanos))
-        .and_then(|nanos| nanos.parse().ok())
+        .and_then(|name| name.split_once('-'))?;
+    pid.parse::<u32>().ok()?;
+    nanos.parse().ok()
 }
 
 /// Delete one consumed entry and sync its parent directory so the removal
 /// itself is durable. Idempotent: a missing file is already consumed.
 pub(crate) fn consume(path: &Path) -> Result<()> {
+    super::profile_rename::ensure_move_available()?;
     match fs::remove_file(path) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -128,36 +171,103 @@ pub(crate) fn scan(sessions_paths: impl IntoIterator<Item = PathBuf>) -> ScanRes
                 continue;
             }
         };
-        let mut paths: Vec<PathBuf> = read_dir
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| {
-                path.extension()
-                    .is_some_and(|extension| extension == "json")
-            })
-            .collect();
+        let mut paths = Vec::new();
+        for entry in read_dir {
+            match entry {
+                Ok(entry) => paths.push(entry.path()),
+                Err(error) => {
+                    result.unreadable_dirs.push((
+                        dir.clone(),
+                        format!("failed to enumerate {}: {error}", dir.display()),
+                    ));
+                    paths.clear();
+                    break;
+                }
+            }
+        }
         paths.sort();
         for path in paths {
-            let parsed = fs::read(&path)
-                .context("failed to read move journal entry")
-                .and_then(|bytes| {
-                    serde_json::from_slice::<MoveJournalEntry>(&bytes)
-                        .context("malformed move journal entry")
-                })
-                .map_err(|error| format!("{error:#}"))
-                .and_then(|entry| {
-                    if entry.is_current() {
-                        Ok(entry)
-                    } else {
-                        Err(format!(
-                            "move journal version {} is not supported (current: {MOVE_JOURNAL_VERSION})",
-                            entry.version
-                        ))
-                    }
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    result.entries.push((
+                        path,
+                        Err(format!("failed to inspect move journal entry: {error}")),
+                    ));
+                    continue;
+                }
+            };
+            let unpublished_atomic_write = metadata.file_type().is_file()
+                && !metadata.file_type().is_symlink()
+                && path.file_name().is_some_and(|name| {
+                    let name = name.to_string_lossy();
+                    name.starts_with(super::storage::ATOMIC_WRITE_TEMP_PREFIX)
+                        // Older atomic writes used tempfile's default prefix.
+                        || name.starts_with(".tmp")
                 });
+            if unpublished_atomic_write {
+                continue;
+            }
+            let parsed = (|| -> Result<MoveJournalEntry> {
+                anyhow::ensure!(
+                    path.extension()
+                        .is_some_and(|extension| extension == "json"),
+                    "unexpected move journal entry"
+                );
+                anyhow::ensure!(
+                    metadata.file_type().is_file() && !metadata.file_type().is_symlink(),
+                    "move journal entry is not a regular file"
+                );
+                let bytes = fs::read(&path).context("failed to read move journal entry")?;
+                let entry: MoveJournalEntry =
+                    serde_json::from_slice(&bytes).context("malformed move journal entry")?;
+                anyhow::ensure!(
+                    entry.is_current(),
+                    "move journal version {} is not supported (current: {MOVE_JOURNAL_VERSION})",
+                    entry.version
+                );
+                Ok(entry)
+            })()
+            .map_err(|error| format!("{error:#}"));
             result.entries.push((path, parsed));
         }
     }
     result
+}
+
+fn open_matching(path: &Path, expected: &FileIdentity) -> Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let file = options
+        .open(path)
+        .with_context(|| format!("opening move journal {}", path.display()))?;
+    anyhow::ensure!(
+        FileIdentity::from_metadata(&file.metadata()?)? == *expected,
+        "move journal identity changed before update"
+    );
+    Ok(file)
+}
+
+pub(crate) fn sync(path: &Path, expected: &FileIdentity) -> Result<()> {
+    open_matching(path, expected)?.sync_all()?;
+    sync_parent_directory(path)
+}
+
+pub(crate) fn update(path: &Path, expected: &FileIdentity, entry: &MoveJournalEntry) -> Result<()> {
+    let mut file = open_matching(path, expected)?;
+    file.set_len(0)?;
+    #[cfg(test)]
+    super::storage::test_crash_point("profile-rename-move-after-truncate");
+    file.write_all(&serde_json::to_vec_pretty(entry)?)?;
+    #[cfg(test)]
+    super::storage::test_crash_point("profile-rename-move-after-write");
+    file.sync_all()?;
+    sync_parent_directory(path)
 }
 
 #[cfg(test)]
@@ -262,6 +372,25 @@ mod tests {
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].0, path);
         assert_eq!(result.entries[0].1.as_ref().unwrap().ids, ["session-id"]);
+        Ok(())
+    }
+
+    #[test]
+    fn scan_ignores_unpublished_atomic_write_temporary_files() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let sessions = temp.path().join("profile/sessions.json");
+        fs::create_dir_all(sessions.parent().unwrap())?;
+        let journal_dir = journal_dir_for(&sessions);
+        fs::create_dir_all(&journal_dir)?;
+        let _current = tempfile::Builder::new()
+            .prefix(crate::session::storage::ATOMIC_WRITE_TEMP_PREFIX)
+            .tempfile_in(&journal_dir)?;
+        let _legacy = tempfile::NamedTempFile::new_in(&journal_dir)?;
+
+        let result = scan([sessions]);
+
+        assert!(result.unreadable_dirs.is_empty());
+        assert!(result.entries.is_empty());
         Ok(())
     }
 

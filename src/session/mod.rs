@@ -75,8 +75,6 @@ pub use groups::{
 pub(crate) use instance::install_aliases;
 #[cfg(test)]
 pub(crate) use instance::test_helpers::publish_host_pi_transcript;
-#[cfg(test)]
-pub(crate) use instance::ActiveExecution;
 pub(crate) use instance::{
     duplicate_session_error, find_duplicate_session, is_duplicate_session,
     persist_session_to_storage, PassiveStatusPatch, ResumeIntent, SidWrite,
@@ -95,6 +93,8 @@ pub use instance::{
     SessionGone, StartBlocked, StartOutcome, Status, TerminalInfo, View, WorkspaceInfo,
     WorkspaceRepo, WorktreeInfo, SESSION_COLORS, TMUX_SESSION_GONE_ERROR,
 };
+#[cfg(test)]
+pub(crate) use instance::{ActiveExecution, CaptureContext};
 pub(crate) use lifecycle_reservation::ReservationHeartbeat;
 #[cfg(test)]
 pub(crate) use move_journal::{
@@ -180,6 +180,8 @@ pub const APP_DIR_NAME_OTHER: &str = if cfg!(debug_assertions) {
 } else {
     ".agent-of-empires"
 };
+
+pub(crate) const PROFILE_DELETE_TOMBSTONE_PREFIX: &str = ".profile-delete-";
 
 /// Resolve the XDG-style config base directory: `$XDG_CONFIG_HOME` when set to an absolute path,
 /// otherwise `~/.config`.
@@ -359,7 +361,7 @@ pub fn get_profile_dir_path(profile: &str) -> Result<PathBuf> {
     Ok(base.join("profiles").join(profile_name))
 }
 
-/// Resolve an existing profile, allowing bootstrap only on a genuine empty first run.
+/// Resolve an existing profile without creating storage.
 pub fn resolve_existing_profile(profile: &str) -> Result<String> {
     let name = if profile.is_empty() {
         config::resolve_default_profile()
@@ -372,6 +374,57 @@ pub fn resolve_existing_profile(profile: &str) -> Result<String> {
         anyhow::bail!("Profile '{name}' does not exist. Create it with: aoe profile create {name}");
     }
     Ok(name)
+}
+
+fn profile_admission(profile: &str) -> Result<(String, bool)> {
+    if list_profiles()?.is_empty() {
+        let name = if profile.is_empty() {
+            if load_config()?.is_some_and(|config| !config.default_profile.is_empty()) {
+                return resolve_existing_profile(profile).map(|name| (name, false));
+            }
+            config::default_profile_name()
+        } else {
+            profile.to_owned()
+        };
+        validate_new_profile_name(&name)?;
+        return Ok((name, true));
+    }
+    resolve_existing_profile(profile).map(|name| (name, false))
+}
+
+/// Validate a profile admission without creating its first profile.
+pub fn validate_profile_admission(profile: &str) -> Result<String> {
+    let _identity = storage::acquire_session_identity_lock()?;
+    let (name, _) = profile_admission(profile)?;
+    profile_rename::ensure_profile_available(&name)?;
+    Ok(name)
+}
+
+/// Admit a workflow profile, bootstrapping only the first profile.
+/// Passive reads use [`resolve_existing_profile`].
+pub fn admit_profile(profile: &str) -> Result<String> {
+    let _identity = storage::acquire_session_identity_lock()?;
+    profile_rename::recover_pending_scoped()?;
+    admit_profile_locked(profile)
+}
+
+fn admit_profile_locked(profile: &str) -> Result<String> {
+    let (name, create) = profile_admission(profile)?;
+    if create {
+        get_profile_dir(&name)?;
+    } else {
+        profile_rename::ensure_profile_available(&name)?;
+    }
+    Ok(name)
+}
+
+pub(crate) fn admit_tui_profiles(profile: &str) -> Result<()> {
+    let _identity = storage::acquire_session_identity_lock()?;
+    profile_rename::recover_pending_scoped()?;
+    if !profile.is_empty() || list_profiles()?.is_empty() {
+        admit_profile_locked(profile)?;
+    }
+    Ok(())
 }
 
 pub fn list_profiles() -> Result<Vec<String>> {
@@ -461,7 +514,9 @@ pub(crate) fn list_profile_names_in(profiles_dir: &std::path::Path) -> Result<Ve
         }
         if file_type.is_dir() {
             if let Some(name) = entry.file_name().to_str() {
-                profiles.push(name.to_string());
+                if !name.starts_with(PROFILE_DELETE_TOMBSTONE_PREFIX) {
+                    profiles.push(name.to_string());
+                }
             }
         }
     }
@@ -590,39 +645,19 @@ fn validate_new_profile_name(name: &str) -> Result<()> {
 
 pub fn create_profile(name: &str) -> Result<()> {
     validate_new_profile_name(name)?;
-
+    let _identity = storage::acquire_session_identity_lock()?;
+    profile_rename::recover_pending()?;
     let profiles = list_profiles()?;
     if profiles.contains(&name.to_string()) {
         anyhow::bail!("Profile '{}' already exists", name);
     }
-
     get_profile_dir(name)?;
     Ok(())
 }
 
 pub fn delete_profile(name: &str) -> Result<()> {
     validate_profile_name(name)?;
-
-    let base = get_app_dir()?;
-    let profile_dir = base.join("profiles").join(name);
-    let _transition = storage::acquire_storage_shared_flock(
-        &base,
-        crate::migrations::v027_isolate_sandbox_stores::LOCK,
-    )?;
-    profile_rename::ensure_profile_available(name)?;
-
-    if !profile_dir.exists() {
-        anyhow::bail!("Profile '{}' does not exist", name);
-    }
-
-    // The invariant is "at least one profile must exist", a count, not a name.
-    // Any profile is deletable as long as deleting it would not leave zero.
-    if list_profiles()?.len() <= 1 {
-        anyhow::bail!("Cannot delete '{}': at least one profile must exist", name);
-    }
-
-    fs::remove_dir_all(&profile_dir)?;
-    Ok(())
+    profile_rename::delete(name)
 }
 
 /// The source keeps the permissive traversal guard so a stray minted by an older binary stays
@@ -634,8 +669,17 @@ pub fn rename_profile(old_name: &str, new_name: &str) -> Result<()> {
 }
 
 pub fn set_default_profile(name: &str) -> Result<()> {
+    let _identity = storage::acquire_session_identity_lock()?;
+    profile_rename::recover_pending()?;
+    let base = get_app_dir()?;
+    let _transition = storage::acquire_storage_shared_flock(
+        &base,
+        crate::migrations::v027_isolate_sandbox_stores::LOCK,
+    )?;
+    let name = resolve_existing_profile(name)?;
+    profile_rename::ensure_profile_available(&name)?;
     update_config(|config| {
-        config.default_profile = name.to_string();
+        config.default_profile.clone_from(&name);
     })?;
     Ok(())
 }
@@ -1348,24 +1392,17 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn resolve_existing_profile_never_creates_a_profile_it_was_not_asked_to_bootstrap() {
+    fn resolve_existing_profile_is_pure_and_admission_bootstraps_once() {
         let temp = isolate_app_dir();
         let dir = app_dir(&temp);
         assert!(list_profiles().unwrap().is_empty());
-        assert_eq!(
-            resolve_existing_profile("").unwrap(),
-            "main",
-            "fresh install"
-        );
+        assert!(resolve_existing_profile("").is_err());
+        assert!(list_profiles().unwrap().is_empty());
+        assert_eq!(admit_profile("").unwrap(), "main");
         assert_eq!(list_profiles().unwrap(), vec!["main".to_string()]);
 
-        let err = resolve_existing_profile("ghost").expect_err("unknown profile must error");
-        let msg = err.to_string();
-        assert!(msg.contains("does not exist"), "unexpected message: {msg}");
-        assert!(
-            msg.contains("aoe profile create"),
-            "unexpected message: {msg}"
-        );
+        assert!(resolve_existing_profile("ghost").is_err());
+        assert!(admit_tui_profiles("ghost").is_err());
         assert!(!dir.join("profiles").join("ghost").exists());
 
         create_profile("newly-created").unwrap();
@@ -1375,21 +1412,39 @@ mod tests {
         );
 
         fs::create_dir_all(dir.join("etc")).unwrap();
-        let err =
-            resolve_existing_profile("../etc").expect_err("path traversal name must be rejected");
-        assert!(err.to_string().contains("path separators"), "{err}");
+        assert!(resolve_existing_profile("../etc").is_err());
 
         fs::write(
             dir.join("config.toml"),
             r#"default_profile = "deleted-profile""#,
         )
         .unwrap();
-        let err = resolve_existing_profile("").expect_err("stale default must error");
-        assert!(err.to_string().contains("does not exist"));
+        assert!(resolve_existing_profile("").is_err());
+        assert!(admit_profile("").is_err());
+        let profiles_before = list_profiles().unwrap();
+        let config_before = fs::read(dir.join("config.toml")).unwrap();
+        admit_tui_profiles("").unwrap();
+        assert_eq!(list_profiles().unwrap(), profiles_before);
+        assert_eq!(fs::read(dir.join("config.toml")).unwrap(), config_before);
+        assert!(admit_tui_profiles("deleted-profile").is_err());
         assert!(
             !dir.join("profiles").join("deleted-profile").exists(),
             "stale default_profile must not be silently revived on disk",
         );
+
+        fs::remove_dir_all(dir.join("profiles")).unwrap();
+        assert!(list_profiles().unwrap().is_empty());
+        assert!(admit_profile("").is_err());
+        assert!(
+            !dir.join("profiles").join("deleted-profile").exists(),
+            "admission must not revive a stale configured profile",
+        );
+        assert!(admit_tui_profiles("").is_err());
+        assert!(list_profiles().unwrap().is_empty());
+
+        fs::remove_file(dir.join("config.toml")).unwrap();
+        admit_tui_profiles("").unwrap();
+        assert_eq!(list_profiles().unwrap(), vec!["main".to_string()]);
     }
 
     #[test]

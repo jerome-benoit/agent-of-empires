@@ -67,21 +67,16 @@ async fn purge_session_artifacts(
         detach_hooks: true,
         keep_scratch: body.keep_scratch,
     };
-    let purge_acp_transcript = delete_request.instance.is_structured();
     let file_watch = state.file_watch.clone();
     let reserve_profile = profile.clone();
     let reservation = tokio::task::spawn_blocking(move || {
-        let storage = Storage::new(&reserve_profile, file_watch)
+        let storage = Storage::open(&reserve_profile, file_watch)
             .map_err(|e| format!("Storage init failed before session teardown: {e}"))?;
-        let reservation = if purge_acp_transcript {
-            crate::session::deletion::PurgeTransaction::reserve_with_acp_transcript(
-                storage,
-                delete_request,
-            )
-        } else {
-            crate::session::deletion::PurgeTransaction::reserve(storage, delete_request)
-        };
-        reservation.map_err(|e| format!("Failed to reserve session purge: {e}"))
+        crate::session::deletion::PurgeTransaction::reserve_with_authoritative_acp_transcript(
+            storage,
+            delete_request,
+        )
+        .map_err(|e| format!("Failed to reserve session purge: {e}"))
     })
     .await
     .map_err(|e| format!("Deletion reservation task failed: {e}"))??;
@@ -115,11 +110,10 @@ async fn purge_session_artifacts(
             };
         }
     };
+    let transcript_purged = transaction.purges_acp_transcript();
     let transaction = tokio::task::spawn_blocking(move || transaction.run_hooks())
         .await
         .map_err(|e| format!("Deletion hook task failed: {e}"))?;
-
-    let transcript_purged = instance.is_structured();
 
     let deletion_result = if transcript_purged {
         // Keep the durable row and journal until transcript and sidecar cleanup finish.

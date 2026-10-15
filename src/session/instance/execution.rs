@@ -331,6 +331,20 @@ pub(crate) struct ActiveExecution {
     pub(crate) capture: Option<CaptureContext>,
     pub(crate) container: Option<crate::containers::ContainerExecutionSnapshot>,
 }
+impl ActiveExecution {
+    const RETIRED_PUBLICATION_PREFIX: &'static str = "retired:";
+
+    pub(super) fn retire_publication(&mut self) {
+        if !self.publication_retired() {
+            self.launch_id
+                .insert_str(0, Self::RETIRED_PUBLICATION_PREFIX);
+        }
+    }
+
+    pub(crate) fn publication_retired(&self) -> bool {
+        self.launch_id.starts_with(Self::RETIRED_PUBLICATION_PREFIX)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum CaptureContext {
@@ -2853,7 +2867,7 @@ impl Instance {
             crate::session::capture::is_valid_session_id(sid),
             "invalid conversation ID"
         );
-        let mut execution = if store.is_none() {
+        let mut execution = if store.is_none() && self.active_execution_matches_current_tool() {
             self.active_execution
                 .as_ref()
                 .map(|active| active.binding.clone())
@@ -3937,6 +3951,43 @@ mod tests {
             ),
             Err(crate::session::ForkDenied::UnlaunchedFork)
         );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn explicit_resume_ignores_a_retired_outgoing_execution() {
+        let temp = tempfile::tempdir().unwrap();
+        let _app = crate::session::test_support::isolate_app_dir_at(temp.path());
+        let _claude = crate::session::test_support::install_login_shell_path_command(
+            temp.path(),
+            "claude",
+            "#!/bin/sh\nexit 0\n",
+        );
+        let mut instance = Instance::new("incoming", temp.path().to_str().unwrap());
+        instance.tool = "claude".into();
+        instance.command = "claude".into();
+        let mut outgoing = ActiveExecution {
+            launch_id: "outgoing".into(),
+            binding: ExecutionBinding {
+                agent: "codex".into(),
+                stores: vec![temp.path().join("outgoing")],
+                configuration: Vec::new(),
+                exported_default_store: Some(false),
+                cwd: temp.path().to_path_buf(),
+                cwd_filesystem: "host".into(),
+                filesystem: "host".into(),
+            },
+            capture: None,
+            container: None,
+        };
+        outgoing.retire_publication();
+        instance.active_execution = Some(outgoing);
+
+        let binding = instance
+            .asserted_resume_binding("019342ab-1234-7def-8901-abcdef012345", None)
+            .unwrap();
+
+        assert_eq!(binding.execution.unwrap().agent, "claude");
     }
 
     /// The exported `CLAUDE_CONFIG_DIR` and the store recorded on the binding

@@ -1498,6 +1498,7 @@ fn failed_delete_retry_identity_survives_storage_and_rejects_peer_retrash() {
     env.view.failed_deletes.insert(
         id.clone(),
         super::super::DeleteAttempt {
+            worker: super::super::DeleteWorker::Purge,
             forced: true,
             trashed_at: requested.trashed_at,
             trash_lifecycle_id: requested.trash_lifecycle_id.clone(),

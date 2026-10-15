@@ -219,8 +219,7 @@ pub async fn run(profile: &str, startup_warning: Option<String>) -> Result<()> {
         return remote_home::run_standalone(endpoint).await;
     }
 
-    // Opening the store creates the profile directory, so refuse unknown names first.
-    crate::session::require_known_profile(profile)?;
+    crate::session::admit_tui_profiles(profile)?;
 
     // The spinner writes nothing unless a migration reports progress.
     {

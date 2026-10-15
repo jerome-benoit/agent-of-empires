@@ -246,25 +246,25 @@ impl<S: BroadcastSink> Supervisor<S> {
                 Ok(None) => false,
                 Err(_) => true,
             };
-            if !native_unproven
-                && claim.attempts > TEARDOWN_RETRY_CAP
-                && claim
+            if !native_unproven && claim.attempts > TEARDOWN_RETRY_CAP {
+                if let Some(identity) = claim
                     .identity
-                    .is_some_and(|identity| !self.process_control.is_alive(identity))
-            {
-                warn!(
-                    target: "acp.supervisor",
-                    session = %id,
-                    pid,
-                    attempts = claim.attempts,
-                    "runner is dead but its registry record could not be settled; releasing the session"
-                );
-                if let Some(identity) = claim.identity {
-                    self.process_control.forget(identity);
+                    .filter(|identity| !self.process_control.is_alive(*identity))
+                {
+                    if worker_registry::delete_if_owned_by(&id, identity) {
+                        warn!(
+                            target: "acp.supervisor",
+                            session = %id,
+                            pid,
+                            attempts = claim.attempts,
+                            "runner is dead and its registry route was settled; releasing the session"
+                        );
+                        self.process_control.forget(identity);
+                        self.settle_sweeping_if_owed(&claim.lease, Settlement::Proven)
+                            .await;
+                        continue;
+                    }
                 }
-                self.settle_sweeping_if_owed(&claim.lease, Settlement::Proven)
-                    .await;
-                continue;
             }
             match claim.identity {
                 // Loud for the first few ticks; past that the process is in the kernel's hands.
@@ -1041,7 +1041,8 @@ mod tests {
             "old runner cleanup removed the replacement control socket"
         );
         drop(listener);
-        worker_registry::delete_if_owned(session_id, std::process::id()).unwrap();
+        worker_registry::retire_if_owned(&worker_registry::load(session_id).unwrap().unwrap())
+            .unwrap();
     }
 
     #[tokio::test]

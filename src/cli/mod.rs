@@ -94,10 +94,6 @@ pub fn resolve_session<'a>(identifier: &str, instances: &'a [Instance]) -> Resul
     bail!("Session not found: {}", identifier)
 }
 
-pub(crate) fn purge_acp_transcript(inst: &Instance) -> Result<()> {
-    crate::session::deletion::purge_acp_transcript(inst)
-}
-
 pub(crate) struct EmptyTrashOutcome {
     pub removed: usize,
     pub restored_after_teardown: usize,

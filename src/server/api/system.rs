@@ -2141,6 +2141,7 @@ mod tests {
         use serde_json::json;
         let home = tempfile::TempDir::new().unwrap();
         let _home = crate::session::test_support::isolate_home(home.path());
+        crate::session::create_profile("test").unwrap();
         let mut state = crate::server::test_support::build_test_app_state(Vec::new());
         Arc::get_mut(&mut state).expect("fresh state").login_manager =
             Arc::new(crate::server::login::LoginManager::new(Some("pw")));

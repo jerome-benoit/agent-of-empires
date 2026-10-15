@@ -23,6 +23,7 @@ pub(crate) enum LifecyclePhase {
     HooksStarted,
     HooksComplete,
     TeardownStarted,
+    TranscriptCleanupStarted,
     TeardownComplete,
     RowRemoved,
     Kept,
@@ -35,6 +36,7 @@ impl LifecyclePhase {
             self,
             Self::HooksComplete
                 | Self::TeardownStarted
+                | Self::TranscriptCleanupStarted
                 | Self::TeardownComplete
                 | Self::RowRemoved
                 | Self::Kept
@@ -44,7 +46,18 @@ impl LifecyclePhase {
     pub(crate) fn teardown_started(self) -> bool {
         matches!(
             self,
-            Self::TeardownStarted | Self::TeardownComplete | Self::RowRemoved | Self::Kept
+            Self::TeardownStarted
+                | Self::TranscriptCleanupStarted
+                | Self::TeardownComplete
+                | Self::RowRemoved
+                | Self::Kept
+        )
+    }
+
+    pub(crate) fn transcript_cleanup_started(self) -> bool {
+        matches!(
+            self,
+            Self::TranscriptCleanupStarted | Self::TeardownComplete | Self::RowRemoved | Self::Kept
         )
     }
 

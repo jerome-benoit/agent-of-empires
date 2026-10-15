@@ -169,14 +169,33 @@ pub async fn run(args: AcpRunnerArgs) -> Result<()> {
         .map(serde_json::from_str)
         .transpose()
         .context("parsing Prime runtime")?;
-    let (control_listener, profile_guard) = worker_registry::publish_runner(&record)
-        .context("publishing runner listener and record")?;
+    if let Some(runtime) = record.prime_runtime.as_ref() {
+        runtime
+            .prepare()
+            .context("preparing recoverable Prime ownership")?;
+    }
+    let (control_listener, profile_guard) = match worker_registry::publish_runner(&record) {
+        Ok(publication) => publication,
+        Err(error) => {
+            return match rollback_unpublished(&record) {
+                Ok(()) => Err(error).context("publishing runner ownership"),
+                Err(rollback) => Err(error).context(format!(
+                    "publishing runner ownership; prepared ownership retained after rollback failed: {rollback:#}"
+                )),
+            };
+        }
+    };
 
     let (mut agent_child, agent_stdin, agent_stdout, agent_stderr) = match spawn_agent(&args) {
         Ok(handles) => handles,
-        Err(e) => {
-            worker_registry::delete(&args.session_id).ok();
-            return Err(e).with_context(|| format!("spawning agent {:?}", args.agent_argv));
+        Err(error) => {
+            return match rollback_unlaunched(&record) {
+                Ok(()) => Err(error).with_context(|| format!("spawning agent {:?}", args.agent_argv)),
+                Err(rollback) => Err(error).context(format!(
+                    "spawning agent {:?}; prepared ownership retained after rollback failed: {rollback:#}",
+                    args.agent_argv
+                )),
+            };
         }
     };
     drop(profile_guard);
@@ -411,18 +430,19 @@ async fn self_terminate_agent_tree(
         "runner abandoned; terminating agent tree"
     );
 
-    if record.prime_runtime.is_some() {
-        if let Some(pid) = agent_child.id() {
-            crate::process::kill_process_tree(pid);
-        }
-    }
     #[cfg(unix)]
     if let Some(agent_pid) = agent_child.id() {
         use nix::sys::signal::{kill, Signal};
         use nix::unistd::Pid;
         let _ = kill(Pid::from_raw(agent_pid as i32), Signal::SIGTERM);
     }
-    let _ = tokio::time::timeout(Duration::from_secs(2), agent_child.wait()).await;
+    if tokio::time::timeout(Duration::from_secs(2), agent_child.wait())
+        .await
+        .is_err()
+    {
+        agent_child.start_kill().ok();
+        let _ = agent_child.wait().await;
+    }
 
     let cleanup_record = record.clone();
     loop {
@@ -449,6 +469,20 @@ async fn self_terminate_agent_tree(
         let _ = agent_child.start_kill();
         let _ = tokio::time::timeout(Duration::from_secs(2), agent_child.wait()).await;
     }
+}
+
+fn rollback_unpublished(record: &WorkerRecord) -> Result<()> {
+    if let Some(runtime) = record.prime_runtime.as_ref() {
+        runtime.rollback_prepared()?;
+    }
+    worker_registry::retire_if_owned(record).map(|_| ())
+}
+
+fn rollback_unlaunched(record: &WorkerRecord) -> Result<()> {
+    if let Some(runtime) = record.prime_runtime.as_ref() {
+        runtime.rollback_prepared()?;
+    }
+    worker_registry::retire_selected(record)
 }
 
 fn spawn_agent(
@@ -506,6 +540,9 @@ fn spawn_agent(
                 );
             }
         }
+    }
+    if args.prime_runtime.is_some() {
+        cmd.env(crate::process::prime::PREPARED_RUNTIME_ENV, "1");
     }
     let mut child = cmd.spawn().with_context(|| format!("spawning {program}"))?;
     let stdin = child
@@ -618,7 +655,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     #[serial_test::serial]
-    async fn detached_expiry_retires_only_settled_records_and_sockets_before_self_exit() {
+    async fn detached_expiry_preserves_route_until_daemon_confirms_group_exit() {
         use std::io::Read as _;
         use std::os::unix::process::ExitStatusExt as _;
         use tokio::io::AsyncWriteExt as _;
@@ -687,7 +724,7 @@ mod tests {
             let root = tempfile::TempDir::with_prefix_in("aoe-expiry-", "/tmp").unwrap();
             let _home = crate::session::test_support::isolate_app_dir_at(root.path());
             let name = format!(
-                "{}::detached_expiry_retires_only_settled_records_and_sockets_before_self_exit",
+                "{}::detached_expiry_preserves_route_until_daemon_confirms_group_exit",
                 module_path!().split_once("::").unwrap().1
             );
             let mut child = std::process::Command::new(std::env::current_exe().unwrap())
@@ -722,13 +759,15 @@ mod tests {
             let control = crate::process::worker::control_socket_sibling(
                 &worker_registry::socket_path_for("expired").unwrap(),
             );
-            if case == "settled" {
-                assert!(record.is_none());
-                assert!(!control.exists());
-            } else {
-                assert_eq!(record.unwrap().agent_key, "prime-agent");
-                assert!(control.exists());
-            }
+            assert_eq!(
+                record.unwrap().agent_key,
+                if case == "settled" {
+                    "agent"
+                } else {
+                    "prime-agent"
+                }
+            );
+            assert!(control.exists());
         }
     }
 

@@ -92,7 +92,7 @@ pub(crate) fn persist_session_to_storage(
     expected: &ConversationState,
     file_watch: &std::sync::Arc<crate::file_watch::FileWatchService>,
 ) -> SidWrite {
-    let storage = match crate::session::storage::Storage::new(profile, file_watch.clone()) {
+    let storage = match crate::session::storage::Storage::open(profile, file_watch.clone()) {
         Ok(storage) => storage,
         Err(error) => {
             tracing::warn!(target: "session.store", "Cannot open capture storage: {error}");
@@ -112,6 +112,17 @@ pub(super) fn persist_session_with_storage(
     let session_id = observation.sid.as_str();
     if !is_valid_session_id(session_id) {
         return SidWrite::Failed;
+    }
+    if expected
+        .active
+        .as_ref()
+        .is_some_and(ActiveExecution::publication_retired)
+        || observation
+            .execution
+            .as_ref()
+            .is_some_and(ActiveExecution::publication_retired)
+    {
+        return SidWrite::Skipped;
     }
     if observation.execution != expected.active {
         return SidWrite::Skipped;
@@ -234,7 +245,7 @@ impl Instance {
         }
 
         let storage =
-            match crate::session::storage::Storage::new(profile, self.resolve_file_watch()) {
+            match crate::session::storage::Storage::open(profile, self.resolve_file_watch()) {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::warn!(target: "session.store",
@@ -715,6 +726,48 @@ mod tests {
             assert_eq!(write, expected);
             assert_eq!(disk_sid(profile, &inst.id).as_deref(), Some(disk));
         }
+    }
+    #[test]
+    #[serial]
+    fn retired_execution_observation_cannot_replace_restored_conversation() {
+        use crate::session::instance::{ActiveExecution, CaptureContext};
+        use crate::session::ExecutionBinding;
+
+        let profile = "retired-execution-publication";
+        let restored = "019342ab-1234-7def-8901-abcdef012345";
+        let outgoing = "019342ab-1234-7def-8901-abcdef012346";
+        let binding = ExecutionBinding {
+            agent: "codex".into(),
+            stores: vec!["/tmp/retired-store".into()],
+            configuration: Vec::new(),
+            exported_default_store: Some(false),
+            cwd: "/tmp/project".into(),
+            cwd_filesystem: "host".into(),
+            filesystem: "host".into(),
+        };
+        let mut active = ActiveExecution {
+            launch_id: "old-launch".into(),
+            binding: binding.clone(),
+            capture: Some(CaptureContext::Store {
+                root: "/tmp/retired-store".into(),
+                cwd: "/tmp/project".into(),
+            }),
+            container: None,
+        };
+        active.retire_publication();
+        let mut inst = make_inst(profile, "retired capture");
+        inst.agent_session_id = Some(restored.into());
+        inst.active_execution = Some(active.clone());
+        let (_temp, _home, storage) = seeded(profile, &[&inst]);
+        let mut observed = observation(outgoing);
+        observed.execution = Some(active);
+        observed.scope_to(binding);
+
+        assert_eq!(
+            persist_session_with_storage(&storage, &inst.id, &observed, &inst.conversation_state(),),
+            SidWrite::Skipped
+        );
+        assert_eq!(disk_sid(profile, &inst.id).as_deref(), Some(restored));
     }
 
     #[test]

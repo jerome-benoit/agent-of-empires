@@ -358,7 +358,10 @@ async fn run(
     }
 
     let result = match cli.command {
-        Some(Commands::Add(args)) => cli::add::run(&profile, *args).await,
+        Some(Commands::Add(args)) => {
+            let profile = agent_of_empires::session::admit_profile(&profile)?;
+            cli::add::run(&profile, *args).await
+        }
         Some(Commands::List(args)) => cli::list::run(&profile, args).await,
         Some(Commands::Ps(args)) => cli::ps::run(&profile, profile_explicit, args).await,
         Some(Commands::Remove(args)) => cli::remove::run(&profile, args).await,

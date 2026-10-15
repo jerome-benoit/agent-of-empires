@@ -448,7 +448,7 @@ impl Instance {
             return;
         }
         if cleanup_pane {
-            let _ = self.kill_clean_locked();
+            let _ = self.kill_clean_locked(storage);
             // Escapees of the discarded launch outlive its pane. The
             // reservation still excludes a replacement the sweep would catch.
             self.release_scope();
@@ -768,7 +768,7 @@ mod tests {
         let mut kept_pane = reserved("kept-pane");
         kept_pane.fail_reserved_launch(&storage, &error, false);
         let restarted = reserved("restarted");
-        restarted.kill_clean_locked().unwrap();
+        restarted.kill_clean_locked(&storage).unwrap();
         let mut superseded = reserved("superseded");
         storage
             .update(|instances, _groups| {

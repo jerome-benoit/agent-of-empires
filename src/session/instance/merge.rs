@@ -138,9 +138,11 @@ impl Instance {
     /// Pending forks retain their target for launch-time namespace validation.
     pub(crate) fn swap_tool(&mut self, new_tool: &str) {
         if self.tool != new_tool {
-            // A poller belongs to the agent that produced it. The row is about to drop the
-            // execution, and nothing the old poller watches is the new agent's, so an execution
-            // comparison cannot decide this one.
+            if let Some(active) = self.active_execution.as_mut() {
+                active.retire_publication();
+            }
+            // The outgoing execution remains as cleanup evidence, but its poller cannot observe
+            // or publish for the incoming tool.
             self.stop_poller();
             self.session_id_poller = None;
         }
@@ -174,7 +176,6 @@ impl Instance {
         self.adopt_tool(new_tool);
         self.acp_load_session_capable = None;
         self.resume_probe_failed_sid = None;
-        self.active_execution = None;
         self.acp_effort = None;
         self.agent_model = None;
         self.agent_provider = None;
@@ -1354,7 +1355,7 @@ mod tests {
     /// A tool swap gives the row no execution, so the poller it may still hold watches files the
     /// row no longer owns. Left running, it would be reported as this row's own start forever.
     #[test]
-    fn swap_tool_stops_the_poller_of_the_execution_it_drops() {
+    fn swap_tool_retains_execution_ownership_but_stops_its_poller() {
         let mut inst = tool_instance("claude", "/home/user/project");
         let execution = ActiveExecution {
             launch_id: "launch-1".into(),
@@ -1385,13 +1386,16 @@ mod tests {
 
         inst.swap_tool("codex");
 
-        assert!(
-            inst.active_execution.is_none(),
-            "fixture: the swap dropped it"
+        assert_eq!(
+            inst.active_execution
+                .as_ref()
+                .map(|active| active.launch_id.as_str()),
+            Some("retired:launch-1"),
+            "cleanup evidence remains while publication authority is retired"
         );
         assert!(
             !inst.session_id_poller_is_running(),
-            "and the poller that watched it went with the execution"
+            "the old tool's poller stops even while cleanup ownership is retained"
         );
         assert!(inst.session_id_poller.is_none());
     }

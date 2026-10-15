@@ -340,13 +340,16 @@ pub async fn update_session_archive(
         }
     } else if kill_pane {
         let inst_for_kill = inst_clone.clone();
-        if let Err(e) =
-            tokio::task::spawn_blocking(move || inst_for_kill.kill_all_tmux_sessions()).await
-        {
-            tracing::warn!(
+        match tokio::task::spawn_blocking(move || inst_for_kill.kill_all_tmux_sessions()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::warn!(
                 target: "http.api.sessions",
-                "Archive: tmux kill join failed: {e}"
-            );
+                "Archive: tmux kill failed: {error}"
+            ),
+            Err(error) => tracing::warn!(
+                target: "http.api.sessions",
+                "Archive: tmux kill join failed: {error}"
+            ),
         }
     }
 
@@ -401,7 +404,7 @@ pub async fn trash_session(
     let file_watch = state.file_watch.clone();
     let (storage, lifecycle_lock, generation) = match tokio::task::spawn_blocking(
         move || -> anyhow::Result<_> {
-            let storage = Storage::new(&reserve_profile, file_watch)?;
+            let storage = Storage::open(&reserve_profile, file_watch)?;
             let lifecycle_lock = storage.acquire_instance_lifecycle_lock(&reserve_id)?;
             let generation = storage.update(|instances, _groups| {
                 let Some(instance) = instances
@@ -466,7 +469,20 @@ pub async fn trash_session(
             if was_structured_view {
                 instance.kill_ancillary_tmux_sessions_locked();
             } else {
-                instance.kill_all_tmux_sessions_locked();
+                if let Err(error) = instance.kill_all_tmux_sessions_locked(&storage) {
+                    let release = storage.update(|instances, _groups| {
+                        crate::session::claim::release_trash_reservation(
+                            instances, &work_id, generation,
+                        );
+                        Ok(())
+                    });
+                    return match release {
+                        Ok(()) => Err(error),
+                        Err(release) => Err(anyhow::anyhow!(
+                            "{error:#}; could not release failed trash reservation: {release:#}"
+                        )),
+                    };
+                }
             }
         }
         let outcome = crate::session::trash::prepare_trashed_worktree(&mut instance);
@@ -577,7 +593,7 @@ pub async fn restore_session(
     let file_watch = state.file_watch.clone();
     let restored = tokio::task::spawn_blocking(move || {
         let run = || -> Result<Instance, RestoreTransitionError> {
-            let storage = Storage::new(&restore_profile, file_watch)
+            let storage = Storage::open(&restore_profile, file_watch)
                 .map_err(|error| RestoreTransitionError::Persist(error.to_string()))?;
             let _lifecycle_lock = storage
                 .acquire_instance_lifecycle_lock(&restore_id)
@@ -1172,7 +1188,7 @@ pub async fn start_session(
         let stored = Arc::new(std::sync::OnceLock::new());
         let stored_on_disk = Arc::clone(&stored);
         if persist_session_update(
-            profile,
+            profile.clone(),
             "start session",
             state.file_watch.clone(),
             move |instances| {
@@ -1198,17 +1214,68 @@ pub async fn start_session(
             Some(Err(refusal)) => return crate::server::api::start_blocked_response(*refusal),
             Some(Ok(())) => {}
         }
+        let old_status = {
+            let mut instances = state.instances.write().await;
+            let Some(inst) = instances.iter_mut().find(|i| i.id == id) else {
+                return session_not_found();
+            };
+            let old_status = inst.status;
+            inst.idle_dormant_since = None;
+            inst.status = Status::Idle;
+            inst.last_error = None;
+            old_status
+        };
+        if let Err(error) = crate::server::acp_reconciler::trigger_resume_background(
+            &state.session_service,
+            &id,
+            crate::process::worker_registry::ResumeAuthority::Explicit,
+        )
+        .await
+        {
+            let rollback_id = id.clone();
+            let rollback_idle_dormant_since = instance.idle_dormant_since;
+            let rollback_last_error = instance.last_error.clone();
+            if persist_session_update(
+                profile,
+                "rollback failed start session",
+                state.file_watch.clone(),
+                move |instances| {
+                    if let Some(inst) = instances
+                        .iter_mut()
+                        .find(|inst| inst.id == rollback_id && inst.status == Status::Idle)
+                    {
+                        inst.status = Status::Stopped;
+                        inst.idle_dormant_since = rollback_idle_dormant_since;
+                        inst.last_error = rollback_last_error;
+                    }
+                },
+            )
+            .await
+            .is_err()
+            {
+                return persist_failed_response();
+            }
+            let mut instances = state.instances.write().await;
+            if let Some(inst) = instances
+                .iter_mut()
+                .find(|inst| inst.id == id && inst.status == Status::Idle)
+            {
+                inst.status = Status::Stopped;
+                inst.idle_dormant_since = instance.idle_dormant_since;
+                inst.last_error = instance.last_error.clone();
+            }
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "error": error.to_string() })),
+            )
+                .into_response();
+        }
         {
             let mut instances = state.instances.write().await;
             if let Some(inst) = instances.iter_mut().find(|i| i.id == id) {
-                let old_status = inst.status;
-                inst.idle_dormant_since = None;
-                inst.status = Status::Idle;
-                inst.last_error = None;
                 publish_status_change(&state.status_tx, inst, old_status);
             }
         }
-        state.acp_supervisor.request_respawn(&id);
         let instances = state.instances.read().await;
         let response = match instances.iter().find(|i| i.id == id) {
             Some(inst) => {

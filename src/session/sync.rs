@@ -125,7 +125,12 @@ fn drain_and_persist_session_ids_inner(
             filtered_ids.insert(inst.id.clone());
             continue;
         };
-        if observation.execution != inst.active_execution {
+        if observation
+            .execution
+            .as_ref()
+            .is_some_and(crate::session::instance::ActiveExecution::publication_retired)
+            || observation.execution != inst.active_execution
+        {
             acknowledge_poller_observation(inst, &observation);
             filtered_ids.insert(inst.id.clone());
             continue;
@@ -316,7 +321,7 @@ fn drain_and_persist_session_ids_inner(
             Ok(None)
         } else {
             (|| {
-                let storage = Storage::new(&update.profile, file_watch.clone())?;
+                let storage = Storage::open(&update.profile, file_watch.clone())?;
                 let lifecycle_lock = storage.acquire_instance_lifecycle_lock(&update.id)?;
                 let generation = storage.update(|instances, _groups| {
                     let Some(instance) = instances
@@ -723,7 +728,7 @@ fn reload_skipped_from_disk(
     id: &str,
     file_watch: &Arc<FileWatchService>,
 ) -> Option<Rollback> {
-    let storage = Storage::new(profile, file_watch.clone()).ok()?;
+    let storage = Storage::open(profile, file_watch.clone()).ok()?;
     let disk_insts = storage.load().ok()?;
     let disk_inst = disk_insts.iter().find(|i| i.id == id)?;
     Some(Rollback {

@@ -108,7 +108,7 @@ impl Instance {
             return Ok(LaunchSidOutcome::Skipped);
         }
         let profile = self.effective_profile();
-        let storage = crate::session::storage::Storage::new(&profile, self.resolve_file_watch())
+        let storage = crate::session::storage::Storage::open(&profile, self.resolve_file_watch())
             .context("failed to open lifecycle lock storage")?;
 
         let title_lock = crate::session::storage::acquire_session_title_lock(&self.id)
@@ -165,11 +165,11 @@ impl Instance {
         let result = (|| {
             if corpse_pane {
                 let publication = self.prime_root_publication(true);
-                self.kill_clean_locked()?;
+                self.kill_clean_locked(&storage)?;
                 prepared =
                     self.refresh_prepared_prime_launch_after_pane_stop(prepared, publication)?;
             }
-            let outcome = self.spawn_prepared_launch(size, &profile, prepared)?;
+            let outcome = self.spawn_prepared_launch(size, &profile, &storage, prepared)?;
             self.commit_lifecycle_launch(&storage, false)?;
             Ok(outcome)
         })();
@@ -219,10 +219,89 @@ impl Instance {
         )
     }
 
+    fn prepare_prime_runtime_for_launch(
+        &mut self,
+        storage: &crate::session::storage::Storage,
+        prepared: &mut PreparedLaunch,
+    ) -> Result<()> {
+        let Some(execution) = prepared.execution.as_ref() else {
+            return Ok(());
+        };
+        let runtime = match execution.capture.as_ref() {
+            Some(CaptureContext::Prime {
+                runtime: Some(runtime),
+                ..
+            })
+            | Some(CaptureContext::PrimeStatus(runtime)) => runtime.clone(),
+            _ => return Ok(()),
+        };
+        let active = ActiveExecution {
+            launch_id: execution.inputs.launch_id.clone(),
+            binding: execution.binding.clone(),
+            capture: execution.capture.clone(),
+            container: execution.inputs.container.clone(),
+        };
+        let previous = storage
+            .load()?
+            .into_iter()
+            .find(|stored| stored.id == self.id)
+            .context("session disappeared before Prime preparation")?;
+        if previous
+            .prime_runtime()
+            .is_some_and(|prior| prior.directory != runtime.directory)
+        {
+            self.kill_clean_locked(storage)
+                .context("settling previous terminal Prime ownership")?;
+            self.release_scope();
+        }
+
+        runtime
+            .prepare()
+            .context("preparing durable terminal Prime ownership")?;
+        let generation = self.lifecycle_generation;
+        let persisted = storage.update(|instances, _groups| {
+            let Some(stored) = instances.iter_mut().find(|stored| stored.id == self.id) else {
+                return Ok(None);
+            };
+            if !stored.lifecycle_reservation_is_owned(LifecycleOperation::Launch, generation) {
+                return Ok(None);
+            }
+            stored.active_execution = Some(active.clone());
+            Ok(Some(stored.conversation_state()))
+        });
+        let persistence_error = match persisted {
+            Ok(Some(expected)) => {
+                prepared.expected_conversation = expected;
+                None
+            }
+            Ok(None) => Some(anyhow::anyhow!(
+                "session {} disappeared or lost its lifecycle reservation before Prime preparation",
+                self.id
+            )),
+            Err(error) => Some(error.context("persisting prepared terminal Prime ownership")),
+        };
+        if let Some(error) = persistence_error {
+            return match runtime.rollback_prepared() {
+                Ok(()) => Err(error),
+                Err(rollback) => {
+                    Err(error.context(format!("Prime preparation rollback failed: {rollback:#}")))
+                }
+            };
+        }
+
+        self.active_execution = Some(active);
+        prepared.launch_env.pane.push(tmux::PaneEnvMutation::set(
+            crate::process::prime::PREPARED_RUNTIME_ENV.to_string(),
+            "1".to_string(),
+        ));
+        Ok(())
+    }
+
     pub(super) fn spawn_prepared_launch(
         &mut self,
         size: Option<(u16, u16)>,
         profile: &str,
+        storage: &crate::session::storage::Storage,
         mut prepared: PreparedLaunch,
     ) -> Result<LaunchSidOutcome> {
         let session = self.tmux_session()?;
@@ -232,6 +311,7 @@ impl Instance {
                 self.id
             );
         }
+        self.prepare_prime_runtime_for_launch(storage, &mut prepared)?;
 
         // A takeover can replace the pane without changing the agent or the execution, and a poller
         // for either would then be watching the pane this launch is replacing.
@@ -661,6 +741,134 @@ fn attested_default_store(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[serial_test::serial]
+    fn terminal_prime_route_is_durable_before_spawn() {
+        let root = tempfile::tempdir().unwrap();
+        let _app = crate::session::test_support::isolate_app_dir_at(root.path());
+        let profile = "terminal-prime-preparation";
+        let project = root.path().join("project");
+        std::fs::create_dir(&project).unwrap();
+        let mut instance = Instance::new("Prime", project.to_str().unwrap());
+        instance.source_profile = profile.into();
+        instance.tool = "prime-agent".into();
+        let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
+        storage
+            .update(|instances, _groups| {
+                instances.push(instance.clone());
+                Ok(())
+            })
+            .unwrap();
+        instance
+            .acquire_lifecycle_reservation(
+                &storage,
+                LifecycleOperation::Launch,
+                Some(Status::Starting),
+            )
+            .unwrap();
+        let previous =
+            crate::process::prime::PrimeRuntime::new("/bin/false".into(), root.path().into(), None)
+                .unwrap();
+        previous.prepare().unwrap();
+        storage
+            .update(|instances, _groups| {
+                instances[0].active_execution = Some(ActiveExecution {
+                    launch_id: "previous".into(),
+                    binding: ExecutionBinding {
+                        agent: "prime-agent".into(),
+                        stores: Vec::new(),
+                        configuration: Vec::new(),
+                        cwd: root.path().into(),
+                        cwd_filesystem: "host".into(),
+                        filesystem: "host".into(),
+                        exported_default_store: None,
+                    },
+                    capture: Some(CaptureContext::PrimeStatus(previous.clone())),
+                    container: None,
+                });
+                Ok(())
+            })
+            .unwrap();
+
+        let runtime =
+            crate::process::prime::PrimeRuntime::new("/bin/false".into(), root.path().into(), None)
+                .unwrap();
+        let binding = ExecutionBinding {
+            agent: "prime-agent".into(),
+            stores: vec![root.path().into()],
+            configuration: Vec::new(),
+            cwd: project.clone(),
+            cwd_filesystem: "host".into(),
+            filesystem: "host".into(),
+            exported_default_store: None,
+        };
+        let execution = super::super::execution::NativeExecution {
+            agent: crate::agents::get_agent("prime-agent").unwrap(),
+            binding: binding.clone(),
+            routing: Vec::new(),
+            case_insensitive_routing: &[],
+            omp: None,
+            inputs: super::super::execution::NativeLaunchInputs {
+                launch_id: "terminal-prime-launch".into(),
+                environment: std::collections::HashMap::new(),
+                raw_environment: Vec::new(),
+                cwd: project,
+                profile: profile.into(),
+                container: None,
+                docker_env: None,
+                pane_env: Vec::new(),
+                identity_extension: None,
+            },
+            program: "/bin/false".into(),
+            capture: Some(CaptureContext::PrimeStatus(runtime.clone())),
+            pi_transcript_path: None,
+            namespace_arguments: Vec::new(),
+            target_session_id: None,
+            resolved_target_session_id: None,
+            pi_pinnable: false,
+            opencode_preassign: false,
+            opencode_schema: None,
+            store_override: None,
+        };
+        let mut prepared = PreparedLaunch {
+            command: None,
+            is_existing: false,
+            omp_capture_plan: None,
+            fork_mints_child: false,
+            launch_env: super::super::launch_command::LaunchEnvironment::default(),
+            expected_conversation: instance.conversation_state(),
+            sandbox_context_reset: None,
+            canonical_conversation: None,
+            expected_prior_omp_generation: None,
+            execution: Some(execution),
+            require_conversation_publication: false,
+        };
+
+        instance
+            .prepare_prime_runtime_for_launch(&storage, &mut prepared)
+            .unwrap();
+        assert!(
+            !previous.directory.exists(),
+            "the previous native route must settle before replacement"
+        );
+
+        let persisted = storage.load().unwrap().remove(0);
+        assert_eq!(
+            persisted.prime_runtime().unwrap().directory,
+            runtime.directory
+        );
+        assert!(
+            prepared.expected_conversation.matches(&persisted),
+            "final launch publication must compare against the prepared ownership row"
+        );
+        assert!(runtime.directory.exists());
+        assert!(prepared.launch_env.pane.iter().any(|mutation| matches!(
+            mutation,
+            crate::tmux::PaneEnvMutation::Set { key, value }
+                if key == crate::process::prime::PREPARED_RUNTIME_ENV && value == "1"
+        )));
+        runtime.rollback_prepared().unwrap();
+    }
 
     #[cfg(unix)]
     fn frozen_test_helper(
@@ -1018,11 +1226,10 @@ else:
         assert_eq!(outcome, LaunchSidOutcome::Skipped);
     }
 
-    /// #4116: every launch funnel rereads the row and refuses an archived or
-    /// trashed session, even when the caller holds a stale live copy.
+    /// Every launch funnel rereads durable lifecycle state before deciding.
     #[test]
     #[serial_test::serial]
-    fn launch_funnels_refuse_archived_and_trashed_sessions() {
+    fn launch_funnels_refuse_durable_start_blocks() {
         type Launch = fn(&mut Instance) -> Option<StartBlocked>;
         let launches: &[(&str, Launch)] = &[
             ("start", |i| i.start().err()?.downcast_ref().copied()),
@@ -1047,6 +1254,11 @@ else:
                 Instance::trash,
                 StartBlocked::Trashed,
                 "session is in trash; restore it first",
+            ),
+            (
+                |instance| instance.terminal_handoff_pending = true,
+                StartBlocked::HandoffPending,
+                "terminal handoff is still settling; retry shortly",
             ),
         ];
         for (shelve, want, message) in shelves {

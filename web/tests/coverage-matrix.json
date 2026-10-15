@@ -2811,6 +2811,9 @@
       "components": [
         "web/src/components/WorkspaceSidebar.tsx",
         "web/src/components/SwitchViewDialog.tsx",
+        "web/src/components/sidebar/SessionRow.tsx",
+        "web/src/components/sidebar/SessionRowMenu.tsx",
+        "web/src/lib/types.ts",
         "web/src/App.tsx"
       ]
     },

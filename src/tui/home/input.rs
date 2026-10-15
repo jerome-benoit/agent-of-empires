@@ -3039,6 +3039,9 @@ impl HomeView {
         {
             return None;
         }
+        if inst.terminal_handoff_pending {
+            return Some(true);
+        }
         if inst.is_structured() {
             return Some(true);
         }

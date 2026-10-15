@@ -93,6 +93,9 @@ fn test_home() -> (TempDir, AppDirGuard) {
 }
 
 fn test_view(profile: Option<&str>) -> HomeView {
+    if let Some(profile) = profile {
+        crate::session::get_profile_dir(profile).unwrap();
+    }
     HomeView::new_for_test(
         profile.map(str::to_string),
         AvailableTools::with_tools(&["claude"]),

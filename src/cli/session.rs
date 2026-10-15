@@ -472,9 +472,8 @@ async fn archive_session(profile: &str, args: ArchiveArgs) -> Result<()> {
         .acquire_instance_lifecycle_lock(&id)
         .context("failed to acquire instance archive lock")?;
     if !args.no_kill {
-        if let Err(e) = inst.kill_locked() {
-            eprintln!("Warning: failed to kill agent tmux session: {}", e);
-        }
+        inst.kill_locked(&storage)
+            .with_context(|| format!("could not settle session '{title}' before archiving"))?;
         inst.kill_ancillary_tmux_sessions_locked();
         inst.release_scope();
     }
@@ -657,11 +656,10 @@ async fn empty_trash(profile: &str) -> Result<()> {
                 continue;
             }
         };
-        let result = transaction.run_hooks().complete_with(|instance| {
-            super::purge_acp_transcript(instance).map_err(|error| {
-                format!("transcript not purged, keeping session in trash: {error}")
-            })
-        });
+        let result = match transaction.run_hooks().begin_irreversible() {
+            Ok(committed) => committed.finish(),
+            Err(result) => *result,
+        };
         for err in &result.errors {
             eprintln!("Warning ({}): {}", inst.title, err);
         }
@@ -895,6 +893,11 @@ fn apply_import_mode(
 async fn import_sessions(profile: &str, args: ImportArgs) -> Result<()> {
     use crate::session::claude_import::{scan_sessions, sessions_under_paths};
     use crate::session::import::{worktree_dir_markers, Owned, MAX_SESSIONS};
+    let profile = if args.dry_run {
+        crate::session::validate_profile_admission(profile)?
+    } else {
+        crate::session::admit_profile(profile)?
+    };
 
     let structured = args.structured;
 
@@ -909,7 +912,11 @@ async fn import_sessions(profile: &str, args: ImportArgs) -> Result<()> {
     let (candidates, missing_cwd): (Vec<_>, Vec<_>) =
         discovered.into_iter().partition(|s| s.cwd_exists);
 
-    let (existing, _groups) = Storage::open_unwatched(profile)?.load_with_groups()?;
+    let existing = if args.dry_run && !crate::session::get_profile_dir_path(&profile)?.is_dir() {
+        Vec::new()
+    } else {
+        Storage::open_unwatched(&profile)?.load_with_groups()?.0
+    };
     let candidate_count = candidates.len();
     let mut to_import: Vec<_> = candidates
         .into_iter()
@@ -977,13 +984,13 @@ async fn import_sessions(profile: &str, args: ImportArgs) -> Result<()> {
         .iter()
         .map(|s| {
             crate::session::config::repo_config::resolve_config_with_repo_or_warn(
-                profile,
+                &profile,
                 std::path::Path::new(&s.cwd),
             )
             .session
         })
         .collect();
-    let storage = Storage::open_unwatched(profile)?;
+    let storage = Storage::open_unwatched(&profile)?;
     let created_ids = storage.update(|all_instances, groups| {
         let mut ids = Vec::new();
         for (s, session_config) in to_import.iter().zip(&session_configs) {
@@ -1017,7 +1024,7 @@ async fn import_sessions(profile: &str, args: ImportArgs) -> Result<()> {
     }
 
     if args.launch {
-        launch_imported(profile, &created_ids)?;
+        launch_imported(&profile, &created_ids)?;
     } else if !created_ids.is_empty() {
         println!("Start them with `aoe session start <id>` (or launch on import with --launch).");
     }
@@ -3457,7 +3464,9 @@ mod import_tests {
             ("test", false, 2),
             ("other", false, 4),
         ] {
-            Storage::new_unwatched(profile).unwrap();
+            if profile == "other" {
+                crate::session::create_profile(profile).unwrap();
+            }
             import_sessions(
                 profile,
                 ImportArgs {
@@ -3473,7 +3482,32 @@ mod import_tests {
             .await
             .unwrap();
             assert_eq!(count(), expected);
+            assert_eq!(
+                crate::session::get_profile_dir_path(profile)
+                    .unwrap()
+                    .is_dir(),
+                !dry_run
+            );
         }
+        let error = import_sessions(
+            "ghost",
+            ImportArgs {
+                paths: vec![],
+                all: true,
+                structured: false,
+                group: None,
+                launch: false,
+                dry_run: true,
+                yes: true,
+            },
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("does not exist"), "{error}");
+        assert!(!crate::session::get_profile_dir_path("ghost")
+            .unwrap()
+            .exists());
         Storage::open_unwatched("test")
             .unwrap()
             .update(|rows, _| {

@@ -20,13 +20,15 @@ pub enum SessionBucket {
     Trashed,
 }
 
-/// Why an archived or trashed session refuses to launch its agent or take input into a live pane.
+/// Durable lifecycle state that refuses an agent launch or live-pane input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum StartBlocked {
     #[error("session is archived; unarchive it first")]
     Archived,
     #[error("session is in trash; restore it first")]
     Trashed,
+    #[error("terminal handoff is still settling; retry shortly")]
+    HandoffPending,
 }
 
 impl StartBlocked {
@@ -35,18 +37,24 @@ impl StartBlocked {
         match self {
             StartBlocked::Archived => "session_archived",
             StartBlocked::Trashed => "session_trashed",
+            StartBlocked::HandoffPending => "terminal_handoff_pending",
         }
     }
 }
 
 impl Instance {
-    /// Archived and trashed sessions must be unarchived or restored before any
-    /// path starts or resumes their agent. Snooze is not a block: it expires on its own.
+    /// Shelved sessions and an incomplete structured-to-terminal handoff must
+    /// not launch through ordinary start or input paths.
     pub fn ensure_startable(&self) -> Result<(), StartBlocked> {
         match self.effective_bucket() {
-            SessionBucket::Active => Ok(()),
             SessionBucket::Archived => Err(StartBlocked::Archived),
             SessionBucket::Trashed => Err(StartBlocked::Trashed),
+            SessionBucket::Active
+                if self.terminal_handoff_pending && !self.terminal_handoff_completion =>
+            {
+                Err(StartBlocked::HandoffPending)
+            }
+            SessionBucket::Active => Ok(()),
         }
     }
 
@@ -314,6 +322,18 @@ mod tests {
 
     fn inst() -> Instance {
         Instance::new("test", "/tmp/test")
+    }
+    #[test]
+    fn only_handoff_completion_may_start_while_pending() {
+        let mut instance = inst();
+        instance.terminal_handoff_pending = true;
+        assert!(instance.requires_acp_settlement());
+        assert_eq!(
+            instance.ensure_startable(),
+            Err(StartBlocked::HandoffPending)
+        );
+        instance.terminal_handoff_completion = true;
+        assert_eq!(instance.ensure_startable(), Ok(()));
     }
 
     #[test]

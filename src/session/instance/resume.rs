@@ -137,7 +137,7 @@ impl Instance {
             return Ok(StartOutcome::Fresh);
         }
         let profile = self.effective_profile();
-        let storage = crate::session::storage::Storage::new(&profile, self.resolve_file_watch())
+        let storage = crate::session::storage::Storage::open(&profile, self.resolve_file_watch())
             .context("failed to open lifecycle lock storage")?;
 
         let title_lock = crate::session::storage::acquire_session_title_lock(&self.id)
@@ -195,8 +195,9 @@ impl Instance {
         let expected = self.apply_fresh_launch_intent();
 
         let result = (|| {
-            let prepared = self.stop_carry_and_prepare(restart, conversation_carry, expected)?;
-            let launch_outcome = self.spawn_prepared_launch(size, &profile, prepared)?;
+            let prepared =
+                self.stop_carry_and_prepare(&storage, restart, conversation_carry, expected)?;
+            let launch_outcome = self.spawn_prepared_launch(size, &profile, &storage, prepared)?;
             let outcome =
                 self.finish_resume_launch(launch_outcome, skipped_failed_resume_sid, &profile)?;
             self.commit_lifecycle_launch(&storage, restart)?;
@@ -223,9 +224,10 @@ impl Instance {
     /// (#3399).
     fn stop_carry_and_prepare(
         &mut self,
+        storage: &crate::session::storage::Storage,
         restart: bool,
         conversation_carry: Option<ConversationCarry>,
-        expected: ConversationState,
+        mut expected: ConversationState,
     ) -> Result<PreparedLaunch> {
         let publication = if restart {
             self.prime_root_publication(true)
@@ -233,7 +235,14 @@ impl Instance {
             None
         };
         if restart {
-            self.kill_clean_locked()?;
+            let intended_resume =
+                (self.resume_intent != expected.intent).then(|| self.resume_intent.clone());
+            let durable = self.kill_clean_locked(storage)?;
+            self.adopt_conversation_state(durable.clone());
+            if let Some(intent) = intended_resume {
+                self.resume_intent = intent;
+            }
+            expected = durable;
         }
         if let Some(carry) = conversation_carry {
             self.absorb_published_prime_session(publication);
@@ -416,7 +425,8 @@ impl Instance {
                 self.id,
             );
         }
-        let killed = self.kill_clean_locked();
+        let storage = crate::session::storage::Storage::open(profile, self.resolve_file_watch())?;
+        let killed = self.kill_clean_locked(&storage);
         // Only the sid is kept for the retry; the reservation still fences
         // a replacement from the sweep.
         self.release_scope();
@@ -516,6 +526,51 @@ mod tests {
         }
     }
 
+    #[test]
+    #[serial]
+    fn restart_rebases_launch_cas_after_final_pi_publication() {
+        let (_guard, _base, _tmp) = crate::hooks::test_support::BaseGuard::ready();
+        let home = tempdir().unwrap();
+        let _app = crate::session::test_support::isolate_app_dir_at(home.path());
+        let _pi = crate::session::test_support::install_login_shell_path_command(
+            home.path(),
+            "pi",
+            "#!/bin/sh\nexit 0\n",
+        );
+        let profile = "restart-final-pi-publication";
+        let old = "01a0538e-5868-7c22-84bc-40cfd7a09aa0";
+        let published = "01a0538e-5868-7c22-84bc-40cfd7a09ab1";
+        let mut inst = Instance::new("pi-restart", home.path().to_str().unwrap());
+        inst.source_profile = profile.into();
+        inst.tool = "pi".into();
+        inst.detect_as = "pi".into();
+        inst.command = "pi".into();
+        inst.agent_session_id = Some(old.into());
+        let storage = crate::session::storage::Storage::new_unwatched(profile).unwrap();
+        storage
+            .update(|rows, _| {
+                rows.push(inst.clone());
+                Ok(())
+            })
+            .unwrap();
+        let _transcript = crate::session::instance::test_helpers::publish_host_pi_transcript(
+            &inst.id,
+            published,
+            home.path(),
+        );
+
+        let expected = inst.conversation_state();
+        let prepared = inst
+            .stop_carry_and_prepare(&storage, true, None, expected)
+            .unwrap();
+
+        assert_eq!(inst.agent_session_id.as_deref(), Some(published));
+        assert_eq!(
+            prepared.expected_conversation.session_id.as_deref(),
+            Some(published)
+        );
+    }
+
     /// Pins the order inside `stop_carry_and_prepare`: the launch command is
     /// built from whether the incoming account's transcript exists, so the
     /// carry has to have published it by then. Preparing first yields
@@ -545,6 +600,7 @@ mod tests {
         let profile = crate::session::config::effective_profile("");
         let _registry = crate::tmux::status_rules::ProfileRegistryGuard::take(&profile);
         crate::session::config::profile_config::resolve_config_or_warn(&profile);
+        let storage = crate::session::storage::Storage::new_unwatched(&profile).unwrap();
 
         let project = home.join("project");
         std::fs::create_dir_all(&project).expect("project");
@@ -575,7 +631,7 @@ mod tests {
         inst.swap_account("claude-2");
         let expected = inst.conversation_state();
         let prepared = inst
-            .stop_carry_and_prepare(false, Some(carry), expected)
+            .stop_carry_and_prepare(&storage, false, Some(carry), expected)
             .expect("prepare");
 
         assert!(
