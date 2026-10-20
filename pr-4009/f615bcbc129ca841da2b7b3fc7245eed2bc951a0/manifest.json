@@ -1,0 +1,174 @@
+{
+  "source": "f615bcbc129ca841da2b7b3fc7245eed2bc951a0",
+  "pinnedUpstream": "f186c41e20f2eac113efd03b9a46c1f0f63384b4",
+  "binarySha256": "9e8ebbe96fb0991ef68b6aac103aa6acbe3111ad97c248a1e73231de7fa0e79a",
+  "ci": {
+    "passed": 35,
+    "skipped": 3,
+    "failed": 0,
+    "pending": 0
+  },
+  "files": [
+    {
+      "path": "acceptance-matrix.json",
+      "bytes": 31635,
+      "sha256": "f3f450b5312459c2d5b553e74a911cb61b75a94b23c03d7b16a373c2d1979fe7"
+    },
+    {
+      "path": "findings.json",
+      "bytes": 5630,
+      "sha256": "719e79e477eaa2b887abab5243d78872091141175de050c33141d45c7e5e72f4"
+    },
+    {
+      "path": "verification.json",
+      "bytes": 1512,
+      "sha256": "eebc81986ba0e37744007d2953b2527e9c08e291af2197615e52a8c48f3d5369"
+    },
+    {
+      "path": "tui-live-proof.json",
+      "bytes": 4638,
+      "sha256": "4998ac5690a3b4f8cdac63476e45b0a558e0f9f75fe00fcaf694ea05b145839d"
+    },
+    {
+      "path": "mcp-live-proof.json",
+      "bytes": 1155,
+      "sha256": "7597fba9cae6891838a1644d7164454fc514816fa72357f7e8a89fd1692abae0"
+    },
+    {
+      "path": "read-v4-proof.json",
+      "bytes": 711,
+      "sha256": "76272b04977a4b9dd44ebcf974a615b6440fd1a6e1ebf69199946eddc3c8b225"
+    },
+    {
+      "path": "read-v4-failing-before.json",
+      "bytes": 862,
+      "sha256": "a04e9f4ce80587795c99e76290559e7d6efd654097f62cb319983b9003f6069b"
+    },
+    {
+      "path": "worktree-proof.json",
+      "bytes": 1058,
+      "sha256": "d3e31f32c0db8c3f02098dae4887e6f911175187139b3b5714a05c25e881c2f7"
+    },
+    {
+      "path": "passkey-proof-at-d7e9804.json",
+      "bytes": 340,
+      "sha256": "d197c7d809707e3953550bc395f8236219e81be5886310b6d51c9683057b1bea"
+    },
+    {
+      "path": "review-inventory.json",
+      "bytes": 403,
+      "sha256": "d3c658928c8f59bf6ca1ce0d43091b568186e768872cef2465d97d6c33cc6829"
+    },
+    {
+      "path": "dependencies.json",
+      "bytes": 807,
+      "sha256": "d964ff4ae6f65ed5a383dd4c43cf37ced860dcb27d95df84140399424607f00a"
+    },
+    {
+      "path": "existing-worktree-picker.webp",
+      "bytes": 10330,
+      "sha256": "5670ed7bd298403a475586d61139299352e8b59c0de8051559809de1858f7c66"
+    },
+    {
+      "path": "existing-worktree-created.webp",
+      "bytes": 5662,
+      "sha256": "4883100183760ee8dd7a386a5f11692a2575fcd386768c6773ba770e9a0220e1"
+    },
+    {
+      "path": "passkey-at-d7e9804.webp",
+      "bytes": 11954,
+      "sha256": "f44000d9253fc0071b01b4554711e6fd2466d1148d25e64e359cd51ed0e77549"
+    },
+    {
+      "path": "probes/pr4009-live-smoke.mjs",
+      "bytes": 10583,
+      "sha256": "cd0be41eed32eccaee373c4d21f8bf4896ac04110168a67c52fa5190dbf0f10d"
+    },
+    {
+      "path": "probes/pr4009-terminal-smoke.mjs",
+      "bytes": 12623,
+      "sha256": "2fdc8bbe9a29062f0ca96ad0d7f82196881e90539bc2b5d68bb719c9f28eeda2"
+    },
+    {
+      "path": "probes/pr4009-worktree-surface.mjs",
+      "bytes": 3476,
+      "sha256": "de02549cffdc2f2de32a8ef49e6da4d1c07c73ed1354bfb2a72ad58a8b4ffb51"
+    },
+    {
+      "path": "probes/pr4009-passkey-flow.js",
+      "bytes": 3485,
+      "sha256": "40b84ddc6fa45ee6ce15dd604eb3e6eb4b7979b291bb14fec10d8daa7a0e606b"
+    },
+    {
+      "path": "source-identity.json",
+      "bytes": 963,
+      "sha256": "9c77b67a2a0efd28ef22bdb7c0828cfd7a9638b6d662991502809ea5eb138ca8"
+    },
+    {
+      "path": "ci-checks.json",
+      "bytes": 9108,
+      "sha256": "9caf68b24f6258ee775e1f0c0b015444b0a782d1c48e9bc2f0a3823c23be34e6"
+    },
+    {
+      "path": "codec-provenance.json",
+      "bytes": 301,
+      "sha256": "ea1c90470feaacd2d2d8144e0d2e6b547c0d176e014097def20a7370af5e21ef"
+    },
+    {
+      "path": "probes/historical-codec/Cargo.toml",
+      "bytes": 248,
+      "sha256": "71414eaed7c3361318cf82e1b6e2a51f0d2a67ce3bc226aa3b3e3cc2b57bb7ee"
+    },
+    {
+      "path": "probes/historical-codec/Cargo.lock",
+      "bytes": 10410,
+      "sha256": "f01a05ff212f15329174f1b5ad7e0706c7c3b587c7211450f38ef46c0a80c4bc"
+    },
+    {
+      "path": "probes/historical-codec/src/main.rs",
+      "bytes": 1256,
+      "sha256": "f47b9b2de2ac51b583b33ead66781ccac4e77e6ceaa352d9554edd97f0fb2487"
+    },
+    {
+      "path": "probes/historical-codec/src/session.rs",
+      "bytes": 2935,
+      "sha256": "ce0814ea1c4c2456209e9f20dba8fb39470173552d9579402e21362e48615954"
+    },
+    {
+      "path": "probes/historical-codec/src/historical_dto.rs",
+      "bytes": 35551,
+      "sha256": "cb7a80bdbae620856eb15ad91340d665fa47a2b0721b1661eb6403cafb7bdd06"
+    },
+    {
+      "path": "probes/capture.mjs",
+      "bytes": 8098,
+      "sha256": "033a0ec7906237ba222fd1848878edad8efa1fb908d1936c860b27450e997d66"
+    },
+    {
+      "path": "probes/final_production_decoder_interop_probe.rs",
+      "bytes": 592,
+      "sha256": "9af1c5cfcf1a7e56523d4da25ff3604bb5c2dd31dc5422fcd226d32ea0ce4e65"
+    },
+    {
+      "path": "read-v4-decoder-proof.json",
+      "bytes": 1354,
+      "sha256": "9009e0d3418ddc1af5dfe89f3914c5d7860ee5e657860b7c8a72c96bbc4b8809"
+    },
+    {
+      "path": "probes/historical-codec/LICENSE",
+      "bytes": 1069,
+      "sha256": "b37140699c292ab0346f8e2fc4b98a668227388805d3eca0e9e14d026542ead0"
+    },
+    {
+      "path": "pr-description.md",
+      "bytes": 4834,
+      "sha256": "519f6395fa7faa014bb4b8168fcc60685954ec983daa83007eac305a7f66a60f"
+    },
+    {
+      "path": "description-cross-review.json",
+      "bytes": 1209,
+      "sha256": "5d957ca19d73f9b6c05f63670cacb4013ee29c69b3b416dc6908956a53ac5b70"
+    }
+  ],
+  "kind": "Immutable QA evidence, no application runtime state/credentials, no official modularization delivery"
+}

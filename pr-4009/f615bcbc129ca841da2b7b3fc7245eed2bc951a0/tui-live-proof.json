@@ -1,0 +1,175 @@
+{
+  "targetMs": 2000,
+  "targetDeclaredBeforeMeasurement": true,
+  "measuredTransitions": 20,
+  "transport": "real Core owner Unix API + native runtime WS + real tmux + actual TUI",
+  "startObservation": "new marker first observed in real agent pane",
+  "resolution": "30ms predicate poll plus HTTP and terminal capture costs; client delta is observation order, not a strict propagation bound",
+  "daemonMs": {
+    "min": 457.24149899999975,
+    "p50": 503.97395099999994,
+    "p95": 538.5180849999997,
+    "max": 541.4383760000001
+  },
+  "tuiMs": {
+    "min": 460.96567200000027,
+    "p50": 530.9045859999997,
+    "p95": 575.2662529999998,
+    "max": 579.8738089999997
+  },
+  "samples": [
+    {
+      "index": 0,
+      "want": "waiting",
+      "daemonMs": 457.24149899999975,
+      "tuiMs": 460.96567200000027,
+      "observedClientDeltaMs": 3.724173000000519
+    },
+    {
+      "index": 1,
+      "want": "running",
+      "daemonMs": 527.493907,
+      "tuiMs": 530.9045859999997,
+      "observedClientDeltaMs": 3.410678999999618
+    },
+    {
+      "index": 2,
+      "want": "waiting",
+      "daemonMs": 538.5180849999997,
+      "tuiMs": 575.2662529999998,
+      "observedClientDeltaMs": 36.74816800000008
+    },
+    {
+      "index": 3,
+      "want": "running",
+      "daemonMs": 505.86723600000005,
+      "tuiMs": 510.7816789999997,
+      "observedClientDeltaMs": 4.914442999999665
+    },
+    {
+      "index": 4,
+      "want": "waiting",
+      "daemonMs": 541.4383760000001,
+      "tuiMs": 579.8738089999997,
+      "observedClientDeltaMs": 38.43543299999965
+    },
+    {
+      "index": 5,
+      "want": "running",
+      "daemonMs": 493.2582990000001,
+      "tuiMs": 496.26704400000017,
+      "observedClientDeltaMs": 3.00874500000009
+    },
+    {
+      "index": 6,
+      "want": "waiting",
+      "daemonMs": 531.0098650000009,
+      "tuiMs": 568.5345060000009,
+      "observedClientDeltaMs": 37.524640999999974
+    },
+    {
+      "index": 7,
+      "want": "running",
+      "daemonMs": 503.97395099999994,
+      "tuiMs": 542.5828980000006,
+      "observedClientDeltaMs": 38.608947000000626
+    },
+    {
+      "index": 8,
+      "want": "waiting",
+      "daemonMs": 494.44390999999996,
+      "tuiMs": 530.2498390000001,
+      "observedClientDeltaMs": 35.805929000000106
+    },
+    {
+      "index": 9,
+      "want": "running",
+      "daemonMs": 525.1870390000004,
+      "tuiMs": 528.816605,
+      "observedClientDeltaMs": 3.6295659999996133
+    },
+    {
+      "index": 10,
+      "want": "waiting",
+      "daemonMs": 507.84729400000106,
+      "tuiMs": 544.7666820000013,
+      "observedClientDeltaMs": 36.919388000000254
+    },
+    {
+      "index": 11,
+      "want": "running",
+      "daemonMs": 499.6665600000015,
+      "tuiMs": 537.6493950000004,
+      "observedClientDeltaMs": 37.982834999998886
+    },
+    {
+      "index": 12,
+      "want": "waiting",
+      "daemonMs": 495.42077900000004,
+      "tuiMs": 531.5311939999992,
+      "observedClientDeltaMs": 36.11041499999919
+    },
+    {
+      "index": 13,
+      "want": "running",
+      "daemonMs": 499.9748419999996,
+      "tuiMs": 537.4183539999995,
+      "observedClientDeltaMs": 37.44351199999983
+    },
+    {
+      "index": 14,
+      "want": "waiting",
+      "daemonMs": 508.11350200000015,
+      "tuiMs": 513.9909609999995,
+      "observedClientDeltaMs": 5.877458999999362
+    },
+    {
+      "index": 15,
+      "want": "running",
+      "daemonMs": 537.1156370000008,
+      "tuiMs": 541.8067940000001,
+      "observedClientDeltaMs": 4.6911569999992935
+    },
+    {
+      "index": 16,
+      "want": "waiting",
+      "daemonMs": 501.41381999999976,
+      "tuiMs": 504.06289800000013,
+      "observedClientDeltaMs": 2.6490780000003724
+    },
+    {
+      "index": 17,
+      "want": "running",
+      "daemonMs": 529.5510689999992,
+      "tuiMs": 565.2515149999999,
+      "observedClientDeltaMs": 35.70044600000074
+    },
+    {
+      "index": 18,
+      "want": "waiting",
+      "daemonMs": 490.28700899999967,
+      "tuiMs": 527.1735899999985,
+      "observedClientDeltaMs": 36.88658099999884
+    },
+    {
+      "index": 19,
+      "want": "running",
+      "daemonMs": 495.51741700000093,
+      "tuiMs": 498.6395540000012,
+      "observedClientDeltaMs": 3.1221370000002935
+    }
+  ],
+  "offline": {
+    "hiddenRows": true,
+    "noLocalStoreWrite": true,
+    "samePaneReplaced": true,
+    "noFallbackInput": true,
+    "causalRenderedFramesObserved": 14,
+    "negativeObservationMs": 1000,
+    "independentNativeClientSurvives": true,
+    "explicitReconnectNewEpoch": true,
+    "freshTuiRestored": true,
+    "initialUnavailableNoLocalSpawn": true
+  },
+  "official3900DeliveryClaimed": false
+}

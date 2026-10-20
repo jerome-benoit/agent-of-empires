@@ -1,0 +1,13 @@
+{
+  "producer": "Actual compiledCore,real runtime.sock WebSocket, Hello+Snapshot,localOwnertrue,protocol4,fieldpresent",
+  "consumer": "Unmodified2ba93productionDTOdecoder,withconcreterepositorydomainsupport",
+  "command": "target/debug/aoe-v4-historical-codec-probe target/protocol4-interop/published-control-snapshot.json target/protocol4-interop/before-snapshot.json reject",
+  "output": [
+    "old_consumer_published_control=PASS",
+    "current_consumer_old_producer=PASS",
+    "current_consumer_live_producer=PASS",
+    "old_consumer_live_producer=REJECTED: ()"
+  ],
+  "frozenSchema": "cli-read/v151 rejects additionalProperties systemd_scope_namespace",
+  "decision": "Restore frozenv4shapeandlegacydisplay-onlyglob. Preserve namespacedphysicalunits andexactcaptured-unitretirement. No protocolbump,shim,remotehostcapabilityinference, orCLIfeatureloss."
+}

@@ -1,0 +1,18 @@
+{
+  "productionHead": "f615bcbc129ca841da2b7b3fc7245eed2bc951a0",
+  "historicalConsumer": "2ba93cd0c4768a3edc17eccd0fbb4acc41b3e9c0",
+  "oldConsumerSourceCopiedVerbatim": true,
+  "oldConsumerLines": 1048,
+  "currentConsumer": "Actual final production parse_snapshot and validate_snapshot in their real crate, not a separately copied prototype",
+  "temporaryInModuleProbeRemovedAfterRun": true,
+  "command": "cargo test -p agent-of-empires --lib --all-features --locked pr4009_final_production_decoder_interop_probe -- --nocapture",
+  "directCommand": "/home/fraggle/.cargo/build/8b/6413298aa401bc/debug/deps/agent_of_empires-b98b62287097bd5d pr4009_final_production_decoder_interop_probe --nocapture",
+  "output": [
+    "old_consumer_published_control=PASS",
+    "old_consumer_live_producer=PASS",
+    "final_production_consumer_published_control=PASS",
+    "final_production_consumer_live_final_producer=PASS"
+  ],
+  "failingBefore": "Old strict production decoder rejects the intermediate actual Core snapshot containing systemd_scope_namespace; same codec accepts the corrected final Core snapshot.",
+  "provenanceCorrection": "Intermediate prototype current_dto had the experimental namespace field. Its earlier current_consumer_* labels are historical prototype results, not final production-code proof; final consumer is now exercised directly."
+}

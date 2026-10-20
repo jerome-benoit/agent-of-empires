@@ -1,0 +1,53 @@
+[
+  {
+    "mode": "enabled",
+    "transport": "real owner Unix HTTP",
+    "schemaAndBodySaved": true,
+    "canonicalRestEquality": true,
+    "filters": 4,
+    "rows": 3,
+    "orderingBytesUnchanged": true,
+    "epochObserved": true,
+    "tcpListeners": 0
+  },
+  {
+    "mode": "disabled",
+    "transport": "real owner Unix HTTP",
+    "status": 404,
+    "routeAbsent": true,
+    "tcpListeners": 0
+  },
+  {
+    "mode": "read-only",
+    "transport": "real owner Unix HTTP",
+    "schemaAndBodySaved": true,
+    "canonicalRestEquality": true,
+    "filters": 4,
+    "rows": 3,
+    "orderingBytesUnchanged": true,
+    "epochObserved": true,
+    "tcpListeners": 0
+  },
+  {
+    "mode": "cityhall",
+    "transport": "real owner Unix HTTP",
+    "status": 403,
+    "tcpListeners": 0
+  },
+  {
+    "mode": "tcp-token",
+    "transport": "real owner Unix HTTP",
+    "schemaAndBodySaved": true,
+    "canonicalRestEquality": true,
+    "filters": 4,
+    "rows": 3,
+    "orderingBytesUnchanged": true,
+    "epochObserved": true,
+    "tcpListeners": 1,
+    "tcpAuth": {
+      "missingCredential": 401,
+      "validCredential": 200,
+      "unauthorizedIsJson": true
+    }
+  }
+]

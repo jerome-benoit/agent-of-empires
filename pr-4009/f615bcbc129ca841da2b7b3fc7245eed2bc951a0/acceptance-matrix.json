@@ -1,0 +1,884 @@
+{
+  "head": "f615bcbc129ca841da2b7b3fc7245eed2bc951a0",
+  "pinnedUpstream": "f186c41e20f2eac113efd03b9a46c1f0f63384b4",
+  "scope": "Exhaustive reconciliation and experimental-port evidence; no official #2734 wave delivery, typed-Principal/router convergence, CLI-write cutover, crate/Windows or multi-Daemon registry implementation.",
+  "evidence": {
+    "G1": "Final-head all-feature nextest5344/6skip incl E2E; separate E2E186/3ignored; fmt/clippy/build/Nix47 green.",
+    "G2": "Final-head web format951/lint/build/test-types/matrix; Vitest3896/346files; mocked322/live141 zero unexpected/flaky/skipped.",
+    "P1": "Final-head actual TUI/Core/tmux20transitions, 2s target; no-write/no-reacquire/offline/explicit-reconnect causal proof.",
+    "P2": "Final-head actual MCP5modes, ownerUDS, REST equality/order unchanged, TCP401/200, CityHall403/read-only.",
+    "P3": "Final-head real read-v4 frames, frozen schema unchanged, exact historical production codec all4directions pass; no physical systemd service claim.",
+    "P4": "Final-head actual pre-existing worktree APIcreate201 and browser chooser→canonical row; branch/worktree inventory and tracked sentinel unchanged.",
+    "P5": "Actual Chromium virtual enrollment→signout→passkey signin→non-elevated prompt on d7e9804 runtime. Final-head software-authenticator/password-budget HTTP suite also passes. No hardware claim.",
+    "ISSUES": "All11live bodies and68acceptanceentries exactly read back;20nativeedges;#3841closedbymaintainer;#4505openforhumanreview."
+  },
+  "officialDeliveryClaimed": false,
+  "humanReviewPending": 4505,
+  "tickets": [
+    {
+      "issue": 3835,
+      "state": "open",
+      "assignees": [],
+      "authorities": [
+        "ADR 0003",
+        "ADR 0002"
+      ],
+      "blockedBy": [
+        3896
+      ],
+      "acceptance": [
+        {
+          "id": "3835-1",
+          "criterion": "Contract test per endpoint against a real Daemon: stop and start land the same row state the local path produced.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "P1"
+          ],
+          "remaining": "Official flag/client/error-catalog cutover is not delivered by this native experiment.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3835-2",
+          "criterion": "Daemon-unreachable case: the action fails, no local write occurs, and the user sees reconnect guidance.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "Fixture proves TUI hard-fail/no local write; official rollout remains pending.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3835-3",
+          "criterion": "Unknown-outcome case: canonical state is refreshed, the uncertainty is surfaced, and the mutation is not replayed.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "No independent lost-response trace is attributed to this final-head probe.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3835-4",
+          "criterion": "A 409 with `AoE-Error-Code: lifecycle_locked` maps to a lifecycle-conflict outcome, classified without reading the response body.",
+          "status": "deferred",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Ratified D1 classification must converge on the official shared error catalog, not private native codes.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3835-5",
+          "criterion": "The retired storage paths are gone from `src/tui/stop_poller.rs` and `src/tui/home/pollers.rs`.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Native local writers are retired; official migration-flag retirement sequence is separate.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3835-6",
+          "criterion": "Existing e2e stop coverage still passes.",
+          "status": "experimental-verified",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Final E2E execution is green; no official ticket closure.",
+          "officialDeliveryClaimed": false
+        }
+      ]
+    },
+    {
+      "issue": 3836,
+      "state": "open",
+      "assignees": [],
+      "authorities": [
+        "ADR 0003",
+        "ADR 0002"
+      ],
+      "blockedBy": [
+        3835,
+        3896
+      ],
+      "acceptance": [
+        {
+          "id": "3836-1",
+          "criterion": "Contract test per endpoint against a real Daemon.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Final suites pass; official per-endpoint cutover contracts remain gated.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3836-2",
+          "criterion": "A restore-during-purge case asserts the Daemon's outcome is what the row shows (the `KeptRestored` disposition in `src/tui/home/pollers.rs`).",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Current lifecycle/contention coverage passes; no new isolated KeptRestored live trace claimed.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3836-3",
+          "criterion": "A daemon-unreachable case asserts no local deletion occurs.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "Target-profile bytes and native input stay fenced while offline.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3836-4",
+          "criterion": "An unknown-outcome case asserts the operation is not replayed and the row is re-read from the Daemon.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "No independent destructive unknown-outcome live trace is attributed to this run.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3836-5",
+          "criterion": "The TUI's trash and deletion pollers no longer touch storage.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Native authority differs from the future flag-gated official cutover.",
+          "officialDeliveryClaimed": false
+        }
+      ]
+    },
+    {
+      "issue": 3837,
+      "state": "open",
+      "assignees": [],
+      "authorities": [
+        "ADR 0003",
+        "ADR 0002"
+      ],
+      "blockedBy": [
+        3835,
+        3896
+      ],
+      "acceptance": [
+        {
+          "id": "3837-1",
+          "criterion": "Contract test per endpoint against a real Daemon.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Official per-endpoint contract delivery remains separate.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3837-2",
+          "criterion": "Home-view tests that the optimistic local row and the Daemon's response converge.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "G2"
+          ],
+          "remaining": "Current convergence suites pass; no official local-optimism migration claim.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3837-3",
+          "criterion": "A daemon-unreachable case asserts the field is not written locally.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "Observed target store is unchanged during real TUI disconnection.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3837-4",
+          "criterion": "An unknown-outcome case asserts canonical state is refreshed and the update is not replayed.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "No independent lost-response metadata trace is claimed here.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3837-5",
+          "criterion": "A favorite endpoint exists, is routed, and has a contract test.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Current native endpoint tests pass; the official ticket remains open.",
+          "officialDeliveryClaimed": false
+        }
+      ]
+    },
+    {
+      "issue": 3841,
+      "state": "closed",
+      "assignees": [
+        "Seluj78"
+      ],
+      "authorities": [
+        "ADR 0003"
+      ],
+      "blockedBy": [],
+      "acceptance": [
+        {
+          "id": "3841-1",
+          "criterion": "None outstanding here. #3898 and #3900 carry the live gates.",
+          "status": "obsolete",
+          "evidence": [
+            "ISSUES"
+          ],
+          "remaining": "Maintainer-completed; no outstanding acceptance here. Preserve #4648 and gates moved to #3898/#3900.",
+          "officialDeliveryClaimed": false
+        }
+      ]
+    },
+    {
+      "issue": 3896,
+      "state": "open",
+      "assignees": [
+        "Seluj78"
+      ],
+      "authorities": [
+        "ADR 0002",
+        "ADR 0003"
+      ],
+      "blockedBy": [],
+      "acceptance": [
+        {
+          "id": "3896-1",
+          "criterion": "Loopback and HTTPS are allowed; a remote plaintext bearer sends no request.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Native transport guards pass; official typed-Principal convergence remains open.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3896-2",
+          "criterion": "Forged forwarded headers are ignored without proxy mode, including on loopback.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Ingress regression suites pass; not an independent final-head forged-header smoke.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3896-3",
+          "criterion": "Only explicitly trusted peers influence TLS assertions and client identity in auth, login and rate limiting.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Trusted-ingress policy retained; full official auth-router convergence remains open.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3896-4",
+          "criterion": "A trusted TLS proxy works; no proxy or name-resolution escape from loopback.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Transport regression suites pass; no real remote TLS deployment is claimed.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3896-5",
+          "criterion": "No secret-bearing URL, debug output or error source.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Redaction/source guards pass; not a claim about every possible future error.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3896-6",
+          "criterion": "401, 403, 404, 409 and 426 cases classify correctly, including the old-server and unknown-header cases; a stalled error body never delays classification.",
+          "status": "deferred",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Private native error codes are not the official D1 catalog acceptance.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3896-7",
+          "criterion": "Concurrent approval resolution clears only the correct card after safe evidence.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "G2"
+          ],
+          "remaining": "Approval race suites pass; no new real-provider concurrent approval trace.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3896-8",
+          "criterion": "A trusted loopback HTTPS proxy with absent, malformed or loopback client identity must not bypass login or elevation, in passphrase-only and token-plus-passphrase modes.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "P5"
+          ],
+          "remaining": "Proxy/passkey HTTP regressions and real virtual-passkey non-elevation pass; mode-matrix acceptance stays open.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3896-9",
+          "criterion": "Existing access middleware is reused; no broad #2735 tiers and no native TLS addition.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "No broad ACL tiers or native TLS added; official Principal/router adoption is pending.",
+          "officialDeliveryClaimed": false
+        }
+      ]
+    },
+    {
+      "issue": 3897,
+      "state": "open",
+      "assignees": [],
+      "authorities": [
+        "ADR 0003",
+        "ADR 0002"
+      ],
+      "blockedBy": [
+        3896
+      ],
+      "acceptance": [
+        {
+          "id": "3897-1",
+          "criterion": "Real REST and WS over the Unix socket, on Linux and macOS.",
+          "status": "partial",
+          "evidence": [
+            "P2",
+            "P3"
+          ],
+          "remaining": "Real Linux owner UDS REST/WS proved; no real macOS Daemon smoke is claimed.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3897-2",
+          "criterion": "Matching UID accepted; wrong UID and failing credentials rejected.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "P2"
+          ],
+          "remaining": "Matching owner UID is live-proved; no second-UID process experiment in this final run.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3897-3",
+          "criterion": "Runtime socket directory 0700 and socket 0600, owned by the effective user; unsafe ancestry and symlink substitution refused; a stale socket is distinguished from a live one; a live socket is never unlinked.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Socket/path security suites pass; no independent final-head census of every adversarial ancestry case.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3897-4",
+          "criterion": "No fabricated TCP or proxy identity; a TCP-forged local header is rejected.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "P2"
+          ],
+          "remaining": "Owner UDS and missing/valid TCP credentials verified; not the full spoofed-header matrix.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3897-5",
+          "criterion": "Local administrative rights apply, with configured read-only, CityHall and agent restrictions preserved.",
+          "status": "partial",
+          "evidence": [
+            "P2",
+            "G1"
+          ],
+          "remaining": "Actual read-only/CityHall outcomes pass; official typed-Principal route convergence remains open.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3897-6",
+          "criterion": "Existing remote HTTPS behaviour is unaffected.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Transport suites pass; no real remote HTTPS deployment claimed.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3897-7",
+          "criterion": "Any schema or path persistence change uses the project's migration mechanism; a runtime socket alone is not a schema.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Versioned migration suites pass; official socket/Principal convergence is still separate.",
+          "officialDeliveryClaimed": false
+        }
+      ]
+    },
+    {
+      "issue": 3898,
+      "state": "open",
+      "assignees": [],
+      "authorities": [
+        "ADR 0004",
+        "ADR 0003"
+      ],
+      "blockedBy": [
+        3897,
+        4465
+      ],
+      "acceptance": [
+        {
+          "id": "3898-1",
+          "criterion": "Simultaneous TUIs yield one all-profile authority.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Shared spawn-race tests pass; official #4465 remains a dependency.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-2",
+          "criterion": "No dashboard is auto-exposed; the web dashboard is absent and the plugin disabled.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P2",
+            "P3"
+          ],
+          "remaining": "Actual Core binds no TCP listener; no auto-dashboard claim beyond this mode.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-3",
+          "criterion": "The coordinated exposure restart succeeds or fails with the last working configuration retained for explicit rollback.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Lifecycle/restart/rollback tests pass; no new independent rollback incident trace.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-4",
+          "criterion": "Auth mode, read-only, CityHall and allowlists are effective before readiness is reported.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "P2"
+          ],
+          "remaining": "Auth/read-only/CityHall probes pass; not the complete allowlist/readiness matrix.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-5",
+          "criterion": "Managed WS connections close on a policy change.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "G2"
+          ],
+          "remaining": "Existing policy-change WS suites pass; no new independent final-head trace.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-6",
+          "criterion": "Stop, restart and TUI-exit survival behave as specified; an explicit remote endpoint never spawns locally.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1",
+            "G1"
+          ],
+          "remaining": "Actual TUI exit/survival/reconnect and explicit-unreachable endpoint behavior proved.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-7",
+          "criterion": "A wrong runtime, socket or version is refused.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "P3"
+          ],
+          "remaining": "Handshake tests and old read consumer pass; no full adversarial-version live matrix.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-8",
+          "criterion": "Profile defaults are honoured, and profile rename or delete forces revalidation.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Profile rename/delete/default tests pass; no independent new profile lifecycle trace.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-9",
+          "criterion": "The initial no-snapshot failure, the disconnected unavailable view with live-send and new attach disabled, and the documented independence of a pre-existing native attachment are each verified.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "Initial unavailable, disconnected no-input/no-local-write, independent attachment all observed.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-10",
+          "criterion": "Explicit reconnect yields a fresh snapshot; no ambiguous mutation is replayed.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "Explicit reconnect changes epoch and restores fresh TUI data; no replay performed.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-11",
+          "criterion": "The local TUI honours negotiated read-only and CityHall policy.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "P2"
+          ],
+          "remaining": "Policy suites/MCP restrictions pass; not an independent actual-TUI policy negotiation matrix.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-12",
+          "criterion": "A disconnect followed by a same-pane respawn cannot trigger input fallback or reacquisition.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "Same physical pane replacement cannot recover native input during disconnection.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3898-13",
+          "criterion": "The live TUI/real-Daemon E2E asserts the hard fail with reconnect guidance. It must pass before #3901 moves the authoritative row set.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "Actual TUI and real Daemon hard-fail/reconnect observed; official row-set cutover remains gated.",
+          "officialDeliveryClaimed": false
+        }
+      ]
+    },
+    {
+      "issue": 3899,
+      "state": "open",
+      "assignees": [],
+      "authorities": [
+        "ADR 0002",
+        "ADR 0003"
+      ],
+      "blockedBy": [
+        3898,
+        3835,
+        3836,
+        3837
+      ],
+      "acceptance": [
+        {
+          "id": "3899-1",
+          "criterion": "Agent and host, container and tool ensure paths go through the Daemon.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Native paths pass suites; official shared-client ensure cutover remains separate.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3899-2",
+          "criterion": "Local attach and live I/O are unchanged for live panes.",
+          "status": "partial",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "Real local native I/O observed; no full live container/tool mode matrix here.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3899-3",
+          "criterion": "A dead pane cannot respawn while the Daemon is offline.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "No fallback input/reacquisition after daemon loss and same-pane replacement.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3899-4",
+          "criterion": "A socket mismatch cannot touch another tmux server.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Socket mismatch fixtures pass; no independent new second-server attack trace.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3899-5",
+          "criterion": "Environment comes from the Daemon host with the target profile and repository settings; no later-client or remote-secret leakage.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Environment/profile regression suites pass; no cloud/container secret-bearing runtime claimed.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3899-6",
+          "criterion": "Local and web clients observe the same canonical result.",
+          "status": "partial",
+          "evidence": [
+            "P4",
+            "G2"
+          ],
+          "remaining": "Actual browser and owner API create canonical rows on same existing checkout; not every canonical outcome.",
+          "officialDeliveryClaimed": false
+        }
+      ]
+    },
+    {
+      "issue": 3900,
+      "state": "open",
+      "assignees": [],
+      "authorities": [
+        "ADR 0002"
+      ],
+      "blockedBy": [
+        3899
+      ],
+      "acceptance": [
+        {
+          "id": "3900-1",
+          "criterion": "An explicit, user-facing terminal-status freshness target is stated and verified before any local status writer is removed.",
+          "status": "partial",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "2 s target declared before measurement, not proof of the official pre-removal rollout sequence or a ratified SLO.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3900-2",
+          "criterion": "Known terminal state transitions are tested against the Daemon and against both clients.",
+          "status": "partial",
+          "evidence": [
+            "P1",
+            "G2"
+          ],
+          "remaining": "20 real Daemon/TUI transitions measured; no equivalent jointly timed web-client trace.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3900-3",
+          "criterion": "Status event and reload ordering is verified.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "G2"
+          ],
+          "remaining": "Ordering suites pass; no independent every-mode event/reload trace.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3900-4",
+          "criterion": "Reconnect epochs are verified.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "Actual reconnect moves to a new epoch and fresh row set.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3900-5",
+          "criterion": "Persistence with legacy writers still present is verified.",
+          "status": "deferred",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Official persistence coexistence with legacy writers is not delivered by clean-cutover native code.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3900-6",
+          "criterion": "No freshness SLO is inferred from #3841's measurement, and no UI test count is offered as evidence of a freshness contract.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1",
+            "ISSUES"
+          ],
+          "remaining": "No #3841-derived SLO or UI-count freshness proof claimed; measured target remains experimental.",
+          "officialDeliveryClaimed": false
+        }
+      ]
+    },
+    {
+      "issue": 3901,
+      "state": "open",
+      "assignees": [],
+      "authorities": [
+        "ADR 0004",
+        "ADR 0002",
+        "ADR 0003"
+      ],
+      "blockedBy": [
+        3898,
+        3835,
+        3836,
+        3837
+      ],
+      "acceptance": [
+        {
+          "id": "3901-1",
+          "criterion": "Every action in the inventory has a single selected authority.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Native action authority is implemented; official inventory/flag cutover remains dependency-gated.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3901-2",
+          "criterion": "A snapshot never rolls back a mutation result.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Receipt/snapshot race tests pass; no new independent rollback scenario claimed.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3901-3",
+          "criterion": "The intended profile is preserved across mutations.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Profile mutation tests pass; no independent complete cross-profile live matrix.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3901-4",
+          "criterion": "Created and deleted rows converge across clients.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "G2",
+            "P4"
+          ],
+          "remaining": "Created browser/API rows converge; no complete final-head created-and-deleted cross-client trace.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3901-5",
+          "criterion": "A failure after cutover does not write locally.",
+          "status": "experimental-verified",
+          "evidence": [
+            "P1"
+          ],
+          "remaining": "Real post-cutover native TUI failure leaves target store unchanged.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3901-6",
+          "criterion": "The row-set cutover happens only after the gates above are met.",
+          "status": "deferred",
+          "evidence": [
+            "ISSUES"
+          ],
+          "remaining": "Official cutover waits for #3898 and the action tickets; experiment is not that delivery.",
+          "officialDeliveryClaimed": false
+        }
+      ]
+    },
+    {
+      "issue": 3902,
+      "state": "open",
+      "assignees": [],
+      "authorities": [
+        "ADR 0003",
+        "ADR 0004"
+      ],
+      "blockedBy": [
+        3900,
+        3901,
+        4470
+      ],
+      "acceptance": [
+        {
+          "id": "3902-1",
+          "criterion": "Snapshot and subscribe races, gaps, reconnects and scope resets are exercised against a real Daemon.",
+          "status": "partial",
+          "evidence": [
+            "G1",
+            "P1"
+          ],
+          "remaining": "Real reconnect plus current race/gap suites pass; no official full watch/subscribe convergence claim.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3902-2",
+          "criterion": "The session watcher, fallback and migration flag are removed only after the cutovers above.",
+          "status": "deferred",
+          "evidence": [
+            "ISSUES"
+          ],
+          "remaining": "Official fallback/flag retirement follows #3900/#3901 and #4470.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3902-3",
+          "criterion": "No unrelated watcher is removed.",
+          "status": "partial",
+          "evidence": [
+            "G1"
+          ],
+          "remaining": "Unrelated watchers retained; final suites pass, no broad watcher-removal claim.",
+          "officialDeliveryClaimed": false
+        },
+        {
+          "id": "3902-4",
+          "criterion": "Each retired lock or journal carries separate proof that its invariant is no longer needed.",
+          "status": "deferred",
+          "evidence": [
+            "ISSUES"
+          ],
+          "remaining": "No blanket retirement of journals/locks; independent invariant proofs remain required.",
+          "officialDeliveryClaimed": false
+        }
+      ]
+    }
+  ]
+}

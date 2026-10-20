@@ -1,0 +1,75 @@
+[
+  {
+    "issue": 3835,
+    "blockedBy": [
+      3896
+    ]
+  },
+  {
+    "issue": 3836,
+    "blockedBy": [
+      3835,
+      3896
+    ]
+  },
+  {
+    "issue": 3837,
+    "blockedBy": [
+      3835,
+      3896
+    ]
+  },
+  {
+    "issue": 3841,
+    "blockedBy": []
+  },
+  {
+    "issue": 3896,
+    "blockedBy": []
+  },
+  {
+    "issue": 3897,
+    "blockedBy": [
+      3896
+    ]
+  },
+  {
+    "issue": 3898,
+    "blockedBy": [
+      3897,
+      4465
+    ]
+  },
+  {
+    "issue": 3899,
+    "blockedBy": [
+      3898,
+      3835,
+      3836,
+      3837
+    ]
+  },
+  {
+    "issue": 3900,
+    "blockedBy": [
+      3899
+    ]
+  },
+  {
+    "issue": 3901,
+    "blockedBy": [
+      3898,
+      3835,
+      3836,
+      3837
+    ]
+  },
+  {
+    "issue": 3902,
+    "blockedBy": [
+      3900,
+      3901,
+      4470
+    ]
+  }
+]

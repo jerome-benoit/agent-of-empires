@@ -1,0 +1,17 @@
+{
+  "label": "latest",
+  "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/tui-ws-server-client/target/debug/aoe",
+  "binarySha256": "9e8ebbe96fb0991ef68b6aac103aa6acbe3111ad97c248a1e73231de7fa0e79a",
+  "home": "/tmp/aoe-v4-latest-PpbZwj",
+  "transport": "real Unix websocket at runtime.sock, /api/runtime/read/ws",
+  "protocol": 4,
+  "localOwner": true,
+  "namespacePropertyPresent": false,
+  "snapshotSha256": "0ab32561226c4ea4a6624e48397bce4e18eed688d07933a7245f84a8778448a8",
+  "curlExit": 0,
+  "applicationFrames": [
+    "hello",
+    "snapshot"
+  ],
+  "scope": "Production Core and serializer. Private XDG visibility sentinel exercises scopes_expected; no physical systemd service is claimed."
+}

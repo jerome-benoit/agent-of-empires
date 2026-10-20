@@ -1,0 +1,9 @@
+{
+  "ref": "2ba93cd0c4768a3edc17eccd0fbb4acc41b3e9c0",
+  "path": "src/cli/runtime_read/dto.rs",
+  "copiedProductionVerbatim": true,
+  "testModuleExcluded": true,
+  "protocol": 4,
+  "support": "Concrete repository Status, SessionBucket and profile grammar, no mock parser",
+  "productionLines": 1048
+}

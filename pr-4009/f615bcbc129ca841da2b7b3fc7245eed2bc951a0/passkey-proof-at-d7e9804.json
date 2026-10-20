@@ -1,0 +1,10 @@
+{
+  "testedSource": "d7e98040071ab9009f8bda18a9a34fccdadfd934",
+  "enrolled": true,
+  "passwordSessionSignedOut": true,
+  "credentialRestoredAfterNavigation": true,
+  "passkeySignIn": true,
+  "passkeyDoesNotElevate": true,
+  "authenticator": "Chromium virtual platform, not physical hardware",
+  "label": "PR4009 navigation-safe virtual"
+}

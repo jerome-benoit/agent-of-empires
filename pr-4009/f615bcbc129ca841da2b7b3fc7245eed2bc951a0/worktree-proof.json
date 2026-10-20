@@ -1,0 +1,23 @@
+{
+  "head": "f615bcbc129ca841da2b7b3fc7245eed2bc951a0",
+  "binarySha256": "9e8ebbe96fb0991ef68b6aac103aa6acbe3111ad97c248a1e73231de7fa0e79a",
+  "transport": "actual owner Unix HTTP and real tmux-backed Daemon create",
+  "listedExisting": true,
+  "branch": "feature/already-checked-out",
+  "projectPath": "/tmp/aoe-pw-w97-p97-2P3xSq/pre-existing-checkout",
+  "canonicalCreateStatus": 201,
+  "worktreeInventoryUnchanged": true,
+  "branchesUnchanged": true,
+  "trackedFileUnchanged": true,
+  "browser": {
+    "actualPickerFilledBranch": "feature/already-checked-out",
+    "canonicalCreatedRow": "1d54ee2ce3334574",
+    "projectPath": "/tmp/aoe-pw-w97-p97-2P3xSq/pre-existing-checkout",
+    "activeUrlMatchesCanonicalRow": true,
+    "sidebarDisplay": "Configured branch label, not the custom session title",
+    "fixtureAssertionCorrection": "Wait by stable canonical id/URL; custom title is persisted but is not the configured sidebar label.",
+    "branchInventoryUnchanged": true,
+    "worktreeInventoryUnchanged": true,
+    "trackedFileUnchanged": true
+  }
+}

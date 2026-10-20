@@ -1,0 +1,21 @@
+{
+  "head": "f615bcbc129ca841da2b7b3fc7245eed2bc951a0",
+  "pinnedUpstream": "f186c41e20f2eac113efd03b9a46c1f0f63384b4",
+  "parents": [
+    "d7e98040071ab9009f8bda18a9a34fccdadfd934",
+    "f186c41e20f2eac113efd03b9a46c1f0f63384b4"
+  ],
+  "sourceSignatureVerified": true,
+  "binarySha256": "9e8ebbe96fb0991ef68b6aac103aa6acbe3111ad97c248a1e73231de7fa0e79a",
+  "historicalReadConsumer": "2ba93cd0c4768a3edc17eccd0fbb4acc41b3e9c0",
+  "frozenReadSchemaSha256": "d5112fb058fe76592822b0ddb87f094d16abfca579f1127a666761dc8c1dc147",
+  "scope": "Linux runtime probes; virtual WebAuthn on its labeled earlier source; no hardware, cloud-provider, real macOS transport or physical systemd-service claim.",
+  "ci": {
+    "passed": 35,
+    "skipped": 3,
+    "failed": 0,
+    "pending": 0,
+    "details": "ci-checks.json"
+  },
+  "runtimeStatePolicy": "No fixture credentials or full runtime state committed; capture scripts regenerate isolated frames in ignored target paths."
+}

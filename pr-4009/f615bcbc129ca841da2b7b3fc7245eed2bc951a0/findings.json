@@ -1,0 +1,125 @@
+[
+  {
+    "id": "I1",
+    "status": "fixed",
+    "problem": "Accidental systemd namespace property extended the frozen read-v4 strict ABI.",
+    "design": "Keep native runtime metadata separate; emit the published v4 shape and preserve its schema bytes.",
+    "locations": [
+      "tests/fixtures/cli-read/snapshot.schema.json:1",
+      "src/cli/runtime_read/dto.rs:29"
+    ],
+    "proof": [
+      "Old strict2ba93 decoder accepts the published control and final actual Core snapshot, but rejects the actual pre-fix namespace extension. Actual final production parse_snapshot/validate_snapshot directly accept both controls; temporary probe removed. Frozen schema validation and bytes unchanged."
+    ],
+    "scope": "Visibility sentinel only; no physical systemd-service proof."
+  },
+  {
+    "id": "I2",
+    "status": "fixed",
+    "problem": "SpawnFirst was excluded from the cancellation-before-birth fence during committed purge.",
+    "design": "Treat every non-Attach start as construction, preserving retirement journal acknowledgement.",
+    "locations": [
+      "src/acp/runner_lifecycle.rs:654-655",
+      "src/server/api/sessions/tests.rs:309"
+    ],
+    "proof": [
+      "Final all-feature lifecycle/unit/integration/E2E run green; no weakened SpawnFirst fixture."
+    ]
+  },
+  {
+    "id": "I3",
+    "status": "fixed",
+    "problem": "A presentation Starting state could inherit the 10-minute ownership lifetime after launch completed.",
+    "design": "Use shared3-second startup grace based on persisted pane birth; keep ownership TTL separate and fail open on future wall clocks.",
+    "locations": [
+      "src/session/instance/status_update.rs:32",
+      "src/server/reload.rs:748-754",
+      "src/server/reload.rs:2221"
+    ],
+    "proof": [
+      "Fixed-clock boundary/ownership table passes; final real Daemon/TUI20transitions: p50 530.90ms, p95 575.27ms, max579.87ms against predeclared2s experimental target."
+    ],
+    "scope": "No official cross-client freshness SLO or rollout-order acceptance claimed."
+  },
+  {
+    "id": "I4",
+    "status": "fixed",
+    "problem": "Cached alias rows could acquire a replacement physical store identity after same-path replacement.",
+    "design": "Cache physical identity with the loaded rows, reject mismatches before publication and degrade only the affected alias.",
+    "locations": [
+      "src/server/reload.rs:203-214",
+      "src/server/alias_io.rs:319"
+    ],
+    "proof": [
+      "Deterministic held-worker same-path replacement regression failed before and passes after; final full suite green."
+    ]
+  },
+  {
+    "id": "I5",
+    "status": "fixed",
+    "problem": "A successful passkey login could reset the passphrase guessing budget.",
+    "design": "Use a separate Passkey rate-budget class and the existing trusted-ingress resolver; login remains non-elevated.",
+    "locations": [
+      "src/server/passkeys.rs:610",
+      "src/server/passkeys.rs:686",
+      "src/server/passkeys.rs:1437-1440",
+      "src/server/rate_limit.rs:275"
+    ],
+    "proof": [
+      "Final software-authenticator HTTP regression preserves passwordfailurecount1 after successful passkey login; actual Chromium virtual passkey enrollment/sign-in/non-elevation also passed on d7e9804."
+    ],
+    "scope": "Virtual credentials, not physical hardware. Browser proof has its own tested revision."
+  },
+  {
+    "id": "I6",
+    "status": "fixed",
+    "problem": "Upstream ACP reset provenance omitted native Pi terminal context and an explicitly selected conversation.",
+    "design": "Include native Pi/selected context without changing stored-id/fork silence, reset-before-assignment, owner/generation/epoch fences.",
+    "locations": [
+      "src/server/acp_reconciler/resume.rs:412-413",
+      "src/server/api/acp/view.rs:390-393"
+    ],
+    "proof": [
+      "9 targeted real fake-agent/consumer reset/reattach/rate-limit tests pass; final5344-test all-feature run green."
+    ],
+    "scope": "One incoming wiring-only test removed rather than repinned; agent-switch prior=false retained."
+  },
+  {
+    "id": "I7",
+    "status": "fixed",
+    "problem": "New same-id reattach test supplied9arguments to the native11argument attach API.",
+    "design": "Migrate the caller with absent optional deadline/launch lease; do not change production attach semantics.",
+    "locations": [
+      "src/acp/acp_client/control.rs:1546-1557"
+    ],
+    "proof": [
+      "Observed E0061 before; targeted ACP compilation and9tests green after; final all-feature gate green."
+    ]
+  },
+  {
+    "id": "I8",
+    "status": "unfounded",
+    "problem": "Existing-worktree selection must send physical path authority from the client.",
+    "design": "Keep branch selection and Daemon-side physical re-derivation; one checkout per branch.",
+    "locations": [
+      "web/src/components/session-wizard/steps/WorktreePanel.tsx:79-90",
+      "src/session/builder.rs:792-806"
+    ],
+    "proof": [
+      "Actual Core create201 and browser chooser→canonical row use pre-existing checkout; branch/worktree inventories and tracked file unchanged."
+    ]
+  },
+  {
+    "id": "I9",
+    "status": "unfounded",
+    "problem": "Clear prior_conversation on every respawn to avoid a duplicate reset marker.",
+    "design": "Retain provenance; successful stored-id/same-id reattach is already silent, while a genuine new-session fallback must announce loss.",
+    "locations": [
+      "src/acp/acp_client/connection/establish.rs:41-56",
+      "src/acp/supervisor/drain.rs:252-262"
+    ],
+    "proof": [
+      "Independent review withdrew the claim; real same-id and changed-id reset ordering tests pass."
+    ]
+  }
+]

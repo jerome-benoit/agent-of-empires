@@ -1,0 +1,35 @@
+{
+  "candidate": "local://pr4009-description-final-candidate.md",
+  "reviewers": [
+    "ReviewDescriptionEvidence",
+    "ReviewDescriptionContracts"
+  ],
+  "firstVerdict": "No founded P1/P2 finding",
+  "secondVerdict": "Two founded P2 wording findings; no P1/code defect",
+  "consolidation": [
+    {
+      "id": "D1",
+      "status": "fixed",
+      "problem": "TUI-only offline behavior could be read as applying to all clients",
+      "change": "Name TUI explicitly; preserve documented web auto-reconnect and CLI-read fallback distinction",
+      "proof": [
+        "src/tui/home/status.rs:697-711",
+        "web/src/hooks/useSessions.ts:66-105",
+        "src/cli/runtime_read/mod.rs:273-290"
+      ]
+    },
+    {
+      "id": "D2",
+      "status": "fixed",
+      "problem": "No TCP listener could be read as a property of every native-protocol deployment",
+      "change": "Name optional Core-only mode; state web mounting and lack of TCP owner/native-interaction authority",
+      "proof": [
+        "src/server/router.rs:22",
+        "src/server/startup.rs:542-547",
+        "src/server/runtime.rs:358-360"
+      ]
+    }
+  ],
+  "finalDescription": "pr-description.md",
+  "humanScopeReviewPending": 4505
+}

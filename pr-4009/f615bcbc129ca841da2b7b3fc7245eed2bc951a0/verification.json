@@ -1,0 +1,59 @@
+{
+  "head": "f615bcbc129ca841da2b7b3fc7245eed2bc951a0",
+  "pinnedUpstream": "f186c41e20f2eac113efd03b9a46c1f0f63384b4",
+  "binarySha256": "9e8ebbe96fb0991ef68b6aac103aa6acbe3111ad97c248a1e73231de7fa0e79a",
+  "rust": {
+    "nextestPassed": 5344,
+    "nextestSkipped": 6,
+    "nextestIncludesE2E": true,
+    "nextestRunId": "28495d9f-bf67-415c-abd2-51ea545174cc",
+    "separateE2EPassed": 186,
+    "separateE2EIgnored": 3,
+    "fmt": true,
+    "strictClippy": true,
+    "buildWarning": "existing deprecated serve feature selected by all-features",
+    "workspaceBuild": true,
+    "nixEmbeddedAssets": 47
+  },
+  "web": {
+    "formatFiles": 951,
+    "lint": true,
+    "build": true,
+    "testTypecheck": true,
+    "coverageMatrix": true,
+    "vitestFiles": 346,
+    "vitestPassed": 3896,
+    "playwright": [
+      {
+        "name": "mocked-final",
+        "stats": {
+          "startTime": "2026-10-20T16:32:16.336Z",
+          "duration": 93318.516,
+          "expected": 322,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "errors": []
+      },
+      {
+        "name": "live-final",
+        "stats": {
+          "startTime": "2026-10-20T16:33:50.375Z",
+          "duration": 131510.174,
+          "expected": 141,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "errors": []
+      }
+    ]
+  },
+  "reviewThreads": {
+    "total": 54,
+    "unresolved": 0,
+    "paginationExhausted": true
+  },
+  "officialDeliveryClaimed": false
+}

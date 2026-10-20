@@ -1,0 +1,276 @@
+{
+  "head": "f615bcbc129ca841da2b7b3fc7245eed2bc951a0",
+  "checks": [
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616566/job/118750859642",
+      "name": "Cargo Test (linux)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://app.codecov.io/gh/agent-of-empires/agent-of-empires/pull/4009",
+      "name": "codecov/project",
+      "state": "SUCCESS",
+      "workflow": ""
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616566/job/118749400901",
+      "name": "Playwright (live)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://app.codecov.io/gh/agent-of-empires/agent-of-empires/pull/4009",
+      "name": "codecov/patch",
+      "state": "SUCCESS",
+      "workflow": ""
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745058857",
+      "name": "ESLint (web)",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/runs/118745413316",
+      "name": "CodeQL",
+      "state": "SUCCESS",
+      "workflow": ""
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057414",
+      "name": "Build Cache Self-Test",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057717",
+      "name": "Docs",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057542",
+      "name": "Format (web)",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057659",
+      "name": "Nix Build",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057271",
+      "name": "MSRV",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616638/job/118745062220",
+      "name": "Analyze (javascript-typescript)",
+      "state": "SUCCESS",
+      "workflow": "CodeQL"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616638/job/118745062007",
+      "name": "Analyze (python)",
+      "state": "SUCCESS",
+      "workflow": "CodeQL"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616638/job/118745061581",
+      "name": "Analyze (rust)",
+      "state": "SUCCESS",
+      "workflow": "CodeQL"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616638/job/118745061932",
+      "name": "Analyze (actions)",
+      "state": "SUCCESS",
+      "workflow": "CodeQL"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616566/job/118745056448",
+      "name": "Cargo Test (macos)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057479",
+      "name": "Clippy",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616566/job/118745056644",
+      "name": "Playwright (live, shard 1/2)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057590",
+      "name": "PR Lookup Self-Test",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616566/job/118745056662",
+      "name": "Playwright (mocked)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745056944",
+      "name": "Supply Chain",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616566/job/118745056310",
+      "name": "Cargo Test (linux, core-rest)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616566/job/118745056560",
+      "name": "Playwright (live, shard 2/2)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616566/job/118745056628",
+      "name": "Vitest",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616566/job/118745056687",
+      "name": "Cargo Test (linux, web-e2e)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057430",
+      "name": "Skill Check",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057046",
+      "name": "Format",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616566/job/118745056583",
+      "name": "Cargo Test (linux, bare-core)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616566/job/118745056607",
+      "name": "Bundle Analysis",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057543",
+      "name": "Dependabot Check Self-Test",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057427",
+      "name": "Cachix Alert Self-Test",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057560",
+      "name": "Nix Eval",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057626",
+      "name": "Website Build",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456616694/job/118745057402",
+      "name": "Nix Build Web",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456610735/job/118745036992",
+      "name": "Lint PR title",
+      "state": "SUCCESS",
+      "workflow": "PR Title Check"
+    },
+    {
+      "bucket": "skipping",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456610709/job/118745046520",
+      "name": "Check and queue auto-merge",
+      "state": "SKIPPED",
+      "workflow": "Dependabot Auto-Merge"
+    },
+    {
+      "bucket": "skipping",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456610666/job/118745040335",
+      "name": "Label macOS-sensitive PR",
+      "state": "SKIPPED",
+      "workflow": "Labeler"
+    },
+    {
+      "bucket": "skipping",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/39456610666/job/118745039605",
+      "name": "Detect macOS-sensitive changes",
+      "state": "SKIPPED",
+      "workflow": "Labeler"
+    }
+  ],
+  "counts": {
+    "pass": 35,
+    "skipping": 3
+  },
+  "source": "gh pr checks 4009 --repo agent-of-empires/agent-of-empires --json name,bucket,state,workflow,link"
+}
