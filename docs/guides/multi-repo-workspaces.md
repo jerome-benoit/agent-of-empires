@@ -11,6 +11,7 @@ Register repos once, then start a session:
 ```bash
 aoe project add /path/to/backend
 aoe project add /path/to/frontend
+aoe project add /path/to/shared-lib
 
 aoe add /path/to/backend --project frontend --project shared-lib \
   -w feat/auth-rewrite -b
