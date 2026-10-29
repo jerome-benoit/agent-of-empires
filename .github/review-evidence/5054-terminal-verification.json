@@ -385,5 +385,155 @@
     "No maintainer scope approval, remote CI success, merge or issue closure is implied."
   ],
   "default_build_note": "Default candidate code was built and exercised before committing it as1e6db50; only the documented contract clarification followed the code checks. Web build was made from the committed candidate.",
-  "remote_ci": "New head pushed; full remote verdict pending. No merge/ready/closure."
+  "remote_ci": {
+    "source_commit": "1e6db50827da5a966769d9b21b2e5b49c8a6809d",
+    "all_checks_completed": true,
+    "success_runs": 25,
+    "distinct_successful_check_names": 24,
+    "skipped_automations": 3,
+    "checks": [
+      {
+        "name": "codecov/patch",
+        "conclusion": "success",
+        "url": "https://app.codecov.io/gh/agent-of-empires/agent-of-empires/pull/5083"
+      },
+      {
+        "name": "close-stale",
+        "conclusion": "skipped",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40960687156/job/123752340868"
+      },
+      {
+        "name": "check-template",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40960687156/job/123752338626"
+      },
+      {
+        "name": "Lint PR title",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40960687173/job/123752338492"
+      },
+      {
+        "name": "codecov/project",
+        "conclusion": "success",
+        "url": "https://app.codecov.io/gh/agent-of-empires/agent-of-empires/pull/5083"
+      },
+      {
+        "name": "Cargo Test (macos)",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218076/job/123747375992"
+      },
+      {
+        "name": "CodeRabbit",
+        "conclusion": "skipped",
+        "url": "https://coderabbit.ai?utm_source=cr_app&utm_medium=github"
+      },
+      {
+        "name": "Nix Build Web",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218153/job/123747266171"
+      },
+      {
+        "name": "Docs",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218153/job/123747266150"
+      },
+      {
+        "name": "Nix Build",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218153/job/123747266021"
+      },
+      {
+        "name": "Website Build",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218153/job/123747266014"
+      },
+      {
+        "name": "Supply Chain",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218153/job/123747265989"
+      },
+      {
+        "name": "Nix Eval",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218153/job/123747265901"
+      },
+      {
+        "name": "MSRV",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218153/job/123747265898"
+      },
+      {
+        "name": "Format",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218153/job/123747265892"
+      },
+      {
+        "name": "Script Self-Tests",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218153/job/123747265834"
+      },
+      {
+        "name": "Clippy",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218153/job/123747265807"
+      },
+      {
+        "name": "Lint (web)",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218153/job/123747265712"
+      },
+      {
+        "name": "Cargo Test (linux, core-rest)",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218076/job/123747265437"
+      },
+      {
+        "name": "Playwright (mocked)",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218076/job/123747265131"
+      },
+      {
+        "name": "Vitest",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218076/job/123747265032"
+      },
+      {
+        "name": "Bundle Analysis",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218076/job/123747265020"
+      },
+      {
+        "name": "Cargo Test (linux, bare-core)",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218076/job/123747265017"
+      },
+      {
+        "name": "Cargo Test (linux, web-e2e)",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218076/job/123747264981"
+      },
+      {
+        "name": "macOS gate",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218076/job/123747264837"
+      },
+      {
+        "name": "Playwright (live)",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959218076/job/123747264472"
+      },
+      {
+        "name": "Check and queue auto-merge",
+        "conclusion": "skipped",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959215776/job/123747260846"
+      },
+      {
+        "name": "Lint PR title",
+        "conclusion": "success",
+        "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/40959215857/job/123747259857"
+      }
+    ],
+    "codecov_project_summary": "[View this Pull Request on Codecov](https://app.codecov.io/gh/agent-of-empires/agent-of-empires/pull/5083?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=checks&utm_campaign=pr+comments&utm_term=agent-of-empires)\n\n88.75% (+0.11%) compared to 6455254",
+    "no_merge_ready_or_closure": true
+  }
 }
