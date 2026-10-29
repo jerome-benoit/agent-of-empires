@@ -1,0 +1,309 @@
+{
+  "source_commit": "ba1149498c4bb7c21a66c310e81462394005eb5f",
+  "head_commit": "ba1149498c4bb7c21a66c310e81462394005eb5f",
+  "head_note": "Main integrated by a merge commit; duplicate auto-merged wire exports were explicitly unified and all local suites/runtime smokes rerun.",
+  "base_commit": "6455254ff88748afd26284e588f7e8e6e51ab999",
+  "checks": {
+    "default_rust": {
+      "passed": 5451,
+      "skipped": 4,
+      "targeted_passed": 23,
+      "clippy_tests": "passed",
+      "format": "passed",
+      "build": "passed"
+    },
+    "web_rust": {
+      "passed": 5452,
+      "skipped": 4,
+      "clippy_tests": "passed",
+      "build": "passed"
+    },
+    "frontend": {
+      "unit_passed": 4366,
+      "files": 368,
+      "format": "passed",
+      "lint": "passed",
+      "app_types": "passed",
+      "test_types": "passed",
+      "statement_coverage": 84.12,
+      "branch_coverage": 78.22,
+      "function_coverage": 82.78,
+      "line_coverage": 86.46,
+      "local_executable_patch": {
+        "source_commit": "ba1149498c4bb7c21a66c310e81462394005eb5f",
+        "base": "6455254ff88748afd26284e588f7e8e6e51ab999",
+        "file": "web/src/hooks/useLiveTerminal.ts",
+        "instrumented_added_lines": 38,
+        "covered_added_lines": 38,
+        "uncovered_added_lines": [],
+        "scope": "Local LCOV executable added lines only, not remote Codecov gate or branch coverage"
+      }
+    }
+  },
+  "binary_sha256": {
+    "default": "5bd6ae24587de216a3d76f6b8f5e3d6f4da10fd9911288e953f88933e75e0882",
+    "web": "bb5f8d9dfb8e5e97e1541d6fd7cc99b3d011954b0af3199d95c2698a54dd8ba2"
+  },
+  "commands": [
+    "cargo fmt --all",
+    "cargo clippy --tests -- -D warnings",
+    "cargo nextest run --no-fail-fast",
+    "cargo build",
+    "cargo clippy --features web --tests -- -D warnings",
+    "cargo nextest run --features web --no-fail-fast",
+    "cargo build --features web",
+    "npm run format:check",
+    "npm run lint",
+    "npx tsc -b",
+    "npm run typecheck:tests",
+    "npm run test:unit -- --coverage"
+  ],
+  "smokes": {
+    "corpse": {
+      "session": "a8c19225a1a041fc",
+      "sid": "a9d07e04-5d02-4963-a0fc-faffcf334494",
+      "original_pane": [
+        "aoe_dev_owned-corpse-recover_a8c19225",
+        "%0",
+        "764025",
+        "0"
+      ],
+      "confirmed_dead": [
+        "aoe_dev_owned-corpse-recover_a8c19225",
+        "%0",
+        "",
+        "1"
+      ],
+      "respawn_commands": [],
+      "native_pids": [
+        764028,
+        764025,
+        764129
+      ],
+      "restart_http": 200,
+      "send_http": 200,
+      "fresh_input_pid": 764129,
+      "history_sha256": "ad6fa19757d89b0cfae29fa5f76df18b997a373d37277b9aa7fa83044e9feec6",
+      "history_bytes_unchanged": true,
+      "cleanup": {
+        "native_processes_gone": true,
+        "daemon_stopped": true,
+        "private_root_removed": true
+      }
+    },
+    "tui_unknown": {
+      "native_pid_alive": 762823,
+      "sid": "29d051ff-4d81-4a45-b849-bce910446f8b",
+      "generation": 1,
+      "native_launches": 1,
+      "history_unchanged": true,
+      "input_count_during_unknown": 0,
+      "fresh_input_after_recovery_pid": 762823,
+      "cleanup": {
+        "native_processes_gone": true,
+        "daemon_stopped": true,
+        "ui_and_main_tmux_stopped": true,
+        "private_root_removed": true
+      }
+    },
+    "real_omp": {
+      "native_version": "omp/18.13.3",
+      "native_pid": 768579,
+      "native_birth": "jeu. oct. 29 20:50:45 2026",
+      "native_session_id": "01a18937-01d3-7165-b071-b74f12d582cd",
+      "native_user_inputs": 2,
+      "ensure_http": [
+        200,
+        200
+      ],
+      "send_http": [
+        200,
+        200
+      ],
+      "generation_before": 1,
+      "generation_after": 1,
+      "provider_first_input_internal_attempts": 12,
+      "provider_second_input_attempts": 1,
+      "original_history_prefix_unchanged": true,
+      "second_success": "PRIVATE_OMP_SECOND_SUCCESS",
+      "aoe_captured_id": null,
+      "limits": [
+        "Actual native PID/SID/history control; AoE captured managed binding is not asserted",
+        "Native internal HTTP retry count is not an AoE prompt-replay count",
+        "Only dummy credential/private config and local enabled models; not an OS egress sandbox"
+      ],
+      "cleanup": {
+        "native_process_gone": true,
+        "daemon_stopped": true,
+        "private_root_removed": true,
+        "provider_service": "parent stops separately"
+      }
+    },
+    "container": {
+      "session": "0d8c79d284a14c65",
+      "image_id": "sha256:82e6c00a88e15e8e806c0160c3c4852d811fce9ceda6108da1ed4a125b0e68a4",
+      "container_id": "bc441bb2fa973458fb3ea536db7007d0d9510860270b7dadfbc7526349cce2ac",
+      "container_name": "aoe-sandbox-0d8c79d2",
+      "ensure_http": [
+        201,
+        201
+      ],
+      "first_receipt": {
+        "tmux_session": "aoe_dev_cterm_real-container-recei_0d8c79d2",
+        "status": "created",
+        "lifecycle_generation": 1,
+        "profile": "main",
+        "physical": {
+          "identity": {
+            "session_id": "$0",
+            "pane_id": "%0",
+            "pane_pid": 765879
+          },
+          "server": {
+            "socket": "/tmp/aoe-container-after-iji70gwq/tmux.sock",
+            "pid": 765878,
+            "birth": {
+              "boot_id": "ef627c61-4ae6-45ff-8d1c-de4a8af09b74",
+              "start_id": "proc:7199135"
+            }
+          }
+        }
+      },
+      "second_receipt": {
+        "tmux_session": "aoe_dev_cterm_real-container-recei_0d8c79d2",
+        "status": "created",
+        "lifecycle_generation": 2,
+        "profile": "main",
+        "physical": {
+          "identity": {
+            "session_id": "$0",
+            "pane_id": "%0",
+            "pane_pid": 766277
+          },
+          "server": {
+            "socket": "/tmp/aoe-container-after-iji70gwq/tmux.sock",
+            "pid": 766276,
+            "birth": {
+              "boot_id": "ef627c61-4ae6-45ff-8d1c-de4a8af09b74",
+              "start_id": "proc:7199251"
+            }
+          }
+        }
+      },
+      "first_pane": [
+        "%0",
+        "765879",
+        "0"
+      ],
+      "confirmed_dead": [
+        "%0",
+        "",
+        "1"
+      ],
+      "second_pane": [
+        "%0",
+        "766277",
+        "0"
+      ],
+      "same_container": true,
+      "main_agent_not_started": true,
+      "limits": [
+        "Native shell death is confirmed by the exact pane; automatic WebSocket close timing is not asserted."
+      ],
+      "cleanup": {
+        "private_container_gone": true,
+        "daemon_stopped": true,
+        "private_tmux_stopped": true,
+        "private_root_removed": true,
+        "existing_image_retained": true
+      }
+    },
+    "reentrant_hooks": {
+      "session": "dc2fe69ef050480b",
+      "native_pid": 764953,
+      "native_sid": "cdb9485c-2969-44f7-9af9-cb8c0b20e271",
+      "generation": 1,
+      "send_http": 200,
+      "snoozed_until_after_send_completed": "2026-10-29T20:20:06.843635371Z",
+      "history_sha256": "58a5ac2b785d9aa7a1e795929e54cf8f7bafed23c7ef29796dc3196fae268cad",
+      "native_input": "PRIVATE_REENTRANT_NATIVE_INPUT",
+      "no_deadlock": true,
+      "limits": [
+        "Controlled native peer, not provider history proof",
+        "Exercises ordinary HTTP Send native fallback plus actual reentrant Access/Snooze; TUI and CLI races have separate deterministic regressions"
+      ],
+      "cleanup": {
+        "native_process_gone": true,
+        "daemon_stopped": true,
+        "private_root_removed": true
+      },
+      "http_effects": [
+        {
+          "number": 1,
+          "status": 200,
+          "path": "/api/sessions/dc2fe69ef050480b/access"
+        },
+        {
+          "number": 2,
+          "status": 200,
+          "path": "/api/sessions/dc2fe69ef050480b/snooze"
+        }
+      ]
+    },
+    "browser": {
+      "native_pids": [
+        895732,
+        899321
+      ],
+      "sid": "2ba77774-d05d-4530-8797-88370c6d6c4f",
+      "history_sha256": "2e4c13004b8325be29ffe7ce6655df62ad2179845450f3a27adbfc902f1af130",
+      "generation_seed": 1,
+      "generation_final": 3,
+      "old_input_reached_replacement": false,
+      "fresh_input_pid": 899321,
+      "admission": {
+        "socket": 1,
+        "held": [
+          "{\"type\":\"size_owner\",\"is_owner\":true}",
+          "{\"type\":\"size_owner\",\"is_owner\":true}"
+        ],
+        "binary": []
+      },
+      "reconnect": {
+        "oldSocket": 1,
+        "newSocket": 3,
+        "oldState": 3,
+        "binary": []
+      },
+      "released_real_ack": {
+        "released": [
+          {
+            "id": 3,
+            "data": "{\"type\":\"size_owner\",\"is_owner\":true}"
+          }
+        ],
+        "binary": []
+      },
+      "native_input_lines": [
+        "FRESH_SCOPE_INPUT_BARRIER"
+      ],
+      "probe_script_sha256": "eea7aee6171c53dc564aac50b6d7b839d0a1d9da192dfe186b417be8a68b2d23",
+      "limits": [
+        "Controlled transcript-reading native peer; actual compiled dashboard and Chromium",
+        "Explicit native Restart followed by an explicit WebSocket disconnect/reconnect; no claim automatic close occurred",
+        "Seed generation1 and final3 observed; no attribution of intermediate generation to ordinary Host creation"
+      ],
+      "cleanup": {
+        "service_exit": 0,
+        "private_root_removed": true,
+        "daemon_stopped": true,
+        "native_processes_reaped_by_fixture": true
+      }
+    }
+  },
+  "scope_limits": [
+    "Controlled loopback provider503 is not a reconstruction of the original provider incident.",
+    "ACP transport/retained establishment, Terminal ambiguous-probe policy and full controls remain separate epic work.",
+    "No maintainer scope approval, remote CI success, merge or issue closure is implied."
+  ]
+}
