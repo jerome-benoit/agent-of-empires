@@ -1,0 +1,165 @@
+{
+  "status": "Intermediate B proof only. Five review corrections in progress; B not published as correct.",
+  "base_commit": "e2cff1019e5e9234603327e86f4d87c9f98040a9",
+  "binary_sha256": "0970f6903fb0671646675e6da6c9791c0c91f101a97e79c64098e0226a206b27",
+  "initial_four_regressions": {
+    "before": "4 failed on c632 baseline, artifact2047",
+    "after_first_candidate": "4 passed, artifact2196"
+  },
+  "review_before_fix": {
+    "status": "before production review fixes; all nine final strengthened cases reached functional failures",
+    "base_commit": "e2cff1019e5e9234603327e86f4d87c9f98040a9",
+    "owned_patch_sha256": "e72fc0d45d739429421d2200d616eccc18c68b6440f62773df14235ad7edc3c4",
+    "real_runner_binary": {
+      "path": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-B-before-review-fixes/target/debug/aoe",
+      "sha256": "0970f6903fb0671646675e6da6c9791c0c91f101a97e79c64098e0226a206b27",
+      "built_from_current_B_production_source_before_review_fixes": true
+    },
+    "command": {
+      "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5054-owned-worker-retirement",
+      "argv": [
+        "env",
+        "-u",
+        "AOE_TEST_ACP_RUNNER_EXE",
+        "CARGO_BUILD_JOBS=1",
+        "CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target",
+        "TMPDIR=/tmp/aoeA.XyJ6c1",
+        "cargo",
+        "nextest",
+        "run",
+        "--lib",
+        "-E",
+        "test(refused_prebirth_respawn_) | test(registry_contention_at_channel_close_) | test(registry_contention_after_respawn_backoff_) | test(corrupt_stop_during_installed_drain_recovers_) | test(owned_registration_contention_) | test(owned_installation_contention_) | test(stop_physically_retires_a_deferred_) | test(message_send_successfully_revives_)",
+        "--no-fail-fast"
+      ],
+      "exit": 100,
+      "observed_output": "warning: function `revalidate_control_record` is never used\n   --> src/process/worker_registry.rs:214:15\n    |\n214 | pub(crate) fn revalidate_control_record(\n    |               ^^^^^^^^^^^^^^^^^^^^^^^^^\n    |\n    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: `agent-of-empires` (lib test) generated 1 warning\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.45s\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n Nextest run ID 451cc8ca-611b-4600-a05e-fc257cb760b3 with nextest profile: default\n    Starting 9 tests across 1 binary (5318 tests skipped)\n        FAIL [   0.096s] (1/9) agent-of-empires acp::supervisor::drain::tests::registry_contention_at_channel_close_eventually_settles_the_dead_original\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test acp::supervisor::drain::tests::registry_contention_at_channel_close_eventually_settles_the_dead_original ... FAILED\n\n    failures:\n\n    failures:\n        acp::supervisor::drain::tests::registry_contention_at_channel_close_eventually_settles_the_dead_original\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 0.08s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'acp::supervisor::drain::tests::registry_contention_at_channel_close_eventually_settles_the_dead_original' (3491340) panicked at src/acp/supervisor/drain.rs:1552:13:\n    the dead original's registry record must be settled\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        FAIL [   0.141s] (2/9) agent-of-empires plugin::session_api::tests::message_send_successfully_revives_stopped_nondormant_native_conversation\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test plugin::session_api::tests::message_send_successfully_revives_stopped_nondormant_native_conversation ... FAILED\n\n    failures:\n\n    failures:\n        plugin::session_api::tests::message_send_successfully_revives_stopped_nondormant_native_conversation\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 0.12s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'plugin::session_api::tests::message_send_successfully_revives_stopped_nondormant_native_conversation' (3491352) panicked at src/plugin/session_api.rs:1987:9:\n    assertion `left == right` failed\n      left: Object {\"disposition\": String(\"sent\"), \"revived\": Bool(false)}\n     right: Object {\"disposition\": String(\"sent\"), \"revived\": Bool(true)}\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        FAIL [   5.089s] (3/9) agent-of-empires acp::supervisor::drain::tests::corrupt_stop_during_installed_drain_recovers_after_repair_without_replacing_owner\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test acp::supervisor::drain::tests::corrupt_stop_during_installed_drain_recovers_after_repair_without_replacing_owner ... FAILED\n\n    failures:\n\n    failures:\n        acp::supervisor::drain::tests::corrupt_stop_during_installed_drain_recovers_after_repair_without_replacing_owner\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 5.07s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'acp::supervisor::drain::tests::corrupt_stop_during_installed_drain_recovers_after_repair_without_replacing_owner' (3491351) panicked at src/acp/supervisor/drain.rs:1525:14:\n    called `Result::unwrap()` on an `Err` value: Elapsed(())\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        FAIL [   5.093s] (4/9) agent-of-empires acp::supervisor::drain::tests::registry_contention_at_channel_close_preserves_live_owner_readoption\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test acp::supervisor::drain::tests::registry_contention_at_channel_close_preserves_live_owner_readoption ... FAILED\n\n    failures:\n\n    failures:\n        acp::supervisor::drain::tests::registry_contention_at_channel_close_preserves_live_owner_readoption\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 5.07s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'acp::supervisor::drain::tests::registry_contention_at_channel_close_preserves_live_owner_readoption' (3491350) panicked at src/acp/supervisor/drain.rs:1525:14:\n    called `Result::unwrap()` on an `Err` value: Elapsed(())\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        FAIL [  10.095s] (5/9) agent-of-empires acp::supervisor::drain::tests::registry_contention_after_respawn_backoff_preserves_same_owner_readoption\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test acp::supervisor::drain::tests::registry_contention_after_respawn_backoff_preserves_same_owner_readoption ... FAILED\n\n    failures:\n\n    failures:\n        acp::supervisor::drain::tests::registry_contention_after_respawn_backoff_preserves_same_owner_readoption\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 10.07s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'acp::supervisor::drain::tests::registry_contention_after_respawn_backoff_preserves_same_owner_readoption' (3491354) panicked at src/acp/supervisor/drain.rs:1518:18:\n    called `Result::unwrap()` on an `Err` value: Elapsed(())\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        FAIL [  10.132s] (6/9) agent-of-empires acp::supervisor::drain::tests::refused_prebirth_respawn_readopts_the_original_runner_and_conversation\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test acp::supervisor::drain::tests::refused_prebirth_respawn_readopts_the_original_runner_and_conversation ... FAILED\n\n    failures:\n\n    failures:\n        acp::supervisor::drain::tests::refused_prebirth_respawn_readopts_the_original_runner_and_conversation\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 10.11s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'acp::supervisor::drain::tests::refused_prebirth_respawn_readopts_the_original_runner_and_conversation' (3491353) panicked at src/acp/supervisor/drain.rs:1384:14:\n    called `Result::unwrap()` on an `Err` value: Elapsed(())\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        FAIL [  11.549s] (7/9) agent-of-empires server::acp_reconciler::tests::owned_installation_contention_reconciles_original_client_and_mode_once\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test server::acp_reconciler::tests::owned_installation_contention_reconciles_original_client_and_mode_once ... FAILED\n\n    failures:\n\n    failures:\n        server::acp_reconciler::tests::owned_installation_contention_reconciles_original_client_and_mode_once\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 11.53s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'server::acp_reconciler::tests::owned_installation_contention_reconciles_original_client_and_mode_once' (3491341) panicked at src/server/acp_reconciler/mod.rs:915:13:\n    the next real reconcile must install a usable same-actor worker: Err(Elapsed(()))\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        FAIL [  13.541s] (8/9) agent-of-empires server::acp_reconciler::tests::stop_physically_retires_a_deferred_owned_constructor_without_reinstallation\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test server::acp_reconciler::tests::stop_physically_retires_a_deferred_owned_constructor_without_reinstallation ... FAILED\n\n    failures:\n\n    failures:\n        server::acp_reconciler::tests::stop_physically_retires_a_deferred_owned_constructor_without_reinstallation\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 13.52s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'server::acp_reconciler::tests::stop_physically_retires_a_deferred_owned_constructor_without_reinstallation' (3491344) panicked at src/server/acp_reconciler/mod.rs:849:13:\n    Stop must claim a deferred owned constructor without a vanished producer: Ok(Err(TeardownPending(\"owned-constructor-registry-deferral\")))\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        FAIL [  18.528s] (9/9) agent-of-empires server::acp_reconciler::tests::owned_registration_contention_reconciles_original_authorized_new_once\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test server::acp_reconciler::tests::owned_registration_contention_reconciles_original_authorized_new_once ... FAILED\n\n    failures:\n\n    failures:\n        server::acp_reconciler::tests::owned_registration_contention_reconciles_original_authorized_new_once\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 18.50s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'server::acp_reconciler::tests::owned_registration_contention_reconciles_original_authorized_new_once' (3491358) panicked at src/server/acp_reconciler/mod.rs:915:13:\n    the next real reconcile must install a usable same-actor worker: Err(Elapsed(()))\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n     Summary [  18.539s] 9 tests run: 0 passed, 9 failed, 5318 skipped\n        FAIL [   0.096s] (1/9) agent-of-empires acp::supervisor::drain::tests::registry_contention_at_channel_close_eventually_settles_the_dead_original\n        FAIL [   0.141s] (2/9) agent-of-empires plugin::session_api::tests::message_send_successfully_revives_stopped_nondormant_native_conversation\n        FAIL [   5.089s] (3/9) agent-of-empires acp::supervisor::drain::tests::corrupt_stop_during_installed_drain_recovers_after_repair_without_replacing_owner\n        FAIL [   5.093s] (4/9) agent-of-empires acp::supervisor::drain::tests::registry_contention_at_channel_close_preserves_live_owner_readoption\n        FAIL [  10.095s] (5/9) agent-of-empires acp::supervisor::drain::tests::registry_contention_after_respawn_backoff_preserves_same_owner_readoption\n        FAIL [  10.132s] (6/9) agent-of-empires acp::supervisor::drain::tests::refused_prebirth_respawn_readopts_the_original_runner_and_conversation\n        FAIL [  11.549s] (7/9) agent-of-empires server::acp_reconciler::tests::owned_installation_contention_reconciles_original_client_and_mode_once\n        FAIL [  13.541s] (8/9) agent-of-empires server::acp_reconciler::tests::stop_physically_retires_a_deferred_owned_constructor_without_reinstallation\n        FAIL [  18.528s] (9/9) agent-of-empires server::acp_reconciler::tests::owned_registration_contention_reconciles_original_authorized_new_once\nerror: test run failed\n"
+    },
+    "result": {
+      "run": 9,
+      "passed": 0,
+      "failed": 9,
+      "skipped_by_filter": 5318
+    },
+    "setup_history": [
+      "artifact2208: six functional failures; three missing real binary prerequisite, not counted as functional proof",
+      "artifact2210: registration functional failure; installation/Stop transient registry setup errors, not counted as functional proof",
+      "artifact2212: installation and Stop reach intended functional failures with no AOE executable override",
+      "artifact2214: final strengthened nine-case harness all functional red, no setup failures; no production review fix applied"
+    ],
+    "scope": [
+      "Held-peer cases prove management custody, association, usable message roundtrip and event history, not real provider-native transcript restoration.",
+      "Owned construction and plugin cases use genuine candidate runner/native subprocess SDK paths and exact identities.",
+      "No normal-feature B correctness, remote CI or completed epic claim."
+    ]
+  },
+  "actual_registry_flock": {
+    "status": "scoped actual runtime PASS on frozen intermediate B, not final B correctness",
+    "source_base": "e2cff1019e5e9234603327e86f4d87c9f98040a9",
+    "binary_sha256": "0970f6903fb0671646675e6da6c9791c0c91f101a97e79c64098e0226a206b27",
+    "command": [
+      "bun",
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/acp-registry-contention-smoke.ts",
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-B-before-review-fixes/target/debug/aoe",
+      "after"
+    ],
+    "exit": 0,
+    "observed_output": "REGISTRY_CONTENTION_BOUNDED_GREEN {\"id\":\"28677de7f58c4aaa\",\"sid\":\"fake-acp-1793402235361-5e1801ae\",\"daemon\":3500887,\"runner\":{\"pid\":3500935,\"generation\":1793402235178,\"runner_identity\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:3942337\"}},\"nativePids\":[3500959],\"holderReceipt\":\"LOCKED\",\"kernelFlockWaiters\":[],\"held_s\":3.0167279480000007,\"responseWhileHeld\":{\"status\":503,\"body\":\"worker registry admission busy\",\"elapsed_s\":3.0040063960000007},\"responseAfterRelease\":{\"status\":503,\"body\":\"worker registry admission busy\",\"elapsed_s\":3.0040063960000007},\"explicitNextInputSameActor\":true,\"nativeNewRequests\":1,\"nativePromptRequests\":1,\"scope\":\"actual AoE daemon/runner and real entry flock held by separate process; controlled native adapter, not original incident\"}\nPRIVATE_REGISTRY_CONTENTION_CLEANUP_GREEN\n",
+    "event": {
+      "id": "28677de7f58c4aaa",
+      "sid": "fake-acp-1793402235361-5e1801ae",
+      "daemon": 3500887,
+      "runner": {
+        "pid": 3500935,
+        "generation": 1793402235178,
+        "runner_identity": {
+          "boot_id": "3ed81544-dfda-41c6-ae72-231db224a126",
+          "start_id": "proc:3942337"
+        }
+      },
+      "nativePids": [
+        3500959
+      ],
+      "holderReceipt": "LOCKED",
+      "kernelFlockWaiters": [],
+      "held_s": 3.0167279480000007,
+      "responseWhileHeld": {
+        "status": 503,
+        "body": "worker registry admission busy",
+        "elapsed_s": 3.0040063960000007
+      },
+      "responseAfterRelease": {
+        "status": 503,
+        "body": "worker registry admission busy",
+        "elapsed_s": 3.0040063960000007
+      },
+      "explicitNextInputSameActor": true,
+      "nativeNewRequests": 1,
+      "nativePromptRequests": 1,
+      "scope": "actual AoE daemon/runner and real entry flock held by separate process; controlled native adapter, not original incident"
+    },
+    "notes": [
+      "Separate process held real entry flock throughout bounded503 response at3.004s; next explicit input same actor,1nativeNew/1nativePrompt.",
+      "responseAfterRelease records observation of the same completed request, not a second admission POST.",
+      "B-R1..R5 review corrections are still in progress; no global fixed verdict.",
+      "Native adapter controlled, actual AoE daemon/runner/transport/registry; cleanup marker observed."
+    ]
+  },
+  "actual_idle_queue_stop": {
+    "command": [
+      "bun",
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/acp-idle-queue-owned-stop-smoke.ts",
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-B-before-review-fixes/target/debug/aoe"
+    ],
+    "exit": 0,
+    "event": {
+      "id": "e9743294b90444cf",
+      "sid": "fake-acp-1793402266430-6f3a3832",
+      "firstRunner": {
+        "pid": 3503734,
+        "generation": 1793402266248,
+        "birth": {
+          "boot_id": "3ed81544-dfda-41c6-ae72-231db224a126",
+          "start_id": "proc:3945444"
+        }
+      },
+      "secondRunner": {
+        "pid": 3510204,
+        "generation": 1793402266249,
+        "birth": {
+          "boot_id": "3ed81544-dfda-41c6-ae72-231db224a126",
+          "start_id": "proc:3951840"
+        }
+      },
+      "firstNative": {
+        "pid": 3503758,
+        "state": "S",
+        "start": "3945446"
+      },
+      "secondNative": {
+        "pid": 3510228,
+        "state": "S",
+        "start": "3951841"
+      },
+      "idle_wait_s": 65.919,
+      "idleStamp": "2026-10-30T23:18:46.339847820Z",
+      "matchingMemoryDiskStamp": true,
+      "idleTerminalSeq": 8,
+      "queuedTerminalSeq": 15,
+      "queueHttp": 200,
+      "stopHttp": 204,
+      "nativeNewRequests": 1,
+      "nativeLoadRequests": 1,
+      "nativePromptRequests": 2,
+      "originalEventHistoryRetained": true,
+      "sidRetained": true,
+      "scope": "actual isolated AoE daemon/runner and existing 60-second idle tick; controlled native adapter, not real provider history semantics"
+    },
+    "observed_output": "ACTUAL_IDLE_QUEUE_OWNED_STOP_GREEN {\"id\":\"e9743294b90444cf\",\"sid\":\"fake-acp-1793402266430-6f3a3832\",\"firstRunner\":{\"pid\":3503734,\"generation\":1793402266248,\"birth\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:3945444\"}},\"secondRunner\":{\"pid\":3510204,\"generation\":1793402266249,\"birth\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:3951840\"}},\"firstNative\":{\"pid\":3503758,\"state\":\"S\",\"start\":\"3945446\"},\"secondNative\":{\"pid\":3510228,\"state\":\"S\",\"start\":\"3951841\"},\"idle_wait_s\":65.919,\"idleStamp\":\"2026-10-30T23:18:46.339847820Z\",\"matchingMemoryDiskStamp\":true,\"idleTerminalSeq\":8,\"queuedTerminalSeq\":15,\"queueHttp\":200,\"stopHttp\":204,\"nativeNewRequests\":1,\"nativeLoadRequests\":1,\"nativePromptRequests\":2,\"originalEventHistoryRetained\":true,\"sidRetained\":true,\"scope\":\"actual isolated AoE daemon/runner and existing 60-second idle tick; controlled native adapter, not real provider history semantics\"}\nPRIVATE_IDLE_QUEUE_OWNED_STOP_CLEANUP_GREEN\n"
+  },
+  "limits": [
+    "Actual scoped passing smokes do not validate unresolved construction/drain recovery defects.",
+    "Nine red cases cover four functional review defects. Native filesystem under maps is a separately source-proven design violation; no global freeze observed.",
+    "No completed C/5040/5055 implementation, final B verification, new remote CI or maintainer approval claimed."
+  ]
+}
