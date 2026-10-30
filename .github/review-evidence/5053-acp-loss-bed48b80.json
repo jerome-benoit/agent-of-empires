@@ -170,6 +170,17 @@
       "native_rpc_count": 0,
       "http_prompt_posts": 0,
       "all_fixture_cleanup": "pass"
+    },
+    "commit_pinned_web_feature": {
+      "source_commit": "bed48b80b3570bee759b05b31dfbb53b5b295cf0",
+      "cargo_build": "pass",
+      "cargo_nextest": {
+        "passed": 5492,
+        "skipped": 4
+      },
+      "cargo_clippy_tests_deny_warnings": "pass",
+      "cargo_fmt_check": "pass",
+      "npm_ci": "completed; existing msw postinstall allowScripts warning was not approved or suppressed"
     }
   },
   "source_anchors": {
@@ -187,7 +198,6 @@
     "attach_fixture_hang": "Fixture precondition corrected with genuine detach observation and registry-lock release barrier before SIGSTOP. Exact frozen PC from earlier interruption was not captured. Original owner/SID/turn/auth assertions retained."
   },
   "remaining_epic_scope": {
-    "web_feature_commit_pinned_verification": "in progress, not claimed green",
     "registry_flock_async_admission": "Existing production wait behind externally frozen registry owner remains in #5054 cut B. Fixture repair does not claim to fix it.",
     "durable_establishment_authority": "#5053 cut C",
     "explicit_terminal_retry_policy": "#5040",
@@ -197,5 +207,9 @@
     "Controlled native fakes; real AoE binary/daemon/runner/transport/store and actual browser/TUI/CLI. Not reconstruction of original provider incident.",
     "Local Linux verification only; no new macOS/Windows/Nix/remote-CI verdict claimed.",
     "Cached-completion byte-accounting bound is source/test verified; no independent reconnect failure solely attributable to prior estimate is claimed."
-  ]
+  ],
+  "current_main_integration": {
+    "incoming_main": "75094c798363fdd5c9f454db87508029e527837c",
+    "status": "Source conflict resolution in progress after verified bed48b80 baseline; no claim that future merge head is verified."
+  }
 }
