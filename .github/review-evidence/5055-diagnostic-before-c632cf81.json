@@ -1,0 +1,394 @@
+{
+  "status": "before-only founded diagnostic retention bug; not corrected",
+  "source_commit": "c632cf81111724ec8ea532cfd76e26194528c724",
+  "binary_sha256": "4e267b8475649885f68f09b86eaa0f820ad3d08f64c2e09cf5303e74cd8f18bd",
+  "frontend_build": {
+    "command": "npm run build",
+    "worktree": "/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification/web",
+    "source_commit": "c632cf81111724ec8ea532cfd76e26194528c724",
+    "exit": 0,
+    "observed": "tsc -b; vite build; built in4.89s; existing warnings retained"
+  },
+  "fixture_command": [
+    "bun",
+    "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/acp-ui-request-error-live.ts",
+    "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-A-main750/target/debug/aoe"
+  ],
+  "fixture_source": "import assert from 'node:assert/strict';\nimport { spawnAoeServe, type ServeHandle } from '/home/fraggle/src/agent-of-empires-git-worktrees/5052-agent-error-design/web/tests/helpers/aoeServe.ts';\nimport { startAcpSession } from '/home/fraggle/src/agent-of-empires-git-worktrees/5052-agent-error-design/web/tests/helpers/acp.ts';\n\nconst [binary] = process.argv.slice(2);\nassert(binary?.startsWith('/'), 'absolute binary required');\nprocess.env.AOE_E2E_BINARY = binary;\nprocess.env.AOE_E2E_DEBUG = '1';\nlet serve: ServeHandle | undefined;\nlet stop!: () => void;\nconst stopped = new Promise<void>((resolve) => { stop = resolve; });\nprocess.once('SIGTERM', stop);\nprocess.once('SIGINT', stop);\nprocess.once('SIGHUP', stop);\nprocess.stdin.setEncoding('utf8');\nprocess.stdin.on('data', (chunk) => { if (String(chunk).trim() === 'stop') stop(); });\ntry {\n  const started = await startAcpSession(async (options) => {\n    serve = await spawnAoeServe({ ...options, workerIndex: 0, parallelIndex: 28 });\n    return serve;\n  }, {\n    title: 'A request error keeps the native session',\n    fakeAcpScript: { turns: [\n      { updates: [], error: { code: -32603, message: 'CONTROLLED_REQUEST_CONNECTION_FAILURE', data: { reason: 'incoming_transport_closed' } } },\n      { updates: [\n        { sessionUpdate: 'wait_for_release' },\n        { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'SECOND_EXPLICIT_REQUEST_SUCCEEDED_ON_THE_SAME_SESSION' } },\n      ], stopReason: 'end_turn' },\n    ] },\n  });\n  console.log('A_UI_SMOKE_READY', JSON.stringify({ baseUrl: started.serve.baseUrl, sessionId: started.sessionId, home: started.serve.home, binary, releasePath: started.serve.home + '/fake-acp-script.json.release' }));\n  await stopped;\n} finally {\n  process.stdin.pause();\n  if (serve) {\n    await serve.stop();\n    console.log('A_UI_SMOKE_CLEANUP_GREEN');\n  }\n}\n",
+  "browser": "actual managed Chromium, compiled frontend preview, no mocked RPC or response",
+  "source_anchors": [
+    "c632:web/src/lib/acpTypes.ts:1014-1018,1333-1341"
+  ],
+  "sequence": [
+    "First browser-selected prompt fails; original diagnostic banner visible.",
+    "Second browser-selected prompt reaches native; native stops at release-file barrier BEFORE ALL second-turn output and response.",
+    "Real event journal has only UserPromptSent seq8 after failure/Stopped seq6/7. Original diagnostic vanishes from DOM without new native positive evidence.",
+    "Runner PID/birth/generation, native startup trace and durable SID unchanged. One native session/new and two explicit prompt requests.",
+    "After releasing barrier, second prompt succeeds in same conversation."
+  ],
+  "before_visible_text": "0 unread, 0 waiting for your input\naoe\nSearch anything\u2026\nCtrlK\nDEV\nSessions\n?\nproject\n1\n(1)\n\u2715\nA request error keeps the native session\nPROJECTS, NO SESSIONS\n(0)\n\nNo registered Projects. Add one to keep a repo handy without a session.\n\nAction did not complete\nCONTROLLED_REQUEST_CONNECTION_FAILURE\nDISMISS\nCOMPACT TOOLS\n\nFIRST_EXPLICIT_REQUEST_EXPECTED_TO_FAIL\n\n@\n/\nDefault\nClaude Opus 4.7\nDefault\nLow\nMedium\nHigh\nHost default\nDiff\nTerminal\nCHANGES\nvs main\nNo changes vs\nmain",
+  "held_before_any_native_output_visible_text": "0 unread, 0 waiting for your input\naoe\nSearch anything\u2026\nCtrlK\nDEV\nSessions\n?\nproject\n(1)\n\u2826\nA request error keeps the native session\nPROJECTS, NO SESSIONS\n(0)\n\nNo registered Projects. Add one to keep a repo handy without a session.\n\nCOMPACT TOOLS\n\nFIRST_EXPLICIT_REQUEST_EXPECTED_TO_FAIL\n\nSECOND_EXPLICIT_REQUEST_HELD_BEFORE_ANY_NATIVE_OUTPUT\n\n\u280b\nInscribing scrolls\u2026\n@\n/\nDefault\nClaude Opus 4.7\nDefault\nLow\nMedium\nHigh\nHost default\nStop\nDiff\nTerminal\nCHANGES\nvs main\nNo changes vs\nmain",
+  "final_visible_text": "0 unread, 0 waiting for your input\naoe\nSearch anything\u2026\nCtrlK\nDEV\nSessions\n?\nproject\n(1)\n\u2812\nA request error keeps the native session\nPROJECTS, NO SESSIONS\n(0)\n\nNo registered Projects. Add one to keep a repo handy without a session.\n\nCOMPACT TOOLS\n\nFIRST_EXPLICIT_REQUEST_EXPECTED_TO_FAIL\n\nSECOND_EXPLICIT_REQUEST_HELD_BEFORE_ANY_NATIVE_OUTPUT\n\nSECOND_EXPLICIT_REQUEST_SUCCEEDED_ON_THE_SAME_SESSION\n\n@\n/\nDefault\nClaude Opus 4.7\nDefault\nLow\nMedium\nHigh\nHost default\nDiff\nTerminal\nCHANGES\nvs main\nNo changes vs\nmain",
+  "registry_before": {
+    "runner_version": 7,
+    "control_protocol_version": 4,
+    "build_version": "1.21.0+gbed48b80b357-dirty",
+    "session_id": "97c463982845421f",
+    "pid": 1475333,
+    "runner_identity": {
+      "boot_id": "3ed81544-dfda-41c6-ae72-231db224a126",
+      "start_id": "proc:2852105"
+    },
+    "socket_path": "/tmp/aoe-pw-w0-p28-GJCw3k/config/agent-of-empires-dev/acp-workers/97c463982845421f.sock",
+    "agent_name": "claude-agent-acp",
+    "agent_key": "claude",
+    "cwd": "/tmp/aoe-pw-w0-p28-GJCw3k/project",
+    "model": null,
+    "additional_dirs": [],
+    "provider_env_keys": [
+      ""
+    ],
+    "stored_acp_session_id": "fake-acp-1793391333051-40feca3a",
+    "source_profile": "main",
+    "prime_runtime": null,
+    "generation": 1793391332871,
+    "scope": {
+      "state": "unscoped"
+    },
+    "started_at": 1793391333,
+    "last_attached_at": 1793391333,
+    "detached_at": null
+  },
+  "registry_held": {
+    "runner_version": 7,
+    "control_protocol_version": 4,
+    "build_version": "1.21.0+gbed48b80b357-dirty",
+    "session_id": "97c463982845421f",
+    "pid": 1475333,
+    "runner_identity": {
+      "boot_id": "3ed81544-dfda-41c6-ae72-231db224a126",
+      "start_id": "proc:2852105"
+    },
+    "socket_path": "/tmp/aoe-pw-w0-p28-GJCw3k/config/agent-of-empires-dev/acp-workers/97c463982845421f.sock",
+    "agent_name": "claude-agent-acp",
+    "agent_key": "claude",
+    "cwd": "/tmp/aoe-pw-w0-p28-GJCw3k/project",
+    "model": null,
+    "additional_dirs": [],
+    "provider_env_keys": [
+      ""
+    ],
+    "stored_acp_session_id": "fake-acp-1793391333051-40feca3a",
+    "source_profile": "main",
+    "prime_runtime": null,
+    "generation": 1793391332871,
+    "scope": {
+      "state": "unscoped"
+    },
+    "started_at": 1793391333,
+    "last_attached_at": 1793391333,
+    "detached_at": null
+  },
+  "durable_row_before": {
+    "id": "97c463982845421f",
+    "title": "A request error keeps the native session",
+    "project_path": "/tmp/aoe-pw-w0-p28-GJCw3k/project",
+    "artifact_dir": "/tmp/aoe-pw-w0-p28-GJCw3k/config/agent-of-empires-dev/artifacts/97c463982845421f",
+    "group_path": "",
+    "tool": "claude",
+    "command": "",
+    "extra_args": "",
+    "status": "Error",
+    "lifecycle_generation": 1,
+    "dormant": false,
+    "pane_dead_observed": false,
+    "agent_pane": {
+      "state": "absent",
+      "tmux_session": null
+    },
+    "auxiliary": [
+      {
+        "target": {
+          "kind": "host",
+          "index": 0
+        },
+        "state": "absent",
+        "tmux_session": null
+      }
+    ],
+    "yolo_mode": false,
+    "created_at": "2026-10-30T20:15:32.834764973+00:00",
+    "last_accessed_at": "2026-10-30T20:15:58.620625704+00:00",
+    "idle_entered_at": null,
+    "last_error": null,
+    "branch": null,
+    "main_repo_path": null,
+    "is_sandboxed": false,
+    "scratch": false,
+    "favorited": false,
+    "urgent": false,
+    "has_managed_worktree": false,
+    "has_cleanable_worktree": false,
+    "tie_workdir_to_name": false,
+    "smart_rename": "inactive",
+    "default_name": false,
+    "has_terminal": false,
+    "profile": "main",
+    "cleanup_defaults": {
+      "delete_worktree": true,
+      "delete_branch": false,
+      "delete_sandbox": true,
+      "delete_to_trash": true
+    },
+    "remote_owner": null,
+    "remote_owner_key": null,
+    "notify_on_waiting": null,
+    "notify_on_idle": null,
+    "notify_on_error": null,
+    "view": "structured",
+    "context_resume": {
+      "state": "available"
+    },
+    "acp_worker_state": "running",
+    "rate_limit_auto_resume": false,
+    "acp_capable": true,
+    "acp_session_id": "fake-acp-1793391333051-40feca3a",
+    "acp_agent": "claude",
+    "acp_can_fork": true,
+    "keeps_context": true,
+    "clear_aliases": [
+      "/clear"
+    ],
+    "claude_fullscreen": false,
+    "workspace_repos": []
+  },
+  "held_state": {
+    "row": {
+      "id": "97c463982845421f",
+      "title": "A request error keeps the native session",
+      "project_path": "/tmp/aoe-pw-w0-p28-GJCw3k/project",
+      "artifact_dir": "/tmp/aoe-pw-w0-p28-GJCw3k/config/agent-of-empires-dev/artifacts/97c463982845421f",
+      "group_path": "",
+      "tool": "claude",
+      "command": "",
+      "extra_args": "",
+      "status": "Running",
+      "lifecycle_generation": 1,
+      "dormant": false,
+      "pane_dead_observed": false,
+      "agent_pane": {
+        "state": "absent",
+        "tmux_session": null
+      },
+      "auxiliary": [
+        {
+          "target": {
+            "kind": "host",
+            "index": 0
+          },
+          "state": "absent",
+          "tmux_session": null
+        }
+      ],
+      "yolo_mode": false,
+      "created_at": "2026-10-30T20:15:32.834764973+00:00",
+      "last_accessed_at": "2026-10-30T20:16:20.332542207+00:00",
+      "idle_entered_at": null,
+      "last_error": null,
+      "branch": null,
+      "main_repo_path": null,
+      "is_sandboxed": false,
+      "scratch": false,
+      "favorited": false,
+      "urgent": false,
+      "has_managed_worktree": false,
+      "has_cleanable_worktree": false,
+      "tie_workdir_to_name": false,
+      "smart_rename": "inactive",
+      "default_name": false,
+      "has_terminal": false,
+      "profile": "main",
+      "cleanup_defaults": {
+        "delete_worktree": true,
+        "delete_branch": false,
+        "delete_sandbox": true,
+        "delete_to_trash": true
+      },
+      "remote_owner": null,
+      "remote_owner_key": null,
+      "notify_on_waiting": null,
+      "notify_on_idle": null,
+      "notify_on_error": null,
+      "view": "structured",
+      "context_resume": {
+        "state": "available"
+      },
+      "acp_worker_state": "running",
+      "rate_limit_auto_resume": false,
+      "acp_capable": true,
+      "acp_session_id": "fake-acp-1793391333051-40feca3a",
+      "acp_agent": "claude",
+      "acp_can_fork": true,
+      "keeps_context": true,
+      "clear_aliases": [
+        "/clear"
+      ],
+      "claude_fullscreen": false,
+      "workspace_repos": []
+    },
+    "frames": [
+      {
+        "session_id": "97c463982845421f",
+        "seq": 1,
+        "event": {
+          "AuthStatusUpdated": {
+            "status": null
+          }
+        }
+      },
+      {
+        "session_id": "97c463982845421f",
+        "seq": 2,
+        "event": {
+          "PromptCapabilities": {
+            "image": false,
+            "audio": false,
+            "embedded_context": false,
+            "load_session": true,
+            "steering": false
+          }
+        }
+      },
+      {
+        "session_id": "97c463982845421f",
+        "seq": 3,
+        "event": {
+          "AcpSessionAssigned": {
+            "acp_session_id": "fake-acp-1793391333051-40feca3a",
+            "connection_ready": true
+          }
+        }
+      },
+      {
+        "session_id": "97c463982845421f",
+        "seq": 4,
+        "event": {
+          "ConfigOptionsUpdated": {
+            "options": [
+              {
+                "id": "model",
+                "name": "Model",
+                "category": "model",
+                "current_value": "claude-opus-4-7",
+                "options": [
+                  {
+                    "value": "claude-opus-4-7",
+                    "name": "Claude Opus 4.7"
+                  },
+                  {
+                    "value": "claude-sonnet-4-6",
+                    "name": "Claude Sonnet 4.6"
+                  }
+                ]
+              },
+              {
+                "id": "effort",
+                "name": "Reasoning Effort",
+                "category": "thought_level",
+                "current_value": "default",
+                "options": [
+                  {
+                    "value": "default",
+                    "name": "Default"
+                  },
+                  {
+                    "value": "low",
+                    "name": "Low"
+                  },
+                  {
+                    "value": "medium",
+                    "name": "Medium"
+                  },
+                  {
+                    "value": "high",
+                    "name": "High"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "session_id": "97c463982845421f",
+        "seq": 5,
+        "event": {
+          "UserPromptSent": {
+            "text": "FIRST_EXPLICIT_REQUEST_EXPECTED_TO_FAIL",
+            "prompt_id": "52ba20b2-a53d-4d82-8505-f28e417fcde3",
+            "synthesized": false
+          }
+        }
+      },
+      {
+        "session_id": "97c463982845421f",
+        "seq": 6,
+        "event": {
+          "PromptRuntimeError": {
+            "message": "CONTROLLED_REQUEST_CONNECTION_FAILURE",
+            "evidence": {
+              "source": "local_prompt_result",
+              "operation": "prompt",
+              "runtime": "unknown",
+              "blocking_scope": "operation",
+              "reported_code": -32603,
+              "observed_at_ms": 1793391358630,
+              "generation": {
+                "acp_worker": 1793391332871
+              }
+            }
+          }
+        }
+      },
+      {
+        "session_id": "97c463982845421f",
+        "seq": 7,
+        "event": {
+          "Stopped": {
+            "reason": "prompt_failed"
+          }
+        }
+      },
+      {
+        "session_id": "97c463982845421f",
+        "seq": 8,
+        "event": {
+          "UserPromptSent": {
+            "text": "SECOND_EXPLICIT_REQUEST_HELD_BEFORE_ANY_NATIVE_OUTPUT",
+            "prompt_id": "41e7d65e-0922-40c3-aee3-fcf5f99ecca0",
+            "synthesized": false
+          }
+        }
+      }
+    ]
+  },
+  "native_log": "[1793391333043] fake-acp starting pid=1475358 argv=[\"/nix/store/2mxhj3nrvxxqm6gf6rwnrvz048zqdclp-bun-1.4.2/bin/bun\",\"/home/fraggle/src/agent-of-empires-git-worktrees/5052-agent-error-design/web/tests/helpers/fakeAcpAgent.mjs\"]\n[1793391333043] main() entry\n[1793391333049] handleRequest method=initialize id=281474976710656\n[1793391333051] handleRequest method=session/new id=281474976710657\n[1793391358627] handleRequest method=session/prompt id=281474976710658\n[1793391358628] session/prompt prompt=[{\"type\":\"text\",\"text\":\"FIRST_EXPLICIT_REQUEST_EXPECTED_TO_FAIL\"}]\n[1793391380341] handleRequest method=session/prompt id=281474976710659\n[1793391380341] session/prompt prompt=[{\"type\":\"text\",\"text\":\"SECOND_EXPLICIT_REQUEST_HELD_BEFORE_ANY_NATIVE_OUTPUT\"}]\n",
+  "screenshots": {
+    "diagnostic_before": "https://raw.githubusercontent.com/jerome-benoit/agent-of-empires/cccc31f06de03a052bcde1c978b744a0bb69f1a6/.github/review-evidence/5055-diagnostic-before-c632-diagnostic_before.png",
+    "held_before_any_native_output": "https://raw.githubusercontent.com/jerome-benoit/agent-of-empires/37802daaee25c39d74d7bfaf544ac62dab80183b/.github/review-evidence/5055-diagnostic-before-c632-held_before_any_native_output.png"
+  },
+  "limits": [
+    "Controlled native adapter, not original provider incident.",
+    "Earlier exploratory observation included a progress chunk before its barrier and could not independently exclude relevant positive evidence; this stronger scenario gates before all output.",
+    "No systematic structured-open clearing claimed; independent source analysis rejected that generalization.",
+    "No leakage incident or generic typed retry-owner fact demonstrated.",
+    "Baseline only, no corrected5055 verdict."
+  ],
+  "cleanup": {
+    "service_exit": 0,
+    "observed_output": "A_UI_SMOKE_CLEANUP_GREEN",
+    "private_root_removed": true,
+    "browser_tab_closed": true,
+    "preview_stopped": true
+  }
+}
