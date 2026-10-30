@@ -1,0 +1,153 @@
+{
+  "source_commit": "f75c29b26a5f839e1886a960a4f0a143fd7b9224",
+  "previous_feature_head": "dad50f9ebdb997866a2b524a8da3bd8f2e8cc36b",
+  "integrated_S1": "fad100f2f912008771f23a79e612bbab59f7b367",
+  "integrated_main": "75094c798363fdd5c9f454db87508029e527837c",
+  "binary": {
+    "sha256": "9338cb77de82871999bc1e04dd88c2b147ef41585163df5dc46e39528a4f0607",
+    "built_before_merge_commit": true,
+    "scope": "default binary built from verified staged merge tree; no post-commit default rebuild claimed"
+  },
+  "checks": {
+    "rust_default": {
+      "passed": 5448,
+      "skipped": 4,
+      "build": "passed",
+      "clippy_tests_D_warnings": "passed",
+      "fmt": "passed",
+      "observed_output": "Summary [64.540s] 5448 tests run: 5448 passed, 4 skipped"
+    },
+    "rust_web": {
+      "source_commit": "f75c29b26a5f839e1886a960a4f0a143fd7b9224",
+      "worktree": "detached verifier",
+      "passed": 5449,
+      "skipped": 4,
+      "build": "passed",
+      "clippy_tests_D_warnings": "passed",
+      "fmt": "passed",
+      "observed_output": "Summary [49.819s] 5449 tests run: 5449 passed, 4 skipped"
+    },
+    "frontend": {
+      "vitest_passed": 4400,
+      "files": 372,
+      "format_files": 1030,
+      "lint": "zero warnings",
+      "types": "app and tests passed",
+      "production_build": "passed; existing chunk/dynamic import warnings retained",
+      "coverage": {
+        "statements": 84.14,
+        "branches": 78.37,
+        "functions": 82.86,
+        "lines": 86.5
+      },
+      "isolated_patch_coverage": {
+        "base": "fad100f2f912008771f23a79e612bbab59f7b367",
+        "head": "f75c29b26a5f839e1886a960a4f0a143fd7b9224",
+        "scope": "isolated S2 added executable web lines intersected with current LCOV; not remote Codecov",
+        "files": [
+          {
+            "path": "src/components/acp/ApprovalCard.tsx",
+            "covered": 1,
+            "total": 1
+          },
+          {
+            "path": "src/components/acp/SessionBanners.tsx",
+            "covered": 1,
+            "total": 1
+          },
+          {
+            "path": "src/hooks/acpSession/reducer.ts",
+            "covered": 2,
+            "total": 2
+          },
+          {
+            "path": "src/hooks/acpSession/stateCache.ts",
+            "covered": 1,
+            "total": 1
+          },
+          {
+            "path": "src/hooks/useAcpSession.ts",
+            "covered": 12,
+            "total": 12
+          },
+          {
+            "path": "src/lib/acpTypes.ts",
+            "covered": 16,
+            "total": 16
+          }
+        ],
+        "covered": 33,
+        "total": 33
+      },
+      "chromium": {
+        "passed": 35,
+        "command": [
+          "node",
+          "/home/fraggle/src/agent-of-empires-git-worktrees/5052-agent-error-design/web/node_modules/.bin/playwright",
+          "test",
+          "acp-structured-view.spec.ts",
+          "acp-reconnect-hung-dial.spec.ts",
+          "acp-startup-error-banner.spec.ts",
+          "acp-startup-wait.spec.ts",
+          "--reporter=line",
+          "--workers=2",
+          "--retries=0",
+          "tests/acp-startup-error-screen.spec.ts"
+        ],
+        "exit": 0,
+        "summary": "  35 passed (33.9s)"
+      }
+    }
+  },
+  "runtime": {
+    "scope": "Actual private AoE CLI/daemon/runner/transports with controlled native adapters. Selected-store case proves routing and association, not real Claude history semantics.",
+    "results": [
+      [
+        {
+          "scenario": "ordinary-established-request",
+          "command": [
+            "bun",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/acp-request-error-smoke.ts",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-S2-main750/target/debug/aoe",
+            "after",
+            "ordinary"
+          ],
+          "exit": 0,
+          "stdout": "FIRST_FAILURE {\"mode\":\"after\",\"errorDataMode\":\"ordinary\",\"id\":\"45019e620c844b83\",\"event\":{\"PromptRuntimeError\":{\"message\":\"PRIVATE_PROVIDER_CONNECTION_FAILURE\",\"evidence\":{\"source\":\"local_prompt_result\",\"operation\":\"prompt\",\"runtime\":\"unknown\",\"blocking_scope\":\"operation\",\"reported_code\":-32603,\"observed_at_ms\":1793385813356,\"generation\":{\"acp_worker\":1793385813009}}}},\"pidsBefore\":[129017],\"assigned\":\"fake-acp-1793385813274-2c1eb3e6\"}\nREQUEST_ERROR_KEEPALIVE_GREEN {\"id\":\"45019e620c844b83\",\"assigned\":\"fake-acp-1793385813274-2c1eb3e6\",\"pids\":[129017],\"requests\":2,\"firstFailedTerminal\":\"prompt_failed\",\"secondRequestSucceeded\":true}\nPRIVATE_ACP_CLEANUP_GREEN\n",
+          "stderr": ""
+        },
+        {
+          "scenario": "adopted-established-request",
+          "command": [
+            "bun",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/acp-adopted-error-smoke.ts",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-S2-main750/target/debug/aoe",
+            "after"
+          ],
+          "exit": 0,
+          "stdout": "ADOPTION_NATIVE_STARTUP_RECEIPTS [{\"pid\":132488,\"argv\":[\"/nix/store/2mxhj3nrvxxqm6gf6rwnrvz048zqdclp-bun-1.4.2/bin/bun\",\"/home/fraggle/src/agent-of-empires-git-worktrees/5052-agent-error-design/web/tests/helpers/fakeAcpAgent.mjs\"]},{\"pid\":132759,\"argv\":[\"/nix/store/2mxhj3nrvxxqm6gf6rwnrvz048zqdclp-bun-1.4.2/bin/bun\",\"/home/fraggle/src/agent-of-empires-git-worktrees/5052-agent-error-design/web/tests/helpers/fakeAcpAgent.mjs\",\"--version\"]}]\nADOPTION_PRECONDITION_GREEN {\"id\":\"681915bb88ff4141\",\"assigned\":\"fake-acp-1793385815578-d9b37477\",\"oldDaemon\":132088,\"newDaemon\":132681,\"runner\":{\"pid\":132425,\"generation\":1793385815323,\"runner_identity\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:2300355\"}},\"nativePids\":[132488]}\nADOPTED_ERROR_KEEPALIVE_GREEN {\"id\":\"681915bb88ff4141\",\"assigned\":\"fake-acp-1793385815578-d9b37477\",\"terminal\":{\"Stopped\":{\"reason\":\"prompt_failed\"}},\"nativePids\":[132488],\"runner\":{\"pid\":132425,\"generation\":1793385815323,\"runner_identity\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:2300355\"}},\"requests\":2,\"secondRequestSucceeded\":true,\"outputBeforeErrorPreserved\":true}\nPRIVATE_ADOPTED_ACP_CLEANUP_GREEN\n",
+          "stderr": ""
+        }
+      ],
+      [
+        {
+          "scenario": "selected-store-stop-respawn",
+          "command": [
+            "bun",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/acp-selected-store-stop-respawn.ts",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-S2-main750/target/debug/aoe",
+            "after"
+          ],
+          "exit": 0,
+          "stdout": "SELECTED_STORE_RESPAWN_DIAGNOSTIC {\"mode\":\"after\",\"id\":\"567453dfccf24727\",\"status\":200,\"body\":\"{\\\"session_id\\\":\\\"567453dfccf24727\\\",\\\"agent\\\":\\\"claude\\\",\\\"status\\\":\\\"running\\\"}\",\"diskAfterStop\":{\"id\":\"567453dfccf24727\",\"title\":\"selected-store-stop\",\"terminal_scopes\":[],\"project_path\":\"/tmp/aoe-pw-w0-p25-J5jX7L/project\",\"group_path\":\"\",\"command\":\"\",\"tool\":\"claude\",\"yolo_mode\":false,\"status\":\"stopped\",\"created_at\":\"2026-10-30T18:43:32.922635390Z\",\"idle_dormant_since\":\"2026-10-30T18:43:33.338497998Z\",\"sandbox_store_generation\":2,\"agent_session_id\":\"11111111-1111-4111-8111-111111111111\",\"agent_session_binding\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"execution\":{\"agent\":\"claude\",\"stores\":[\"/tmp/aoe-pw-w0-p25-J5jX7L/selected-claude\"],\"cwd\":\"/tmp/aoe-pw-w0-p25-J5jX7L/project\",\"cwd_filesystem\":\"host\",\"filesystem\":\"host\",\"exported_default_store\":false},\"provenance\":\"asserted\"},\"resume_binding\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"execution\":{\"agent\":\"claude\",\"stores\":[\"/tmp/aoe-pw-w0-p25-J5jX7L/selected-claude\"],\"cwd\":\"/tmp/aoe-pw-w0-p25-J5jX7L/project\",\"cwd_filesystem\":\"host\",\"filesystem\":\"host\",\"exported_default_store\":false},\"provenance\":\"asserted\"},\"lifecycle_generation\":2,\"view\":\"structured\",\"acp_session_id\":\"11111111-1111-4111-8111-111111111111\"},\"diskBeforeSpawn\":{\"id\":\"567453dfccf24727\",\"title\":\"selected-store-stop\",\"terminal_scopes\":[],\"project_path\":\"/tmp/aoe-pw-w0-p25-J5jX7L/project\",\"group_path\":\"\",\"command\":\"\",\"tool\":\"claude\",\"yolo_mode\":false,\"status\":\"stopped\",\"created_at\":\"2026-10-30T18:43:32.922635390Z\",\"idle_dormant_since\":\"2026-10-30T18:43:33.338497998Z\",\"sandbox_store_generation\":2,\"agent_session_id\":\"11111111-1111-4111-8111-111111111111\",\"agent_session_binding\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"execution\":{\"agent\":\"claude\",\"stores\":[\"/tmp/aoe-pw-w0-p25-J5jX7L/selected-claude\"],\"cwd\":\"/tmp/aoe-pw-w0-p25-J5jX7L/project\",\"cwd_filesystem\":\"host\",\"filesystem\":\"host\",\"exported_default_store\":false},\"provenance\":\"asserted\"},\"resume_binding\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"execution\":{\"agent\":\"claude\",\"stores\":[\"/tmp/aoe-pw-w0-p25-J5jX7L/selected-claude\"],\"cwd\":\"/tmp/aoe-pw-w0-p25-J5jX7L/project\",\"cwd_filesystem\":\"host\",\"filesystem\":\"host\",\"exported_default_store\":false},\"provenance\":\"asserted\"},\"lifecycle_generation\":2,\"view\":\"structured\",\"acp_session_id\":\"11111111-1111-4111-8111-111111111111\"},\"cacheBeforeSpawn\":{\"id\":\"567453dfccf24727\",\"title\":\"selected-store-stop\",\"project_path\":\"/tmp/aoe-pw-w0-p25-J5jX7L/project\",\"artifact_dir\":\"/tmp/aoe-pw-w0-p25-J5jX7L/config/agent-of-empires-dev/artifacts/567453dfccf24727\",\"group_path\":\"\",\"tool\":\"claude\",\"command\":\"\",\"extra_args\":\"\",\"status\":\"Stopped\",\"agent_session_id\":\"11111111-1111-4111-8111-111111111111\",\"lifecycle_generation\":2,\"dormant\":false,\"idle_dormant_since\":\"2026-10-30T18:43:33.338497998+00:00\",\"pane_dead_observed\":false,\"agent_pane\":{\"state\":\"absent\",\"tmux_session\":null},\"auxiliary\":[{\"target\":{\"kind\":\"host\",\"index\":0},\"state\":\"absent\",\"tmux_session\":null}],\"yolo_mode\":false,\"created_at\":\"2026-10-30T18:43:32.922635390+00:00\",\"last_accessed_at\":null,\"idle_entered_at\":null,\"last_error\":null,\"branch\":null,\"main_repo_path\":null,\"is_sandboxed\":false,\"outside_repository\":true,\"scratch\":false,\"favorited\":false,\"urgent\":false,\"has_managed_worktree\":false,\"has_cleanable_worktree\":false,\"tie_workdir_to_name\":false,\"smart_rename\":\"inactive\",\"default_name\":false,\"has_terminal\":false,\"profile\":\"main\",\"cleanup_defaults\":{\"delete_worktree\":true,\"delete_branch\":false,\"delete_sandbox\":true,\"delete_to_trash\":true},\"remote_owner\":null,\"remote_owner_key\":null,\"notify_on_waiting\":null,\"notify_on_idle\":null,\"notify_on_error\":null,\"view\":\"structured\",\"context_resume\":{\"state\":\"available\"},\"acp_worker_state\":\"absent\",\"rate_limit_auto_resume\":false,\"acp_capable\":true,\"acp_session_id\":\"11111111-1111-4111-8111-111111111111\",\"acp_agent\":\"claude\",\"acp_can_fork\":true,\"keeps_context\":true,\"clear_aliases\":[\"/clear\"],\"claude_fullscreen\":false,\"workspace_repos\":[]},\"original\":[{\"pid\":129065,\"store\":\"/tmp/aoe-pw-w0-p25-J5jX7L/selected-claude\"}]}\nSELECTED_STORE_STOP_RESPAWN_GREEN {\"mode\":\"after\",\"id\":\"567453dfccf24727\",\"originalSid\":\"11111111-1111-4111-8111-111111111111\",\"selected\":\"/tmp/aoe-pw-w0-p25-J5jX7L/selected-claude\",\"configured\":\"/tmp/aoe-pw-w0-p25-J5jX7L/configured-claude\",\"captures\":[{\"pid\":129647,\"store\":\"/tmp/aoe-pw-w0-p25-J5jX7L/selected-claude\"},{\"pid\":129065,\"store\":\"/tmp/aoe-pw-w0-p25-J5jX7L/selected-claude\"}],\"loads\":2,\"nativeTranscriptHash\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"totalExplicitInputs\":1,\"newConversations\":0,\"originalNativeDead\":true,\"scope\":\"actual AoE CLI and daemon with controlled native ACP peer; selected-store routing and association, not real Claude history semantics or exact CI attribution\"}\nPRIVATE_SELECTED_STORE_CLEANUP_GREEN\n",
+          "stderr": ""
+        }
+      ]
+    ]
+  },
+  "limits": [
+    "No new remote-CI, platform or Codecov result claimed",
+    "Original compiled permission/retry/reload screenshots belong to earlier feature capture, not new f75 recording",
+    "A protocol/liveness, B ownership/registry, C durable establishment and 5040/5055 controls remain distinct scopes"
+  ]
+}
