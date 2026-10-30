@@ -1,0 +1,201 @@
+{
+  "source_commit": "bed48b80b3570bee759b05b31dfbb53b5b295cf0",
+  "isolated_base": "6a665db8d11ec0732bfd78a4ce5d9ccd5ec057fb",
+  "isolated_compare": "https://github.com/jerome-benoit/agent-of-empires/compare/6a665db8d11ec0732bfd78a4ce5d9ccd5ec057fb...bed48b80b3570bee759b05b31dfbb53b5b295cf0",
+  "dependency_pr": "https://github.com/agent-of-empires/agent-of-empires/pull/5083",
+  "frozen_minimal_pr": "https://github.com/agent-of-empires/agent-of-empires/pull/4942",
+  "default_binary": {
+    "sha256": "1b9ea9dfeae696a0d39e029cdce8e242b2b1c7c83447e89dc70550be0fbb9fcf",
+    "provenance": "Built and exercised before commit from the committed Rust source tree; build metadata is 6a665db8d11e-dirty. Commit-pinned web verification runs separately."
+  },
+  "completed_checks": {
+    "cargo_nextest_default": {
+      "passed": 5491,
+      "skipped": 4,
+      "targeted_prechecks": {
+        "tui_websocket_state": 108,
+        "previously_hung_real_runner_attach_timeout_seconds": 3.516
+      },
+      "fixture_failure_bound": "External nextest override bounds only the previously hung test at30s; no skips or retries added."
+    },
+    "cargo_clippy_tests": "pass with -D warnings",
+    "cargo_fmt_check": "pass",
+    "cargo_build_default": "pass",
+    "web_format_lint_app_and_test_types": "pass",
+    "web_vitest": {
+      "tests_passed": 4418,
+      "files_passed": 372,
+      "statements_percent": 84.23,
+      "branches_percent": 78.43,
+      "functions_percent": 82.86,
+      "lines_percent": 86.59
+    },
+    "web_local_changed_executable_lines": {
+      "covered": 151,
+      "total": 168,
+      "percent": 89.88,
+      "limit": "Local LCOV/diff intersection against isolated base, not remote Codecov verdict."
+    },
+    "chromium_targeted": {
+      "passed": 35,
+      "specs": [
+        "acp-structured-view.spec.ts",
+        "acp-reconnect-hung-dial.spec.ts",
+        "acp-startup-error-banner.spec.ts",
+        "acp-startup-wait.spec.ts"
+      ]
+    },
+    "actual_default_runtime": [
+      {
+        "scenario": "request-ordinary",
+        "driver": "acp-request-error-smoke.ts",
+        "args": [
+          "after",
+          "ordinary"
+        ],
+        "exit": 0
+      },
+      {
+        "scenario": "request-forged-reason",
+        "driver": "acp-request-error-smoke.ts",
+        "args": [
+          "after",
+          "remote-close-reason"
+        ],
+        "exit": 0
+      },
+      {
+        "scenario": "resumed-request",
+        "driver": "acp-resumed-request-smoke.ts",
+        "args": [
+          "after"
+        ],
+        "exit": 0
+      },
+      {
+        "scenario": "adopted-request",
+        "driver": "acp-adopted-error-smoke.ts",
+        "args": [
+          "after"
+        ],
+        "exit": 0
+      },
+      {
+        "scenario": "idle",
+        "driver": "acp-local-output-loss-smoke.ts",
+        "args": [
+          "after",
+          "idle",
+          "AcpConnectionUnavailable"
+        ],
+        "exit": 0
+      },
+      {
+        "scenario": "active",
+        "driver": "acp-local-output-loss-smoke.ts",
+        "args": [
+          "after",
+          "active",
+          "AcpConnectionUnavailable"
+        ],
+        "exit": 0
+      },
+      {
+        "scenario": "post-error",
+        "driver": "acp-local-output-loss-smoke.ts",
+        "args": [
+          "after",
+          "post-error",
+          "AcpConnectionUnavailable"
+        ],
+        "exit": 0
+      },
+      {
+        "scenario": "adopted-active",
+        "driver": "acp-local-output-loss-smoke.ts",
+        "args": [
+          "after",
+          "adopted-active",
+          "AcpConnectionUnavailable"
+        ],
+        "exit": 0
+      },
+      {
+        "scenario": "cancelling",
+        "driver": "acp-local-output-loss-smoke.ts",
+        "args": [
+          "after",
+          "cancelling",
+          "AcpConnectionUnavailable"
+        ],
+        "exit": 0
+      },
+      {
+        "scenario": "adopted-active-large",
+        "driver": "acp-local-output-loss-smoke.ts",
+        "args": [
+          "after",
+          "adopted-active-large",
+          "AcpConnectionUnavailable"
+        ],
+        "exit": 0
+      },
+      {
+        "scenario": "idle",
+        "driver": "acp-legacy-adoption-smoke.ts",
+        "args": [
+          "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-A-tui-final/target/debug/aoe",
+          "after",
+          "idle"
+        ],
+        "exit": 0
+      },
+      {
+        "scenario": "busy",
+        "driver": "acp-legacy-adoption-smoke.ts",
+        "args": [
+          "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-A-tui-final/target/debug/aoe",
+          "after",
+          "busy"
+        ],
+        "exit": 0
+      }
+    ],
+    "actual_tui_web_native_eof": {
+      "native_process_stayed_alive": true,
+      "runner_identity_generation_and_sid_preserved": true,
+      "web_current_loss_notice_and_disabled_native_controls": true,
+      "tui_revoked_ready_and_enter_send": true,
+      "enter_retained_draft": "FINAL_UNSENT_DRAFT",
+      "native_rpc_count": 0,
+      "http_prompt_posts": 0,
+      "all_fixture_cleanup": "pass"
+    }
+  },
+  "source_anchors": {
+    "operation_error_keepalive": "https://github.com/jerome-benoit/agent-of-empires/blob/bed48b80b3570bee759b05b31dfbb53b5b295cf0/src/acp/acp_client/connection/tests.rs#L724",
+    "prompt_prose_never_resets_identity": "https://github.com/jerome-benoit/agent-of-empires/blob/bed48b80b3570bee759b05b31dfbb53b5b295cf0/src/acp/acp_client/connection/tests.rs#L929",
+    "pending_permission_survives_request_error": "https://github.com/jerome-benoit/agent-of-empires/blob/bed48b80b3570bee759b05b31dfbb53b5b295cf0/src/acp/acp_client/connection/tests.rs#L994",
+    "strict_control_protocol": "https://github.com/jerome-benoit/agent-of-empires/blob/bed48b80b3570bee759b05b31dfbb53b5b295cf0/src/acp/control_protocol.rs#L9",
+    "native_flock_lock_order": "https://github.com/jerome-benoit/agent-of-empires/blob/bed48b80b3570bee759b05b31dfbb53b5b295cf0/src/acp/supervisor/drain.rs#L1152",
+    "live_native_receipt_transitions": "https://github.com/jerome-benoit/agent-of-empires/blob/bed48b80b3570bee759b05b31dfbb53b5b295cf0/src/tui/structured_view/mod.rs#L2112",
+    "native_action_and_wake_separation": "https://github.com/jerome-benoit/agent-of-empires/blob/bed48b80b3570bee759b05b31dfbb53b5b295cf0/src/tui/structured_view/mod.rs#L2220"
+  },
+  "cross_validation": {
+    "web_historical_notice_candidate": "Not founded. Captured raw seq5 -> Unknown seq5 -> qualified current loss seq5. Same-seq refresh accepted; native input remained disabled. Unknown-to-current interval in instrumented capture was15.3ms; first uninstrumented observation duration is not established.",
+    "tui_false_ready": "Founded and corrected. Authoritative receipt fields now drive current native action/intent admission and footer. Real TUI Enter preserved draft and made no HTTP/native request.",
+    "attach_fixture_hang": "Fixture precondition corrected with genuine detach observation and registry-lock release barrier before SIGSTOP. Exact frozen PC from earlier interruption was not captured. Original owner/SID/turn/auth assertions retained."
+  },
+  "remaining_epic_scope": {
+    "web_feature_commit_pinned_verification": "in progress, not claimed green",
+    "registry_flock_async_admission": "Existing production wait behind externally frozen registry owner remains in #5054 cut B. Fixture repair does not claim to fix it.",
+    "durable_establishment_authority": "#5053 cut C",
+    "explicit_terminal_retry_policy": "#5040",
+    "shared_recovery_hints_and_controls": "#5055"
+  },
+  "limits": [
+    "Controlled native fakes; real AoE binary/daemon/runner/transport/store and actual browser/TUI/CLI. Not reconstruction of original provider incident.",
+    "Local Linux verification only; no new macOS/Windows/Nix/remote-CI verdict claimed.",
+    "Cached-completion byte-accounting bound is source/test verified; no independent reconnect failure solely attributable to prior estimate is claimed."
+  ]
+}
