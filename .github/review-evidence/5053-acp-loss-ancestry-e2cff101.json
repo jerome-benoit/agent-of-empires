@@ -1,0 +1,28 @@
+{
+  "source_commit": "e2cff1019e5e9234603327e86f4d87c9f98040a9",
+  "integrated_S3": "49da6c4021eede60e1d0ec7a597119ee96ff7dc4",
+  "source_tree": "86ca90c02e2c90f62e70856ca325a67feeb178c5",
+  "equivalent_verified_source": "c632cf81111724ec8ea532cfd76e26194528c724",
+  "equality_proof": {
+    "command": "git write-tree after resolving sole empty-both-heads synthetic-base conflict",
+    "observed_output": "86ca90c02e2c90f62e70856ca325a67feeb178c5",
+    "expected_verified_A_tree": "86ca90c02e2c90f62e70856ca325a67feeb178c5",
+    "equal": true
+  },
+  "commit_command": {
+    "action": "normal merge commit, no bypass or force",
+    "exit": 0,
+    "observed_output": "ok e2cff10",
+    "hook": "existing pre-commit cargo clippy -- -D warnings and cargo fmt -- --check"
+  },
+  "push": {
+    "command": "git push origin fix/5053-acp-runtime-loss",
+    "exit": 0,
+    "observed_output": "c632cf811..e2cff1019 fix/5053-acp-runtime-loss -> fix/5053-acp-runtime-loss"
+  },
+  "runtime_source_reference": "https://github.com/jerome-benoit/agent-of-empires/blob/ec93268135c7f262cd3b73bcacb527e71e7b4089/.github/review-evidence/5053-acp-loss-c632cf81.json",
+  "limits": [
+    "No new runtime rerun at e2cff claimed; exactly identical source tree retains verified c632 provenance.",
+    "No issue closure, ready transition or GitHub merge performed."
+  ]
+}
