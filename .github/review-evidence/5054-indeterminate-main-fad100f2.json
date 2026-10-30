@@ -1,0 +1,206 @@
+{
+  "source_commit": "fad100f2f912008771f23a79e612bbab59f7b367",
+  "previous_feature_head": "56372aaead7e3fde68292780bb2618dabc52d13a",
+  "integrated_main": "75094c798363fdd5c9f454db87508029e527837c",
+  "binary": {
+    "sha256": "ee50e64a801e96dc96ad64f78c74a0da544a2e4b6cb9b2f96189a0a148d414c9",
+    "built_before_merge_commit": true
+  },
+  "verification": {
+    "rust_default": {
+      "passed": 5415,
+      "skipped": 4,
+      "commands": [
+        "cargo nextest run --tool-config-file aoe-smoke:<owned-smoke-root>/nextest-borrowed-attach-bound.toml --no-fail-fast",
+        "cargo clippy --tests -- -D warnings",
+        "cargo build",
+        "cargo fmt --check"
+      ],
+      "exit": 0,
+      "observed_output": "Summary [56.218s] 5415 tests run: 5415 passed, 4 skipped; cargo clippy: No issues found; build finished dev profile in 2m 40s"
+    },
+    "frontend": {
+      "vitest_passed": 4381,
+      "files": 372,
+      "format_files": 1030,
+      "test_types": "passed",
+      "app_types_and_production_build": "passed",
+      "lint": "zero errors and warnings after moving owned generated coverage outside source lint scope",
+      "non_fatal_existing_warnings": "Vitest localStorage/React fixture warnings and production chunk/dynamic import warnings remain; no suppression added"
+    }
+  },
+  "runtime": {
+    "scope": "Actual isolated AoE CLI/core/tmux, controlled native peer and probe outputs. No real provider/model request.",
+    "qualified_indeterminate": [
+      {
+        "scope": "actual isolated AoE CLI/core/tmux with controlled native peer and qualified probe output",
+        "observation_mode": "malformed",
+        "session": "55ff13793f6f4a07",
+        "sid": "6bf5becc-4d6c-4157-b4c2-166990a9198a",
+        "initial_native_pid": 3742227,
+        "retained_native_pid": 3742463,
+        "indeterminate_http": 409,
+        "public_error": "launch_indeterminate",
+        "public_cause": "observation_failed",
+        "elapsed_s": 1.468130999001005,
+        "injection_count": 1,
+        "first_actual_qualified_probe": "$0|%0|3742460|/tmp/aoe-s1-probe-8v6on9eg/tmux.sock|3742459|0|bash|\"exec '/tmp/aoe-s1-probe-8v6on9eg/bin/private-shell' '/tmp/aoe-s1-probe-8v6on9eg/tmp/aoe-pane-env-OtsE1t'\"\n",
+        "last_actual_qualified_probe": "$0|%0|3742460|/tmp/aoe-s1-probe-8v6on9eg/tmux.sock|3742459|0|bash|\"exec '/tmp/aoe-s1-probe-8v6on9eg/bin/private-shell' '/tmp/aoe-s1-probe-8v6on9eg/tmp/aoe-pane-env-OtsE1t'\"\n",
+        "failed_resume_marker_absent": true,
+        "history_sha256_before_explicit_input": "8212a066acf04e62fde6f07330cbbccf724f830c6b1a2e1b3dfc4ea284b22e41",
+        "next_send_http": 200,
+        "next_input_same_native_pid_sid": true,
+        "created_count": 1,
+        "loaded_count": 1,
+        "forbidden_wake_absent_through_confirmed_next_delivery": true,
+        "cleanup": {
+          "native_processes_gone": true,
+          "daemon_stopped": true,
+          "private_root_removed": true
+        }
+      },
+      {
+        "scope": "actual isolated AoE CLI/core/tmux with controlled native peer and qualified probe output",
+        "observation_mode": "stabilizing-shell",
+        "session": "c9b7f0066eb8486d",
+        "sid": "ba263f4d-e479-4a91-964d-fb4c3ce35283",
+        "initial_native_pid": 3743660,
+        "retained_native_pid": 3743911,
+        "indeterminate_http": 409,
+        "public_error": "launch_indeterminate",
+        "public_cause": "stabilization_expired",
+        "elapsed_s": 4.520618669001124,
+        "injection_count": 19,
+        "first_actual_qualified_probe": "$0|%0|3743908|/tmp/aoe-s1-probe-a3dkr42s/tmux.sock|3743904|0|bash|\"exec '/tmp/aoe-s1-probe-a3dkr42s/bin/private-shell' '/tmp/aoe-s1-probe-a3dkr42s/tmp/aoe-pane-env-0bxZO3'\"\n",
+        "last_actual_qualified_probe": "$0|%0|3743908|/tmp/aoe-s1-probe-a3dkr42s/tmux.sock|3743904|0|bash|\"exec '/tmp/aoe-s1-probe-a3dkr42s/bin/private-shell' '/tmp/aoe-s1-probe-a3dkr42s/tmp/aoe-pane-env-0bxZO3'\"\n",
+        "failed_resume_marker_absent": true,
+        "history_sha256_before_explicit_input": "f1e0b8f090cdae38abaa06660dabcda01344afba647f3d8d73b8c5ede4082582",
+        "next_send_http": 200,
+        "next_input_same_native_pid_sid": true,
+        "created_count": 1,
+        "loaded_count": 1,
+        "forbidden_wake_absent_through_confirmed_next_delivery": true,
+        "cleanup": {
+          "native_processes_gone": true,
+          "daemon_stopped": true,
+          "private_root_removed": true
+        }
+      }
+    ],
+    "positive_owned_corpse_recovery": {
+      "mode": "before",
+      "scope": "actual isolated AoE CLI/core/tmux, controlled transcript-reading native agent",
+      "session": "4e7bff3e8e9e4118",
+      "sid": "0fe614ff-9921-4d94-a3a4-94434b5e8795",
+      "original_pane": [
+        "aoe_dev_owned-corpse-recover_4e7bff3e",
+        "%0",
+        "3745106",
+        "0"
+      ],
+      "confirmed_dead": [
+        "aoe_dev_owned-corpse-recover_4e7bff3e",
+        "%0",
+        "",
+        "1"
+      ],
+      "respawn_commands": [
+        {
+          "args": [
+            "-S",
+            "/tmp/aoe-corpse-recovery-uo0lbvnl/tmux.sock",
+            "respawn-pane",
+            "-k",
+            "-t",
+            "=aoe_dev_owned-corpse-recover_4e7bff3e:^",
+            "-c",
+            "/tmp/aoe-corpse-recovery-uo0lbvnl/project",
+            "/tmp/aoe-corpse-recovery-uo0lbvnl/bin/private-shell"
+          ],
+          "returncode": 0,
+          "snapshot": "aoe_dev_owned-corpse-recover_4e7bff3e\t%0\t3745283\t0\n",
+          "snapshot_returncode": 0
+        }
+      ],
+      "native_pids": [
+        3745109,
+        3745106,
+        3745365
+      ],
+      "restart_http": 200,
+      "send_http": 200,
+      "fresh_input_pid": 3745365,
+      "history_sha256": "bee4dbd847edd948937aa51eb02d73a65d1f1f4316afede0275c870d4933c721",
+      "history_bytes_unchanged": true,
+      "cleanup": {
+        "native_processes_gone": true,
+        "daemon_stopped": true,
+        "private_root_removed": true
+      }
+    },
+    "existing_failed_resume_policy": {
+      "scope": "real private AoE daemon/CLI/tmux and transcript-reading fake; resumed native exit is intentional, not the original OMP incident",
+      "session": "3e9511ea2fe34f4a",
+      "original_sid": "e75a18ba-c1f4-497f-8877-e9607ca5d505",
+      "replacement_sid": "ad2ce344-e47e-47e7-84cd-0a79bf0ee236",
+      "failed_resume_http": 409,
+      "next_send_http": 200,
+      "original_history_read_before_exit": true,
+      "original_history_bytes_unchanged": true,
+      "failure_marker_observed_before_next_action": "e75a18ba-c1f4-497f-8877-e9607ca5d505",
+      "next_input_recipient_sid": "ad2ce344-e47e-47e7-84cd-0a79bf0ee236",
+      "native_pids": [
+        3782595,
+        3782690,
+        3782773
+      ],
+      "binding_before_probe": {
+        "session_id": "e75a18ba-c1f4-497f-8877-e9607ca5d505",
+        "execution": {
+          "agent": "claude",
+          "stores": [
+            "/tmp/aoe-policy-before-uxb4hj70/home/.claude"
+          ],
+          "cwd": "/tmp/aoe-policy-before-uxb4hj70/project",
+          "cwd_filesystem": "host",
+          "filesystem": "host",
+          "exported_default_store": false
+        },
+        "provenance": "preallocated"
+      },
+      "binding_after_probe": {
+        "session_id": "e75a18ba-c1f4-497f-8877-e9607ca5d505",
+        "execution": {
+          "agent": "claude",
+          "stores": [
+            "/tmp/aoe-policy-before-uxb4hj70/home/.claude"
+          ],
+          "cwd": "/tmp/aoe-policy-before-uxb4hj70/project",
+          "cwd_filesystem": "host",
+          "filesystem": "host",
+          "exported_default_store": false
+        },
+        "provenance": "observed"
+      },
+      "binding_identity_preserved": true,
+      "cleanup": {
+        "native_processes_gone": true,
+        "daemon_stopped": true,
+        "private_root_removed": true
+      }
+    },
+    "mode_note": "Corpse fixture mode before means historical S1 routing before S3. It is not a failing-before result for S1.",
+    "discarded_out_of_scope_expectation": {
+      "attempt": "S3 no-interim-shell expectation on S1",
+      "observed": "one successful private-shell respawn; assertion failed; cleanup green",
+      "verdict": "Not a founded S1 finding. Historical corpse->restart routing intentionally remains; no S3/A backport.",
+      "reference": "56372aaead7e3fde68292780bb2618dabc52d13a:src/session/instance/ready.rs:136-177"
+    }
+  },
+  "limits": [
+    "No new remote-CI/platform result claimed",
+    "Three-second stabilization budget is not a bound on total hooks/storage/HTTP request duration",
+    "Existing later-fresh terminal policy remains for #5040; this does not approve that policy",
+    "S3 native input admission and A ACP classification are not imported into S1"
+  ]
+}
