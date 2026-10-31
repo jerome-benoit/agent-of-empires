@@ -118,5 +118,100 @@
     "Actual AoE with controlled native ACP fixtures; no real provider/model request or reconstruction of original OMP incident.",
     "Previous Chromium results remain attached to their previous source; no current Chromium rerun is claimed here.",
     "Normal commit/push hooks; no hook/configuration bypass."
-  ]
+  ],
+  "coverage": {
+    "command": "env AOE_COVERAGE=1 npm --prefix web run test:unit -- --coverage",
+    "source_head": "a506db9e89dbbd775be0b9be6a988563eca0bc31",
+    "base": "5ed141f8256235f1e820a15ff2df0ebf6404b60c",
+    "result": "4436 tests/373 files passed; local V8 statements84.24%,branches78.54%,functions82.86%,lines86.58%",
+    "diff_command": "git diff --unified=0 5ed141f8256235f1e820a15ff2df0ebf6404b60c a506db9e89dbbd775be0b9be6a988563eca0bc31 -- web/src",
+    "method": "Intersect added-line numbers with LCOV DA executable lines; test files and nonexecutable/type/comment lines have no counted DA entry. No uncovered line is discarded.",
+    "rows": [
+      {
+        "path": "src/components/acp/ApprovalCard.tsx",
+        "executable_added_lines": [
+          108
+        ],
+        "covered": 1,
+        "total": 1,
+        "uncovered": []
+      },
+      {
+        "path": "src/components/acp/SessionBanners.tsx",
+        "executable_added_lines": [
+          44
+        ],
+        "covered": 1,
+        "total": 1,
+        "uncovered": []
+      },
+      {
+        "path": "src/hooks/useAcpSession.ts",
+        "executable_added_lines": [
+          129,
+          134,
+          139,
+          141,
+          142,
+          143,
+          144,
+          145,
+          147,
+          148,
+          161,
+          174
+        ],
+        "covered": 12,
+        "total": 12,
+        "uncovered": []
+      },
+      {
+        "path": "src/hooks/acpSession/reducer.ts",
+        "executable_added_lines": [
+          193,
+          195
+        ],
+        "covered": 2,
+        "total": 2,
+        "uncovered": []
+      },
+      {
+        "path": "src/hooks/acpSession/stateCache.ts",
+        "executable_added_lines": [
+          80
+        ],
+        "covered": 1,
+        "total": 1,
+        "uncovered": []
+      },
+      {
+        "path": "src/lib/acpTypes.ts",
+        "executable_added_lines": [
+          977,
+          978,
+          1027,
+          1028,
+          1029,
+          1030,
+          1188,
+          1192,
+          1193,
+          1194,
+          1195,
+          1196,
+          1198,
+          1290,
+          1291,
+          1292
+        ],
+        "covered": 16,
+        "total": 16,
+        "uncovered": []
+      }
+    ],
+    "covered": 33,
+    "total": 33,
+    "local_live_output": "artifact://2463",
+    "limit": "Local Vitest/V8/LCOV only; not remote Codecov, browser or cross-platform coverage."
+  }
 }
