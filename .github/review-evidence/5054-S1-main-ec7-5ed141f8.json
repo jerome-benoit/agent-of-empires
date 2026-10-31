@@ -102,5 +102,26 @@
     "Default Rust feature set at this S1 cut; no S2/S3/A/B/C green result on new main is implied.",
     "A controlled native peer and qualified tmux probe faults are used; actual AoE CLI/daemon/tmux run with private state.",
     "Existing source commit hook ran normally; no hook or Git configuration bypass."
-  ]
+  ],
+  "frontend": {
+    "source_head": "5ed141f8256235f1e820a15ff2df0ebf6404b60c",
+    "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification",
+    "commands": [
+      "npm --prefix web run format:check",
+      "npm --prefix web run lint",
+      "npm --prefix web run typecheck:tests",
+      "npm --prefix web run test:unit",
+      "npm --prefix web run build"
+    ],
+    "result": "format1035 files; lint pass; test types no errors; 373 test files/4417 tests passed; production build passed",
+    "observed_warnings": [
+      "Vitest experimental typechecking",
+      "Node localStorage warning and jsdom navigation not implemented",
+      "Vite large chunks and ineffective dynamic import"
+    ],
+    "local_live_output": [
+      "artifact://2450",
+      "artifact://2451"
+    ]
+  }
 }
