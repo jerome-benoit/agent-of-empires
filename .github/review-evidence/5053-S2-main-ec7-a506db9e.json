@@ -1,0 +1,122 @@
+{
+  "source": {
+    "head": "a506db9e89dbbd775be0b9be6a988563eca0bc31",
+    "tree": "3e156d97462373b5477996f4836b6004b707db56",
+    "main": "ec7bd0f8cab83c76140de76211679649b4499363",
+    "integrated_S1": "5ed141f8256235f1e820a15ff2df0ebf6404b60c",
+    "branch": "fix/5053-operation-error-evidence",
+    "pushed": true
+  },
+  "verification": {
+    "environment": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_TARGET_DIR": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target",
+      "TMPDIR": "/tmp/aoeA.XyJ6c1",
+      "AOE_TEST_ACP_RUNNER_EXE": "unset"
+    },
+    "result": "Summary [43.049s] 5499 tests run: 5499 passed, 4 skipped",
+    "build": "Finished dev profile in 2m04s; strict Clippy tests and fmt pass",
+    "local_live_output": "artifact://2457",
+    "tool_config": "Existing two test-specific slow-timeout bounds; no added skips/retries/production timeout",
+    "commands": [
+      "cargo fmt -- --check",
+      "env CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo build",
+      "env CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo clippy --tests -- -D warnings",
+      "env -u AOE_TEST_ACP_RUNNER_EXE CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo nextest run --tool-config-file aoe-smoke:/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/nextest-borrowed-attach-bound.toml --no-fail-fast"
+    ],
+    "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5052-default-verification",
+    "slow_timeout_overrides": [
+      {
+        "filter": "test(acp_runner_control::borrowed_attach_timeout_preserves_real_runner_and_native_turn)",
+        "period": "10s",
+        "terminate_after": 3
+      },
+      {
+        "filter": "test(acp::supervisor::teardown::tests::a_stale_launch_tears_down_its_runner_without_releasing_the_scope)",
+        "period": "10s",
+        "terminate_after": 3
+      }
+    ]
+  },
+  "frontend": {
+    "source_head": "a506db9e89dbbd775be0b9be6a988563eca0bc31",
+    "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification",
+    "commands": [
+      "npm --prefix web run format:check",
+      "npm --prefix web run lint",
+      "npm --prefix web run typecheck:tests",
+      "npm --prefix web run test:unit",
+      "npm --prefix web run build"
+    ],
+    "result": "format1035 files; lint pass; test types no errors; 373 test files/4436 tests passed; production build passed",
+    "local_live_output": [
+      "artifact://2444",
+      "artifact://2445"
+    ],
+    "observed_warnings": [
+      "Vitest experimental typechecking",
+      "Node localStorage warning and jsdom navigation not implemented",
+      "Vite large chunks and ineffective dynamic import"
+    ]
+  },
+  "actual_runtime": {
+    "binary_sha256": "d40c726a80b6e509bd935cf29f881ffce361b3e70fb41747d7bc0f782b69a86a",
+    "groups": [
+      [
+        {
+          "scenario": "ordinary-established-request",
+          "command": [
+            "bun",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/acp-request-error-smoke.ts",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-S2-main-ec7/target/debug/aoe",
+            "after",
+            "ordinary"
+          ],
+          "exit": 0,
+          "stdout": "FIRST_FAILURE {\"mode\":\"after\",\"errorDataMode\":\"ordinary\",\"id\":\"7a9f6e8955704304\",\"event\":{\"PromptRuntimeError\":{\"message\":\"PRIVATE_PROVIDER_CONNECTION_FAILURE\",\"evidence\":{\"source\":\"local_prompt_result\",\"operation\":\"prompt\",\"runtime\":\"unknown\",\"blocking_scope\":\"operation\",\"reported_code\":-32603,\"observed_at_ms\":1793436082122,\"generation\":{\"acp_worker\":1793436081855}}}},\"pidsBefore\":[295223],\"assigned\":\"fake-acp-1793436082059-94207dc9\"}\nREQUEST_ERROR_KEEPALIVE_GREEN {\"id\":\"7a9f6e8955704304\",\"assigned\":\"fake-acp-1793436082059-94207dc9\",\"pids\":[295223],\"requests\":2,\"firstFailedTerminal\":\"prompt_failed\",\"secondRequestSucceeded\":true}\nPRIVATE_ACP_CLEANUP_GREEN\n",
+          "stderr": ""
+        },
+        {
+          "scenario": "adopted-established-request",
+          "command": [
+            "bun",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/acp-adopted-error-smoke.ts",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-S2-main-ec7/target/debug/aoe",
+            "after"
+          ],
+          "exit": 0,
+          "stdout": "ADOPTION_NATIVE_STARTUP_RECEIPTS [{\"pid\":295810,\"argv\":[\"/nix/store/2mxhj3nrvxxqm6gf6rwnrvz048zqdclp-bun-1.4.2/bin/bun\",\"/home/fraggle/src/agent-of-empires-git-worktrees/5052-agent-error-design/web/tests/helpers/fakeAcpAgent.mjs\"]},{\"pid\":295858,\"argv\":[\"/nix/store/2mxhj3nrvxxqm6gf6rwnrvz048zqdclp-bun-1.4.2/bin/bun\",\"/home/fraggle/src/agent-of-empires-git-worktrees/5052-agent-error-design/web/tests/helpers/fakeAcpAgent.mjs\",\"--version\"]}]\nADOPTION_PRECONDITION_GREEN {\"id\":\"3c984f9503ae4432\",\"assigned\":\"fake-acp-1793436083510-14f213ae\",\"oldDaemon\":295736,\"newDaemon\":295826,\"runner\":{\"pid\":295784,\"generation\":1793436083319,\"runner_identity\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:7327152\"}},\"nativePids\":[295810]}\nADOPTED_ERROR_KEEPALIVE_GREEN {\"id\":\"3c984f9503ae4432\",\"assigned\":\"fake-acp-1793436083510-14f213ae\",\"terminal\":{\"Stopped\":{\"reason\":\"prompt_failed\"}},\"nativePids\":[295810],\"runner\":{\"pid\":295784,\"generation\":1793436083319,\"runner_identity\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:7327152\"}},\"requests\":2,\"secondRequestSucceeded\":true,\"outputBeforeErrorPreserved\":true}\nPRIVATE_ADOPTED_ACP_CLEANUP_GREEN\n",
+          "stderr": ""
+        }
+      ],
+      [
+        {
+          "scenario": "selected-store-stop-respawn",
+          "command": [
+            "bun",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/acp-selected-store-stop-respawn.ts",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-S2-main-ec7/target/debug/aoe",
+            "after"
+          ],
+          "exit": 0,
+          "stdout": "SELECTED_STORE_RESPAWN_DIAGNOSTIC {\"mode\":\"after\",\"id\":\"19cd72a8e23d4e16\",\"status\":200,\"body\":\"{\\\"session_id\\\":\\\"19cd72a8e23d4e16\\\",\\\"agent\\\":\\\"claude\\\",\\\"status\\\":\\\"running\\\"}\",\"diskAfterStop\":{\"id\":\"19cd72a8e23d4e16\",\"title\":\"selected-store-stop\",\"terminal_scopes\":[],\"project_path\":\"/tmp/aoe-pw-w0-p25-nC3M1c/project\",\"group_path\":\"\",\"command\":\"\",\"tool\":\"claude\",\"yolo_mode\":false,\"status\":\"stopped\",\"created_at\":\"2026-10-31T08:41:21.814423015Z\",\"idle_dormant_since\":\"2026-10-31T08:41:22.087690637Z\",\"sandbox_store_generation\":2,\"agent_session_id\":\"11111111-1111-4111-8111-111111111111\",\"agent_session_binding\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"execution\":{\"agent\":\"claude\",\"stores\":[\"/tmp/aoe-pw-w0-p25-nC3M1c/selected-claude\"],\"cwd\":\"/tmp/aoe-pw-w0-p25-nC3M1c/project\",\"cwd_filesystem\":\"host\",\"filesystem\":\"host\",\"exported_default_store\":false},\"provenance\":\"asserted\"},\"resume_binding\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"execution\":{\"agent\":\"claude\",\"stores\":[\"/tmp/aoe-pw-w0-p25-nC3M1c/selected-claude\"],\"cwd\":\"/tmp/aoe-pw-w0-p25-nC3M1c/project\",\"cwd_filesystem\":\"host\",\"filesystem\":\"host\",\"exported_default_store\":false},\"provenance\":\"asserted\"},\"lifecycle_generation\":2,\"view\":\"structured\",\"acp_session_id\":\"11111111-1111-4111-8111-111111111111\"},\"diskBeforeSpawn\":{\"id\":\"19cd72a8e23d4e16\",\"title\":\"selected-store-stop\",\"terminal_scopes\":[],\"project_path\":\"/tmp/aoe-pw-w0-p25-nC3M1c/project\",\"group_path\":\"\",\"command\":\"\",\"tool\":\"claude\",\"yolo_mode\":false,\"status\":\"stopped\",\"created_at\":\"2026-10-31T08:41:21.814423015Z\",\"idle_dormant_since\":\"2026-10-31T08:41:22.087690637Z\",\"sandbox_store_generation\":2,\"agent_session_id\":\"11111111-1111-4111-8111-111111111111\",\"agent_session_binding\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"execution\":{\"agent\":\"claude\",\"stores\":[\"/tmp/aoe-pw-w0-p25-nC3M1c/selected-claude\"],\"cwd\":\"/tmp/aoe-pw-w0-p25-nC3M1c/project\",\"cwd_filesystem\":\"host\",\"filesystem\":\"host\",\"exported_default_store\":false},\"provenance\":\"asserted\"},\"resume_binding\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"execution\":{\"agent\":\"claude\",\"stores\":[\"/tmp/aoe-pw-w0-p25-nC3M1c/selected-claude\"],\"cwd\":\"/tmp/aoe-pw-w0-p25-nC3M1c/project\",\"cwd_filesystem\":\"host\",\"filesystem\":\"host\",\"exported_default_store\":false},\"provenance\":\"asserted\"},\"lifecycle_generation\":2,\"view\":\"structured\",\"acp_session_id\":\"11111111-1111-4111-8111-111111111111\"},\"cacheBeforeSpawn\":{\"id\":\"19cd72a8e23d4e16\",\"title\":\"selected-store-stop\",\"project_path\":\"/tmp/aoe-pw-w0-p25-nC3M1c/project\",\"artifact_dir\":\"/tmp/aoe-pw-w0-p25-nC3M1c/config/agent-of-empires-dev/artifacts/19cd72a8e23d4e16\",\"group_path\":\"\",\"tool\":\"claude\",\"command\":\"\",\"extra_args\":\"\",\"status\":\"Stopped\",\"agent_session_id\":\"11111111-1111-4111-8111-111111111111\",\"lifecycle_generation\":2,\"dormant\":false,\"idle_dormant_since\":\"2026-10-31T08:41:22.087690637+00:00\",\"pane_dead_observed\":false,\"agent_pane\":{\"state\":\"absent\",\"tmux_session\":null},\"auxiliary\":[{\"target\":{\"kind\":\"host\",\"index\":0},\"state\":\"absent\",\"tmux_session\":null}],\"yolo_mode\":false,\"created_at\":\"2026-10-31T08:41:21.814423015+00:00\",\"last_accessed_at\":null,\"idle_entered_at\":null,\"last_error\":null,\"branch\":null,\"main_repo_path\":null,\"is_sandboxed\":false,\"outside_repository\":true,\"scratch\":false,\"favorited\":false,\"urgent\":false,\"has_managed_worktree\":false,\"has_cleanable_worktree\":false,\"tie_workdir_to_name\":false,\"smart_rename\":\"inactive\",\"default_name\":false,\"has_terminal\":false,\"profile\":\"main\",\"cleanup_defaults\":{\"delete_worktree\":true,\"delete_branch\":false,\"delete_sandbox\":true,\"delete_to_trash\":true},\"remote_owner\":null,\"remote_owner_key\":null,\"notify_on_waiting\":null,\"notify_on_idle\":null,\"notify_on_error\":null,\"view\":\"structured\",\"context_resume\":{\"state\":\"available\"},\"acp_worker_state\":\"absent\",\"rate_limit_auto_resume\":false,\"acp_capable\":true,\"acp_session_id\":\"11111111-1111-4111-8111-111111111111\",\"acp_agent\":\"claude\",\"acp_can_fork\":true,\"keeps_context\":true,\"clear_aliases\":[\"/clear\"],\"compact_aliases\":[\"/compact\"],\"claude_fullscreen\":false,\"workspace_repos\":[]},\"original\":[{\"pid\":295227,\"store\":\"/tmp/aoe-pw-w0-p25-nC3M1c/selected-claude\"}]}\nSELECTED_STORE_STOP_RESPAWN_GREEN {\"mode\":\"after\",\"id\":\"19cd72a8e23d4e16\",\"originalSid\":\"11111111-1111-4111-8111-111111111111\",\"selected\":\"/tmp/aoe-pw-w0-p25-nC3M1c/selected-claude\",\"configured\":\"/tmp/aoe-pw-w0-p25-nC3M1c/configured-claude\",\"captures\":[{\"pid\":295285,\"store\":\"/tmp/aoe-pw-w0-p25-nC3M1c/selected-claude\"},{\"pid\":295227,\"store\":\"/tmp/aoe-pw-w0-p25-nC3M1c/selected-claude\"}],\"loads\":2,\"nativeTranscriptHash\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"totalExplicitInputs\":1,\"newConversations\":0,\"originalNativeDead\":true,\"scope\":\"actual AoE CLI and daemon with controlled native ACP peer; selected-store routing and association, not real Claude history semantics or exact CI attribution\"}\nPRIVATE_SELECTED_STORE_CLEANUP_GREEN\n",
+          "stderr": ""
+        }
+      ]
+    ],
+    "local_live_output": "artifact://2459"
+  },
+  "cross_validation": {
+    "actual_resolved_source_review": [
+      "S2Ec7RustResolutionReview: No issues.",
+      "S2Ec7WebResolutionReview: No issues."
+    ],
+    "resolution": "One semantic integrator; combined Workflow/logging and operation-error evidence; review of automatic Mergiraf import merge; no premature A/native_subject field at S2."
+  },
+  "limits": [
+    "Default Rust feature set; no S3/A/B/C green result on new main is implied.",
+    "Actual AoE with controlled native ACP fixtures; no real provider/model request or reconstruction of original OMP incident.",
+    "Previous Chromium results remain attached to their previous source; no current Chromium rerun is claimed here.",
+    "Normal commit/push hooks; no hook/configuration bypass."
+  ]
+}
