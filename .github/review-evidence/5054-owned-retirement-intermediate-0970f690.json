@@ -7,7 +7,7 @@
     "after_first_candidate": "4 passed, artifact2196"
   },
   "review_before_fix": {
-    "status": "before production review fixes; all nine final strengthened cases reached functional failures",
+    "status": "Nine final strengthened cases failed before review fixes; four live-drain gate timeouts are not independently established functional proof.",
     "base_commit": "e2cff1019e5e9234603327e86f4d87c9f98040a9",
     "owned_patch_sha256": "e72fc0d45d739429421d2200d616eccc18c68b6440f62773df14235ad7edc3c4",
     "real_runner_binary": {
@@ -45,13 +45,29 @@
       "artifact2208: six functional failures; three missing real binary prerequisite, not counted as functional proof",
       "artifact2210: registration functional failure; installation/Stop transient registry setup errors, not counted as functional proof",
       "artifact2212: installation and Stop reach intended functional failures with no AOE executable override",
-      "artifact2214: final strengthened nine-case harness all functional red, no setup failures; no production review fix applied"
+      "artifact2214: nine actual failures with binary prerequisite fixed. Later analysis distinguishes five functional counterexamples from four uncertain causal-gate timeouts."
     ],
     "scope": [
       "Held-peer cases prove management custody, association, usable message roundtrip and event history, not real provider-native transcript restoration.",
       "Owned construction and plugin cases use genuine candidate runner/native subprocess SDK paths and exact identities.",
       "No normal-feature B correctness, remote CI or completed epic claim."
-    ]
+    ],
+    "failure_classification": {
+      "functional_before_failures": [
+        "dead original registry not settled",
+        "plugin revived=false after actual successful delivery",
+        "owned registration not resumed",
+        "owned installation not resumed",
+        "Stop cannot retire deferred constructor"
+      ],
+      "causal_gate_uncertain": [
+        "refused_prebirth_respawn_readopts_the_original_runner_and_conversation",
+        "registry_contention_at_channel_close_preserves_live_owner_readoption",
+        "registry_contention_after_respawn_backoff_preserves_same_owner_readoption",
+        "corrupt_stop_during_installed_drain_recovers_after_repair_without_replacing_owner"
+      ],
+      "reason": "Post-fix failures remain before refused_rx/backoff_gate/observed_rx. Reachability/fixture trigger is being rechecked; do not count these four as validated before/after effects."
+    }
   },
   "actual_registry_flock": {
     "status": "scoped actual runtime PASS on frozen intermediate B, not final B correctness",
@@ -160,6 +176,19 @@
   "limits": [
     "Actual scoped passing smokes do not validate unresolved construction/drain recovery defects.",
     "Nine red cases cover four functional review defects. Native filesystem under maps is a separately source-proven design violation; no global freeze observed.",
-    "No completed C/5040/5055 implementation, final B verification, new remote CI or maintainer approval claimed."
-  ]
+    "No completed C/5040/5055 implementation, final B verification, new remote CI or maintainer approval claimed.",
+    "Correction to earlier wording: nine red tests do not prove nine functional counterexamples. Four are uncertain causal-gate failures; classification corrected in this revision."
+  ],
+  "current_after_review_fix_verification": {
+    "artifact": "artifact://2226",
+    "build": "passed",
+    "test_run": 13,
+    "passed": 8,
+    "failed": 5,
+    "observed_output": "cargo build (1 crates compiled)\nFinished `dev` profile [unoptimized + debuginfo] target(s) in 2m 53s\n   Compiling agent-of-empires v1.21.0 (/home/fraggle/src/agent-of-empires-git-worktrees/5054-owned-worker-retirement)\nwarning: unused import: `crate::session::SessionStore`\n   --> src/server/acp_reconciler/mod.rs:767:13\n    |\n767 |         use crate::session::SessionStore as _;\n    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    |\n    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default\n\nwarning: `agent-of-empires` (lib test) generated 1 warning\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 5m 53s\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n Nextest run ID 1d2f99c7-8348-4018-b61a-886ce58b47e8 with nextest profile: default\n    Starting 13 tests across 1 binary (5314 tests skipped)\n        PASS [   0.032s] ( 1/13) agent-of-empires acp::supervisor::teardown::tests::unreadable_stop_intent_fences_admission_without_signalling_owned_runner\n        PASS [   0.054s] ( 2/13) agent-of-empires server::api::acp::worker::tests::capacity_refusal_preserves_http_prompt_stop_fence_and_native_generation\n        PASS [   0.055s] ( 3/13) agent-of-empires server::api::acp::worker::tests::capacity_refusal_preserves_http_spawn_stop_fence_and_native_generation\n        PASS [   0.056s] ( 4/13) agent-of-empires acp::supervisor::teardown::tests::accepted_idle_retirement_preserves_an_already_published_restart_marker\n        PASS [   0.197s] ( 5/13) agent-of-empires plugin::session_api::tests::message_send_successfully_revives_stopped_nondormant_native_conversation\n        PASS [   0.532s] ( 6/13) agent-of-empires acp::supervisor::drain::tests::registry_contention_at_channel_close_eventually_settles_the_dead_original\n        FAIL [   5.187s] ( 7/13) agent-of-empires acp::supervisor::drain::tests::registry_contention_at_channel_close_preserves_live_owner_readoption\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test acp::supervisor::drain::tests::registry_contention_at_channel_close_preserves_live_owner_readoption ... FAILED\n\n    failures:\n\n    failures:\n        acp::supervisor::drain::tests::registry_contention_at_channel_close_preserves_live_owner_readoption\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 5.16s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'acp::supervisor::drain::tests::registry_contention_at_channel_close_preserves_live_owner_readoption' (445166) panicked at src/acp/supervisor/drain.rs:1662:14:\n    called `Result::unwrap()` on an `Err` value: Elapsed(())\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        FAIL [   5.190s] ( 8/13) agent-of-empires acp::supervisor::drain::tests::corrupt_stop_during_installed_drain_recovers_after_repair_without_replacing_owner\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test acp::supervisor::drain::tests::corrupt_stop_during_installed_drain_recovers_after_repair_without_replacing_owner ... FAILED\n\n    failures:\n\n    failures:\n        acp::supervisor::drain::tests::corrupt_stop_during_installed_drain_recovers_after_repair_without_replacing_owner\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 5.14s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'acp::supervisor::drain::tests::corrupt_stop_during_installed_drain_recovers_after_repair_without_replacing_owner' (445199) panicked at src/acp/supervisor/drain.rs:1662:14:\n    called `Result::unwrap()` on an `Err` value: Elapsed(())\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        PASS [   6.949s] ( 9/13) agent-of-empires server::acp_reconciler::tests::owned_installation_contention_reconciles_original_client_and_mode_once\n        FAIL [  10.185s] (10/13) agent-of-empires acp::supervisor::drain::tests::registry_contention_after_respawn_backoff_preserves_same_owner_readoption\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test acp::supervisor::drain::tests::registry_contention_after_respawn_backoff_preserves_same_owner_readoption ... FAILED\n\n    failures:\n\n    failures:\n        acp::supervisor::drain::tests::registry_contention_after_respawn_backoff_preserves_same_owner_readoption\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 10.15s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'acp::supervisor::drain::tests::registry_contention_after_respawn_backoff_preserves_same_owner_readoption' (445177) panicked at src/acp/supervisor/drain.rs:1655:18:\n    called `Result::unwrap()` on an `Err` value: Elapsed(())\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        FAIL [  10.193s] (11/13) agent-of-empires acp::supervisor::drain::tests::refused_prebirth_respawn_readopts_the_original_runner_and_conversation\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test acp::supervisor::drain::tests::refused_prebirth_respawn_readopts_the_original_runner_and_conversation ... FAILED\n\n    failures:\n\n    failures:\n        acp::supervisor::drain::tests::refused_prebirth_respawn_readopts_the_original_runner_and_conversation\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 10.16s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'acp::supervisor::drain::tests::refused_prebirth_respawn_readopts_the_original_runner_and_conversation' (445185) panicked at src/acp/supervisor/drain.rs:1521:14:\n    called `Result::unwrap()` on an `Err` value: Elapsed(())\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        FAIL [  11.938s] (12/13) agent-of-empires server::acp_reconciler::tests::stop_physically_retires_a_deferred_owned_constructor_without_reinstallation\n  stdout \u2500\u2500\u2500\n\n    running 1 test\n    test server::acp_reconciler::tests::stop_physically_retires_a_deferred_owned_constructor_without_reinstallation ... FAILED\n\n    failures:\n\n    failures:\n        server::acp_reconciler::tests::stop_physically_retires_a_deferred_owned_constructor_without_reinstallation\n\n    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5326 filtered out; finished in 11.91s\n\n  stderr \u2500\u2500\u2500\n\n    thread 'server::acp_reconciler::tests::stop_physically_retires_a_deferred_owned_constructor_without_reinstallation' (445169) panicked at src/server/acp_reconciler/mod.rs:946:13:\n    the original queued native SID must remain selected in memory and on disk before fixture cleanup\n    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n        PASS [  13.854s] (13/13) agent-of-empires server::acp_reconciler::tests::owned_registration_contention_reconciles_original_authorized_new_once\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n     Summary [  13.864s] 13 tests run: 8 passed, 5 failed, 5314 skipped\n        FAIL [   5.187s] ( 7/13) agent-of-empires acp::supervisor::drain::tests::registry_contention_at_channel_close_preserves_live_owner_readoption\n        FAIL [   5.190s] ( 8/13) agent-of-empires acp::supervisor::drain::tests::corrupt_stop_during_installed_drain_recovers_after_repair_without_replacing_owner\n        FAIL [  10.185s] (10/13) agent-of-empires acp::supervisor::drain::tests::registry_contention_after_respawn_backoff_preserves_same_owner_readoption\n        FAIL [  10.193s] (11/13) agent-of-empires acp::supervisor::drain::tests::refused_prebirth_respawn_readopts_the_original_runner_and_conversation\n        FAIL [  11.938s] (12/13) agent-of-empires server::acp_reconciler::tests::stop_physically_retires_a_deferred_owned_constructor_without_reinstallation\nerror: test run failed\n",
+    "remaining": [
+      "Actual original SID lost from memory/disk after physical Stop and false-ready identity publication; P1 confirmed independently and dynamically.",
+      "Four live-drain cases do not reach their causal gates. Product versus fixture/reachability classification remains uncertain."
+    ]
+  }
 }
