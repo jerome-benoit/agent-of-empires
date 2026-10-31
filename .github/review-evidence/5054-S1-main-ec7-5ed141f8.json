@@ -1,0 +1,88 @@
+{
+  "source": {
+    "head": "5ed141f8256235f1e820a15ff2df0ebf6404b60c",
+    "tree": "492f00da66807688cc191f1abcd22eb51470428a",
+    "main": "ec7bd0f8cab83c76140de76211679649b4499363",
+    "branch": "fix/5054-indeterminate-resume-probe",
+    "pushed": true
+  },
+  "verification": {
+    "command": "cargo fmt -- --check && cargo build && cargo clippy --tests -- -D warnings && cargo nextest run --tool-config-file aoe-smoke:target/epic-smokes/nextest-borrowed-attach-bound.toml --no-fail-fast",
+    "environment": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_TARGET_DIR": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target",
+      "TMPDIR": "/tmp/aoeA.XyJ6c1",
+      "AOE_TEST_ACP_RUNNER_EXE": "unset"
+    },
+    "result": "Summary [42.089s] 5466 tests run: 5466 passed, 4 skipped",
+    "build": "Finished dev profile in 5m27s; strict Clippy tests and fmt pass",
+    "local_live_output": "artifact://2433",
+    "tool_config": "Existing two test-specific slow-timeout bounds; no added skips/retries/production timeout"
+  },
+  "actual_runtime": {
+    "binary_sha256": "1404e0a04be7d74ea99dfe3c9c54bb86274b3192b5dcb7cf599dffef44652505",
+    "invocation": "run_terminal_s1_indeterminate_smoke(binary, observation_mode), sequential malformed and stabilizing-shell",
+    "results": [
+      {
+        "scope": "actual isolated AoE CLI/core/tmux with controlled native peer and qualified probe output",
+        "observation_mode": "malformed",
+        "session": "596b0ef65a824b97",
+        "sid": "54de3790-bd98-4be9-b93d-24ef21a3df51",
+        "initial_native_pid": 161402,
+        "retained_native_pid": 161559,
+        "indeterminate_http": 409,
+        "public_error": "launch_indeterminate",
+        "public_cause": "observation_failed",
+        "elapsed_s": 1.3235712660098216,
+        "injection_count": 1,
+        "first_actual_qualified_probe": "$0|%0|161555|/tmp/aoe-s1-probe-linl179e/tmux.sock|161553|0|bash|\"exec '/tmp/aoe-s1-probe-linl179e/bin/private-shell' '/tmp/aoe-s1-probe-linl179e/tmp/aoe-pane-env-hNyWby'\"\n",
+        "last_actual_qualified_probe": "$0|%0|161555|/tmp/aoe-s1-probe-linl179e/tmux.sock|161553|0|bash|\"exec '/tmp/aoe-s1-probe-linl179e/bin/private-shell' '/tmp/aoe-s1-probe-linl179e/tmp/aoe-pane-env-hNyWby'\"\n",
+        "failed_resume_marker_absent": true,
+        "history_sha256_before_explicit_input": "56443f11aa71ef707de917f3e482c79bd716c8069c591956adbdc90f85df2fc4",
+        "next_send_http": 200,
+        "next_input_same_native_pid_sid": true,
+        "created_count": 1,
+        "loaded_count": 1,
+        "forbidden_wake_absent_through_confirmed_next_delivery": true,
+        "cleanup": {
+          "native_processes_gone": true,
+          "daemon_stopped": true,
+          "private_root_removed": true
+        }
+      },
+      {
+        "scope": "actual isolated AoE CLI/core/tmux with controlled native peer and qualified probe output",
+        "observation_mode": "stabilizing-shell",
+        "session": "c8661f535a29496e",
+        "sid": "3fa58245-cf30-4439-a054-318b59567083",
+        "initial_native_pid": 162344,
+        "retained_native_pid": 162508,
+        "indeterminate_http": 409,
+        "public_error": "launch_indeterminate",
+        "public_cause": "stabilization_expired",
+        "elapsed_s": 4.230528625994339,
+        "injection_count": 21,
+        "first_actual_qualified_probe": "$0|%0|162505|/tmp/aoe-s1-probe-zk686qqe/tmux.sock|162504|0|bash|\"exec '/tmp/aoe-s1-probe-zk686qqe/bin/private-shell' '/tmp/aoe-s1-probe-zk686qqe/tmp/aoe-pane-env-AoY5ZU'\"\n",
+        "last_actual_qualified_probe": "$0|%0|162505|/tmp/aoe-s1-probe-zk686qqe/tmux.sock|162504|0|bash|\"exec '/tmp/aoe-s1-probe-zk686qqe/bin/private-shell' '/tmp/aoe-s1-probe-zk686qqe/tmp/aoe-pane-env-AoY5ZU'\"\n",
+        "failed_resume_marker_absent": true,
+        "history_sha256_before_explicit_input": "e51a28696f81cb9285f0e75aac42b833ea7c52636640937968cbf34c554b8427",
+        "next_send_http": 200,
+        "next_input_same_native_pid_sid": true,
+        "created_count": 1,
+        "loaded_count": 1,
+        "forbidden_wake_absent_through_confirmed_next_delivery": true,
+        "cleanup": {
+          "native_processes_gone": true,
+          "daemon_stopped": true,
+          "private_root_removed": true
+        }
+      }
+    ],
+    "local_live_output": "artifact://2435"
+  },
+  "limits": [
+    "Default Rust feature set at this S1 cut; no S2/S3/A/B/C green result on new main is implied.",
+    "A controlled native peer and qualified tmux probe faults are used; actual AoE CLI/daemon/tmux run with private state.",
+    "Existing source commit hook ran normally; no hook or Git configuration bypass."
+  ]
+}
