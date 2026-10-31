@@ -1,0 +1,66 @@
+{
+  "source_head": "ab9badad5774d237238665282db9470097c29526",
+  "source_tree": "0c3493b98a94dafcc446824f1c4902a8198f278e",
+  "integrated_main": "ec7bd0f8cab83c76140de76211679649b4499363",
+  "candidate_binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-B-main-ec7-ab9badad/target/debug/aoe",
+  "binary_sha256": "8c38493a6f927a3c09636cc7decb8945c1c29e3e486e801ce325445aafbc5f57",
+  "invocation": "run_terminal_failed_probe_policy_before(/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-B-main-ec7-ab9badad/target/debug/aoe)",
+  "actual": {
+    "scope": "real private AoE daemon/CLI/tmux and transcript-reading fake; resumed native exit is intentional, not the original OMP incident",
+    "session": "ca82eb3cb58e4781",
+    "original_sid": "0cd3f231-0bb8-49a0-941e-7dab2e6826d5",
+    "replacement_sid": "c5aadf24-f00a-4fe7-90c0-5b527a719dfe",
+    "failed_resume_http": 409,
+    "next_send_http": 200,
+    "original_history_read_before_exit": true,
+    "original_history_bytes_unchanged": true,
+    "failure_marker_observed_before_next_action": "0cd3f231-0bb8-49a0-941e-7dab2e6826d5",
+    "next_input_recipient_sid": "c5aadf24-f00a-4fe7-90c0-5b527a719dfe",
+    "native_pids": [
+      1127662,
+      1127732,
+      1127800
+    ],
+    "binding_before_probe": {
+      "session_id": "0cd3f231-0bb8-49a0-941e-7dab2e6826d5",
+      "execution": {
+        "agent": "claude",
+        "stores": [
+          "/tmp/aoe-policy-before-k9vhgcaq/home/.claude"
+        ],
+        "cwd": "/tmp/aoe-policy-before-k9vhgcaq/project",
+        "cwd_filesystem": "host",
+        "filesystem": "host",
+        "exported_default_store": false
+      },
+      "provenance": "preallocated"
+    },
+    "binding_after_probe": {
+      "session_id": "0cd3f231-0bb8-49a0-941e-7dab2e6826d5",
+      "execution": {
+        "agent": "claude",
+        "stores": [
+          "/tmp/aoe-policy-before-k9vhgcaq/home/.claude"
+        ],
+        "cwd": "/tmp/aoe-policy-before-k9vhgcaq/project",
+        "cwd_filesystem": "host",
+        "filesystem": "host",
+        "exported_default_store": false
+      },
+      "provenance": "observed"
+    },
+    "binding_identity_preserved": true,
+    "cleanup": {
+      "native_processes_gone": true,
+      "daemon_stopped": true,
+      "private_root_removed": true
+    }
+  },
+  "live_output": "artifact://2603",
+  "verdict": "An exact resumed native execution read the original transcript, then intentionally exited. Failed resume returned409 and retained the failed marker/original association. The following ordinary Send200 silently selected another SID; its input reached that replacement. Original native history bytes were unchanged.",
+  "limits": [
+    "Before #5040, not an after-fix claim.",
+    "Controlled transcript-reading native fixture, not the original OMP incident.",
+    "Association selection is demonstrated; native history deletion is not."
+  ]
+}
