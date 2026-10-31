@@ -1,0 +1,26 @@
+{
+  "source_head": "ab9badad5774d237238665282db9470097c29526",
+  "source_tree": "0c3493b98a94dafcc446824f1c4902a8198f278e",
+  "integrated_main": "ec7bd0f8cab83c76140de76211679649b4499363",
+  "status": "Reproduced before C; not corrected in B; B publication pending current web validation.",
+  "candidate_binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-B-main-ec7-ab9badad/target/debug/aoe",
+  "binary_sha256": "8c38493a6f927a3c09636cc7decb8945c1c29e3e486e801ce325445aafbc5f57",
+  "actual_scenario": {
+    "scenario": "C-load-fallback-before-B-ab9",
+    "command": [
+      "bun",
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/acp-load-fallback-before.ts",
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-B-main-ec7-ab9badad/target/debug/aoe"
+    ],
+    "exit": 0,
+    "stdout": "BASELINE_ACP_LOAD_ERROR_SUBSTITUTES_FRESH {\"id\":\"adde0dc587ff4eda\",\"originalSid\":\"fake-acp-1793442276095-3fe78790\",\"replacementSid\":\"fake-acp-1793442276441-fe309ce9\",\"loadError\":\"PRIVATE_NATIVE_LOAD_SERVICE_UNAVAILABLE\",\"spawnHttp\":200,\"newRequests\":2,\"promptRequests\":1,\"reset\":{\"SessionContextReset\":{\"reason\":\"session/load failed: PRIVATE_NATIVE_LOAD_SERVICE_UNAVAILABLE\"}},\"scope\":\"real AoE daemon/runner and fake native ACP; proves association replacement, not native history disappearance\"}\nPRIVATE_LOAD_BASELINE_CLEANUP_GREEN\n",
+    "stderr": ""
+  },
+  "live_output": "artifact://2600",
+  "verdict": "After an original prompt completed, explicit Stop followed by default spawn attempts session/load. Its provider error silently falls back to a second session/new, replaces the recorded SID and emits SessionContextReset without explicit Fresh consent.",
+  "limits": [
+    "Actual isolated AoE daemon/runner with controlled native ACP peer, not a real provider outage or the original OMP incident.",
+    "Proves association replacement, not native history deletion.",
+    "C is still under implementation. No after-C verification or completed fix is claimed."
+  ]
+}
