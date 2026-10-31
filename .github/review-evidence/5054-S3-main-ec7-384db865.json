@@ -1,0 +1,250 @@
+{
+  "source": {
+    "head": "384db865747ec697f1376059269d84e47df0c8ff",
+    "tree": "cfa0c6cca5025c02389b9acbe9c9a1079632f110",
+    "main": "ec7bd0f8cab83c76140de76211679649b4499363",
+    "branch": "fix/5054-evidence-based-recovery",
+    "pushed": true
+  },
+  "default": {
+    "environment": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_TARGET_DIR": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target",
+      "TMPDIR": "/tmp/aoeA.XyJ6c1",
+      "AOE_TEST_ACP_RUNNER_EXE": "unset"
+    },
+    "result": "focusedACK1passed0.015s; full5530passed4skipped45.595s",
+    "build": "dev1m52s,strictClippytests/fmtpass",
+    "local_live_output": "artifact://2552",
+    "tool_config": "Existing two test-specific slow-timeout bounds; no added skips/retries/production timeout",
+    "commands": [
+      "cargo fmt -- --check",
+      "env CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo build",
+      "env CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo clippy --tests -- -D warnings",
+      "env -u AOE_TEST_ACP_RUNNER_EXE CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo nextest run --tool-config-file aoe-smoke:/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/nextest-borrowed-attach-bound.toml -E 'test(selected_input_ack_releases_native_exclusion_before_client_completion)' --no-fail-fast",
+      "env -u AOE_TEST_ACP_RUNNER_EXE CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo nextest run --tool-config-file aoe-smoke:/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/nextest-borrowed-attach-bound.toml --no-fail-fast"
+    ],
+    "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5052-default-verification",
+    "slow_timeout_overrides": [
+      {
+        "filter": "test(acp_runner_control::borrowed_attach_timeout_preserves_real_runner_and_native_turn)",
+        "period": "10s",
+        "terminate_after": 3
+      },
+      {
+        "filter": "test(acp::supervisor::teardown::tests::a_stale_launch_tears_down_its_runner_without_releasing_the_scope)",
+        "period": "10s",
+        "terminate_after": 3
+      }
+    ]
+  },
+  "web": {
+    "source": "384db865747ec697f1376059269d84e47df0c8ff",
+    "build": "dev2m01s",
+    "clippy": "pass",
+    "fmt": "pass",
+    "tests": "focusedACK1passed0.013s;full5531passed4skipped45.575s",
+    "local_output": "artifact://2561",
+    "rerun": "New corrected384source, not a retry of unchanged failingc0bff.",
+    "commands": [
+      "env CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo build --features web",
+      "env CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo clippy --features web --tests -- -D warnings",
+      "cargo fmt -- --check",
+      "env -u AOE_TEST_ACP_RUNNER_EXE CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo nextest run --features web --tool-config-file aoe-smoke:/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/nextest-borrowed-attach-bound.toml -E 'test(selected_input_ack_releases_native_exclusion_before_client_completion)' --no-fail-fast",
+      "env -u AOE_TEST_ACP_RUNNER_EXE CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo nextest run --features web --tool-config-file aoe-smoke:/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/nextest-borrowed-attach-bound.toml --no-fail-fast"
+    ],
+    "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification"
+  },
+  "frontend": {
+    "executed_at": "c0bff9fcbdff3db223a903bf778dd75ec8fff2ac",
+    "exact_same_complete_web_tree": "0c08be638bd3ab5f811e81f288b24cafa360abad",
+    "current_complete_web_tree": "0c08be638bd3ab5f811e81f288b24cafa360abad",
+    "checks": {
+      "head": "c0bff9fcbdff3db223a903bf778dd75ec8fff2ac",
+      "commands": [
+        "npm --prefix web run format:check",
+        "npm --prefix web run lint",
+        "npm --prefix web run typecheck:tests",
+        "npm --prefix web run test:unit",
+        "npm --prefix web run build"
+      ],
+      "result": "format1035files,lint,testtypes,buildpass;4443 Vitesttests/373filespass",
+      "local_live_output": [
+        "artifact://2482",
+        "artifact://2483"
+      ]
+    },
+    "patch_coverage": {
+      "command": "env AOE_COVERAGE=1 npm --prefix web run test:unit -- --coverage",
+      "source": "c0bff9fcbdff3db223a903bf778dd75ec8fff2ac",
+      "base": "a506db9e89dbbd775be0b9be6a988563eca0bc31",
+      "result": "4443tests/373filespass;localV8 statements84.27%,branches78.59%,functions82.87%,lines86.6%",
+      "rows": [
+        {
+          "path": "src/hooks/useLiveTerminal.ts",
+          "executable_added_lines": [
+            85,
+            92,
+            93,
+            94,
+            95,
+            96,
+            100,
+            131,
+            137,
+            153,
+            154,
+            174,
+            178,
+            185,
+            186,
+            187,
+            188,
+            192,
+            219,
+            229,
+            301,
+            312,
+            313,
+            314,
+            315,
+            316,
+            322,
+            380,
+            381,
+            391,
+            404,
+            405,
+            406,
+            408,
+            416,
+            418,
+            490,
+            491
+          ],
+          "covered": 38,
+          "total": 38,
+          "uncovered": []
+        }
+      ],
+      "method": "Added executable web/src LCOV DA lines versus updated S2; no uncovered DA line discarded.",
+      "local_live_output": "artifact://2494",
+      "limit": "Local coverage, not remote Codecov."
+    },
+    "limits": "Frontend checks reused by exact complete web subtree identity; not rerun on the Rust-test-only child384."
+  },
+  "actual_runtime": {
+    "source_head": "384db865747ec697f1376059269d84e47df0c8ff",
+    "binary_sha256": "b32e41656242ee27265d091ef67f8c396785efeaee87981cf1d709309cde6d9f",
+    "cases": [
+      {
+        "mode": "after",
+        "scope": "actual isolated AoE CLI/core/tmux, controlled transcript-reading native agent",
+        "session": "84c5d775ba1546b4",
+        "sid": "96663ed1-3057-464f-b15b-210ff768e36e",
+        "original_pane": [
+          "aoe_dev_owned-corpse-recover_84c5d775",
+          "%0",
+          "734207",
+          "0"
+        ],
+        "confirmed_dead": [
+          "aoe_dev_owned-corpse-recover_84c5d775",
+          "%0",
+          "",
+          "1"
+        ],
+        "respawn_commands": [],
+        "native_pids": [
+          734210,
+          734207,
+          734322
+        ],
+        "restart_http": 200,
+        "send_http": 200,
+        "fresh_input_pid": 734322,
+        "history_sha256": "8154854c4fd84185132b3834e5d82a90385667cab8d988db6c12f46ddeb0746f",
+        "history_bytes_unchanged": true,
+        "cleanup": {
+          "native_processes_gone": true,
+          "daemon_stopped": true,
+          "private_root_removed": true
+        }
+      },
+      {
+        "scope": "actual isolated AoE core/CLI/tmux and reentrant Unix HTTP hooks",
+        "session": "0662dbaf77e744ae",
+        "native_pid": 735097,
+        "native_sid": "8d3351ef-5682-420b-a9ea-2cd4ec86b63a",
+        "generation": 1,
+        "send_http": 200,
+        "hook_calls": [
+          {
+            "number": 1,
+            "status": 200,
+            "path": "/api/sessions/0662dbaf77e744ae/access",
+            "body": "{\"id\":\"0662dbaf77e744ae\",\"title\":\"reentrant-input-hook\",\"project_path\":\"/tmp/aoe-reentrant-hook-ro9nn10x/project\",\"artifact_dir\":\"/tmp/aoe-reentrant-hook-ro9nn10x/config/agent-of-empires-dev/artifacts/0662dbaf77e744ae\",\"group_path\":\"\",\"tool\":\"work-claude\",\"command\":\"work-claude\",\"extra_args\":\"\",\"status\":\"Starting\",\"agent_session_id\":\"8d3351ef-5682-420b-a9ea-2cd4ec86b63a\",\"lifecycle_generation\":1,\"dormant\":false,\"pane_dead_observed\":false,\"agent_pane\":{\"state\":\"alive\",\"tmux_session\":\"aoe_dev_reentrant-input-hook_0662dbaf\",\"physical\":{\"identity\":{\"session_id\":\"$0\",\"pane_id\":\"%0\",\"pane_pid\":735094},\"server\":{\"socket\":\"/tmp/aoe-reentrant-hook-ro9nn10x/tmux.sock\",\"pid\":735093,\"birth\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:7728468\"}}}},\"auxiliary\":[{\"target\":{\"kind\":\"host\",\"index\":0},\"state\":\"absent\",\"tmux_session\":null}],\"yolo_mode\":false,\"created_at\":\"2026-10-31T09:48:16.428223399+00:00\",\"last_accessed_at\":\"2026-10-31T09:48:17.223216434+00:00\",\"idle_entered_at\":null,\"last_error\":null,\"branch\":null,\"main_repo_path\":null,\"is_sandboxed\":false,\"outside_repository\":true,\"scratch\":false,\"favorited\":false,\"urgent\":false,\"has_managed_worktree\":false,\"has_cleanable_worktree\":false,\"tie_workdir_to_name\":false,\"smart_rename\":\"inactive\",\"default_name\":false,\"has_terminal\":false,\"profile\":\"main\",\"cleanup_defaults\":{\"delete_worktree\":true,\"delete_branch\":false,\"delete_sandbox\":true,\"delete_to_trash\":true},\"remote_owner\":null,\"remote_owner_key\":null,\"notify_on_waiting\":null,\"notify_on_idle\":null,\"notify_on_error\":null,\"context_resume\":{\"state\":\"indeterminate\",\"reason\":\"runtime_check_required\"},\"acp_worker_state\":\"absent\",\"acp_capable\":true,\"acp_agent\":\"work-claude\",\"claude_fullscreen\":false,\"workspace_repos\":[]}"
+          },
+          {
+            "number": 2,
+            "status": 200,
+            "path": "/api/sessions/0662dbaf77e744ae/snooze",
+            "body": "{\"id\":\"0662dbaf77e744ae\",\"title\":\"reentrant-input-hook\",\"project_path\":\"/tmp/aoe-reentrant-hook-ro9nn10x/project\",\"artifact_dir\":\"/tmp/aoe-reentrant-hook-ro9nn10x/config/agent-of-empires-dev/artifacts/0662dbaf77e744ae\",\"group_path\":\"\",\"tool\":\"work-claude\",\"command\":\"work-claude\",\"extra_args\":\"\",\"status\":\"Starting\",\"agent_session_id\":\"8d3351ef-5682-420b-a9ea-2cd4ec86b63a\",\"lifecycle_generation\":1,\"dormant\":false,\"pane_dead_observed\":false,\"agent_pane\":{\"state\":\"alive\",\"tmux_session\":\"aoe_dev_reentrant-input-hook_0662dbaf\",\"physical\":{\"identity\":{\"session_id\":\"$0\",\"pane_id\":\"%0\",\"pane_pid\":735094},\"server\":{\"socket\":\"/tmp/aoe-reentrant-hook-ro9nn10x/tmux.sock\",\"pid\":735093,\"birth\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:7728468\"}}}},\"auxiliary\":[{\"target\":{\"kind\":\"host\",\"index\":0},\"state\":\"absent\",\"tmux_session\":null}],\"yolo_mode\":false,\"created_at\":\"2026-10-31T09:48:16.428223399+00:00\",\"last_accessed_at\":\"2026-10-31T09:48:17.223216434+00:00\",\"idle_entered_at\":null,\"last_error\":null,\"branch\":null,\"main_repo_path\":null,\"is_sandboxed\":false,\"outside_repository\":true,\"scratch\":false,\"favorited\":false,\"urgent\":false,\"snoozed_until\":\"2026-10-31T10:18:17.229469506+00:00\",\"has_managed_worktree\":false,\"has_cleanable_worktree\":false,\"tie_workdir_to_name\":false,\"smart_rename\":\"inactive\",\"default_name\":false,\"has_terminal\":false,\"profile\":\"main\",\"cleanup_defaults\":{\"delete_worktree\":true,\"delete_branch\":false,\"delete_sandbox\":true,\"delete_to_trash\":true},\"remote_owner\":null,\"remote_owner_key\":null,\"notify_on_waiting\":null,\"notify_on_idle\":null,\"notify_on_error\":null,\"context_resume\":{\"state\":\"indeterminate\",\"reason\":\"runtime_check_required\"},\"acp_worker_state\":\"absent\",\"acp_capable\":true,\"acp_agent\":\"work-claude\",\"claude_fullscreen\":false,\"workspace_repos\":[]}"
+          }
+        ],
+        "snoozed_until_after_send_completed": "2026-10-31T10:18:17.229469506Z",
+        "history_sha256": "af17a787a8b852061b35e559ebeb39514ec7a69d2f0818ca6b8a9b440e3ba2ff",
+        "native_input": "PRIVATE_REENTRANT_NATIVE_INPUT",
+        "no_deadlock": true,
+        "limits": [
+          "Controlled native peer, not provider history proof",
+          "Exercises ordinary HTTP Send native fallback plus actual reentrant Access/Snooze; TUI and CLI races have separate deterministic regressions"
+        ],
+        "cleanup": {
+          "native_process_gone": true,
+          "daemon_stopped": true,
+          "private_root_removed": true
+        }
+      }
+    ],
+    "local_live_output": "artifact://2555"
+  },
+  "finding": {
+    "status": "corrected and verified: FIFO lifetime race plus weak final-cleanup timing proof",
+    "source_lines": [
+      "src/tmux/session.rs:202-207",
+      "src/tmux/session.rs:3153-3258"
+    ],
+    "before_checkpoint": "https://github.com/jerome-benoit/agent-of-empires/blob/ce9dcad5fcfb994be0d508c61e0b8566edc07bf2/.github/review-evidence/5054-S3-main-ec7-c0bff9fc-checkpoint.json",
+    "observed_failure": "Original c0bff full web suite5530pass1fail4skip; final completion receive timedout atline3201, not native-lock assertion.",
+    "two_independent_analyses": [
+      "S3AckProductionCause: no product lock/client-exit deadlock proved; source fixture race possible.",
+      "S3AckFixtureCause: FIFO last-close race founded; old test could also false-pass final-cleanup unlock."
+    ],
+    "causal_experiment": {
+      "scope": "Actual Linux FIFO semantics, not an AoE test rerun",
+      "causal_precondition": "First write finishes and all descriptors close before late reader opens; second writer remains open through late read",
+      "early_write_returned": 6,
+      "late_read": {
+        "errno": 11,
+        "meaning": "EAGAIN: no retained bytes after successful early write and last close"
+      },
+      "retained_write_returned": 9,
+      "retained_late_read": "retained\n",
+      "cleanup": "TemporaryDirectory removed after descriptor closure"
+    },
+    "original_orphan_cleanup": {
+      "pid": 500289,
+      "exact_owned_command_rechecked": true,
+      "signal": "SIGTERM through pidfd",
+      "exit_observed": true,
+      "scope": "Orphan from the already-failed c0bff test; no unrelated process signalled"
+    },
+    "design": "Retain FIFO descriptor before spawn through cleanup. Test-only ACK checkpoint parks worker immediately after native unlock; lifecycle-lock probe must succeed before it can reach final cleanup. Release both gates and join before assertions.",
+    "limits": "Exact schedule of original failure remains inference. No production ACK semantics, deadline, retry or skip changed. Checkpoint is cfg(test)-only, no production hook/allocation."
+  },
+  "limits": [
+    "No new remoteCI/Codecov/platform/provider-history proof inferred.",
+    "Focused selector exclusions are not additional full-suite skips; full suites each retain4inheritedskips."
+  ]
+}
