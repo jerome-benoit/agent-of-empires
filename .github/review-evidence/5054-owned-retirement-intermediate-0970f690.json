@@ -1,5 +1,5 @@
 {
-  "status": "Focused B verification green with healthy canonical fixture: historical before 3 failed; corrected candidate 13 passed. Sixteen actual runtime scenarios pass on the byte-identical candidate binary. Full checks still running; B not yet committed or published.",
+  "status": "Healthy historical before: 3 failed. Corrected candidate: 13 focused regressions passed; 16 actual runtime scenarios passed on byte-identical binary. First full-check command stopped at four Clippy errors; full nextest has NOT run. Sole integrator is making bounded allocation-aware Clippy fixes; B not yet committed/published.",
   "base_commit": "e2cff1019e5e9234603327e86f4d87c9f98040a9",
   "binary_sha256": "0970f6903fb0671646675e6da6c9791c0c91f101a97e79c64098e0226a206b27",
   "initial_four_regressions": {
@@ -564,5 +564,17 @@
         }
       }
     ]
+  },
+  "full_checks_first_attempt": {
+    "command": "cargo clippy --tests -- -D warnings && cargo fmt -- --check && cargo nextest run --tool-config-file aoe-smoke:nextest-borrowed-attach-bound.toml --no-fail-fast",
+    "observed": "Clippy failed with four errors; subsequent fmt-check and full nextest were not executed.",
+    "errors": [
+      "launch.rs723 install_worker: too_many_arguments 8/7",
+      "teardown.rs1369: needless_return",
+      "supervisor/mod.rs182 ResumeReservationOutcome: large_enum_variant 360 bytes",
+      "session_service.rs333 PromptTouch: large_enum_variant 361 versus 128 bytes"
+    ],
+    "log": "/home/fraggle/.local/share/rtk/tee/1793423137_cargo_clippy.log",
+    "fix_constraints": "No allow/expect suppression, no unconditional hot-path boxing, no authority/policy change."
   }
 }
