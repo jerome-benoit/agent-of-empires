@@ -7,7 +7,6 @@
     "pushed": true
   },
   "verification": {
-    "command": "cargo fmt -- --check && cargo build && cargo clippy --tests -- -D warnings && cargo nextest run --tool-config-file aoe-smoke:target/epic-smokes/nextest-borrowed-attach-bound.toml --no-fail-fast",
     "environment": {
       "CARGO_BUILD_JOBS": "1",
       "CARGO_TARGET_DIR": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target",
@@ -17,7 +16,26 @@
     "result": "Summary [42.089s] 5466 tests run: 5466 passed, 4 skipped",
     "build": "Finished dev profile in 5m27s; strict Clippy tests and fmt pass",
     "local_live_output": "artifact://2433",
-    "tool_config": "Existing two test-specific slow-timeout bounds; no added skips/retries/production timeout"
+    "tool_config": "Existing two test-specific slow-timeout bounds; no added skips/retries/production timeout",
+    "commands": [
+      "cargo fmt -- --check",
+      "env CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo build",
+      "env CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo clippy --tests -- -D warnings",
+      "env -u AOE_TEST_ACP_RUNNER_EXE CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo nextest run --tool-config-file aoe-smoke:/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/nextest-borrowed-attach-bound.toml --no-fail-fast"
+    ],
+    "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5052-default-verification",
+    "slow_timeout_overrides": [
+      {
+        "filter": "test(acp_runner_control::borrowed_attach_timeout_preserves_real_runner_and_native_turn)",
+        "period": "10s",
+        "terminate_after": 3
+      },
+      {
+        "filter": "test(acp::supervisor::teardown::tests::a_stale_launch_tears_down_its_runner_without_releasing_the_scope)",
+        "period": "10s",
+        "terminate_after": 3
+      }
+    ]
   },
   "actual_runtime": {
     "binary_sha256": "1404e0a04be7d74ea99dfe3c9c54bb86274b3192b5dcb7cf599dffef44652505",
