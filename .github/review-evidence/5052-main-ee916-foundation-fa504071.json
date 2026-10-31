@@ -1,0 +1,249 @@
+{
+  "main": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+  "source": {
+    "S1": {
+      "PR": 5058,
+      "head": "7ba8ab387d20685ddd56dc8317babf85b4bc820a",
+      "tree": "e0837942d1780ef1c4b7936e08a93ff919e66204"
+    },
+    "S2": {
+      "PR": 5059,
+      "head": "42ef2d94ca342470afc49d6dddb2d07340458f19",
+      "tree": "1faff848b241f583f2619736d638c7d16dba754e"
+    },
+    "S3": {
+      "PR": 5083,
+      "head": "fa5040711b62f9638b2d45aa8c7769cee2983972",
+      "tree": "a2bf9ba94b41bd27c70be0c563ee976a5a859d03"
+    }
+  },
+  "normal_hooks": "all three merge commits passed normal hooks",
+  "push_command": "git push --atomic origin refs/heads/fix/5054-indeterminate-resume-probe:refs/heads/fix/5054-indeterminate-resume-probe refs/heads/fix/5053-operation-error-evidence:refs/heads/fix/5053-operation-error-evidence refs/heads/fix/5054-evidence-based-recovery:refs/heads/fix/5054-evidence-based-recovery",
+  "strategy": "Clean automatic merges main→S1→S2→S3, no source rewrite or manual semantic edits. Each actual tree matches prior merge-tree prediction. All remain draft. Full current matrix/runtime below ran at integrated S3, not standalone S1/S2.",
+  "default": {
+    "main": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+    "S1": {
+      "head": "7ba8ab387d20685ddd56dc8317babf85b4bc820a",
+      "tree": "e0837942d1780ef1c4b7936e08a93ff919e66204"
+    },
+    "S2": {
+      "head": "42ef2d94ca342470afc49d6dddb2d07340458f19",
+      "tree": "1faff848b241f583f2619736d638c7d16dba754e"
+    },
+    "S3": {
+      "head": "fa5040711b62f9638b2d45aa8c7769cee2983972",
+      "tree": "a2bf9ba94b41bd27c70be0c563ee976a5a859d03"
+    },
+    "build": "PASS3m37s",
+    "clippy_tests_strict": "PASS2m52s",
+    "nextest": {
+      "passed": 5555,
+      "failed": 0,
+      "skipped": 4,
+      "seconds": 57.76
+    },
+    "job": "bg_207",
+    "raw_output": "artifact://3087",
+    "command": "env -u AOE_TEST_ACP_RUNNER_EXE PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo build && env -u AOE_TEST_ACP_RUNNER_EXE PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo clippy --tests -- -D warnings && env -u AOE_TEST_ACP_RUNNER_EXE PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target TMPDIR=/tmp/aoeA.XyJ6c1 cargo nextest run --no-fail-fast",
+    "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-S3-main-ee916-fa504071/target/debug/aoe",
+    "sha256": "ba1affb585c6b4a6e1e379f6fa5f235bdf2d1581d6bd03040e74b4aee4520654",
+    "limits": "Full matrix executed at integrated S3 with current frozen main, not individual S1/S2 runs; A/B newest-main integration not verified."
+  },
+  "frontend": {
+    "source": "fa5040711b62f9638b2d45aa8c7769cee2983972",
+    "tree": "a2bf9ba94b41bd27c70be0c563ee976a5a859d03",
+    "node": "22.23.3",
+    "format_check": "PASS",
+    "eslint_zero_warnings": "PASS",
+    "test_types": "PASS",
+    "coverage_matrix": "PASS",
+    "unit": {
+      "files": 374,
+      "tests": 4447,
+      "type_errors": 0,
+      "seconds": 110.46
+    },
+    "unit_job": "bg_212",
+    "default_web_dependency_setup": "node_modules absent verified by read; npmci593packages4s exactlyonce in this verifier. Missingoxfmt precondition failure not product failure, not silent skip.",
+    "build_and_browser_command": "env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH npm run build && env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH CI=1 PLAYWRIGHT_PORT=4198 node /home/fraggle/.local/share/mise/installs/node/22.23.3/bin/npx playwright test --config=playwright.config.ts --workers=3 --retries=0 --trace=retain-on-failure --output=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/S3-fa504071-main-ee916-mocked",
+    "browser_status": "Completed:389passed,0failed,no retries (bg213)."
+  },
+  "current_browser": {
+    "build": "PASS tsc-b+Vite",
+    "mocked_chromium": {
+      "passed": 389,
+      "failed": 0,
+      "workers": 3,
+      "retries": 0,
+      "trace": "retain-on-failure",
+      "job": "bg_213",
+      "raw_output": "artifact://3099",
+      "wall_seconds": 247.19
+    },
+    "command": "env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH npm run build && env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH CI=1 PLAYWRIGHT_PORT=4198 node /home/fraggle/.local/share/mise/installs/node/22.23.3/bin/npx playwright test --config=playwright.config.ts --workers=3 --retries=0 --trace=retain-on-failure --output=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/S3-fa504071-main-ee916-mocked",
+    "asset_isolation": "Build completed before preview/browser startup; no Cargo web build mutated this dist during browser run."
+  },
+  "actual_terminal": {
+    "source": "fa5040711b62f9638b2d45aa8c7769cee2983972",
+    "tree": "a2bf9ba94b41bd27c70be0c563ee976a5a859d03",
+    "main": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+    "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-S3-main-ee916-fa504071/target/debug/aoe",
+    "sha256": "ba1affb585c6b4a6e1e379f6fa5f235bdf2d1581d6bd03040e74b4aee4520654",
+    "cases": [
+      {
+        "scenario": "S1-malformed-owned-observation",
+        "result": {
+          "scope": "actual isolated AoE CLI/core/tmux with controlled native peer and qualified probe output",
+          "observation_mode": "malformed",
+          "session": "3180647fe50b4889",
+          "sid": "801f1c7c-cbbd-419e-a44b-3fc0eed3409d",
+          "initial_native_pid": 1274550,
+          "retained_native_pid": 1274710,
+          "indeterminate_http": 409,
+          "public_error": "launch_indeterminate",
+          "public_cause": "observation_failed",
+          "elapsed_s": 1.5724842549971072,
+          "injection_count": 1,
+          "first_actual_qualified_probe": "$0|%0|1274707|/tmp/aoe-s1-probe-34tnpvk5/tmux.sock|1274706|0|bash|\"exec '/tmp/aoe-s1-probe-34tnpvk5/bin/private-shell' '/tmp/aoe-s1-probe-34tnpvk5/tmp/aoe-pane-env-PWepBK'\"\n",
+          "last_actual_qualified_probe": "$0|%0|1274707|/tmp/aoe-s1-probe-34tnpvk5/tmux.sock|1274706|0|bash|\"exec '/tmp/aoe-s1-probe-34tnpvk5/bin/private-shell' '/tmp/aoe-s1-probe-34tnpvk5/tmp/aoe-pane-env-PWepBK'\"\n",
+          "failed_resume_marker_absent": true,
+          "history_sha256_before_explicit_input": "484a2bea0e93893dc9b03c4896736cfddef16f0450c3737ca90492eca4e505d9",
+          "next_send_http": 200,
+          "next_input_same_native_pid_sid": true,
+          "created_count": 1,
+          "loaded_count": 1,
+          "forbidden_wake_absent_through_confirmed_next_delivery": true,
+          "cleanup": {
+            "native_processes_gone": true,
+            "daemon_stopped": true,
+            "private_root_removed": true
+          }
+        }
+      },
+      {
+        "scenario": "S1-live-stabilizing-owned-pane",
+        "result": {
+          "scope": "actual isolated AoE CLI/core/tmux with controlled native peer and qualified probe output",
+          "observation_mode": "stabilizing-shell",
+          "session": "34270455a4244f11",
+          "sid": "77b26e77-2f6a-420b-bd9c-0ef218af07df",
+          "initial_native_pid": 1276220,
+          "retained_native_pid": 1276424,
+          "indeterminate_http": 409,
+          "public_error": "launch_indeterminate",
+          "public_cause": "stabilization_expired",
+          "elapsed_s": 4.714641993006808,
+          "injection_count": 14,
+          "first_actual_qualified_probe": "$0|%0|1276419|/tmp/aoe-s1-probe-b7jkxxow/tmux.sock|1276417|0|bash|\"exec '/tmp/aoe-s1-probe-b7jkxxow/bin/private-shell' '/tmp/aoe-s1-probe-b7jkxxow/tmp/aoe-pane-env-DDWiN7'\"\n",
+          "last_actual_qualified_probe": "$0|%0|1276419|/tmp/aoe-s1-probe-b7jkxxow/tmux.sock|1276417|0|bash|\"exec '/tmp/aoe-s1-probe-b7jkxxow/bin/private-shell' '/tmp/aoe-s1-probe-b7jkxxow/tmp/aoe-pane-env-DDWiN7'\"\n",
+          "failed_resume_marker_absent": true,
+          "history_sha256_before_explicit_input": "c1482576ca9617f9c77352b9adbd321f95f63d72545643ab97db510902a26296",
+          "next_send_http": 200,
+          "next_input_same_native_pid_sid": true,
+          "created_count": 1,
+          "loaded_count": 1,
+          "forbidden_wake_absent_through_confirmed_next_delivery": true,
+          "cleanup": {
+            "native_processes_gone": true,
+            "daemon_stopped": true,
+            "private_root_removed": true
+          }
+        }
+      },
+      {
+        "scenario": "S3-confirmed-corpse-same-conversation",
+        "result": {
+          "mode": "after",
+          "scope": "actual isolated AoE CLI/core/tmux, controlled transcript-reading native agent",
+          "session": "951f7d423c044b51",
+          "sid": "7c6ce25a-fdae-40cc-b81e-5e145e76672f",
+          "original_pane": [
+            "aoe_dev_owned-corpse-recover_951f7d42",
+            "%0",
+            "1277969",
+            "0"
+          ],
+          "confirmed_dead": [
+            "aoe_dev_owned-corpse-recover_951f7d42",
+            "%0",
+            "",
+            "1"
+          ],
+          "respawn_commands": [],
+          "native_pids": [
+            1277972,
+            1277969,
+            1278118
+          ],
+          "restart_http": 200,
+          "send_http": 200,
+          "fresh_input_pid": 1278118,
+          "history_sha256": "373ac607bca8091fbf14e1c11eeca7fe03c3256e454fe320ba81227f2018f004",
+          "history_bytes_unchanged": true,
+          "cleanup": {
+            "native_processes_gone": true,
+            "daemon_stopped": true,
+            "private_root_removed": true
+          }
+        }
+      },
+      {
+        "scenario": "S3-reentrant-native-prelaunch-hook",
+        "result": {
+          "scope": "actual isolated AoE core/CLI/tmux and reentrant Unix HTTP hooks",
+          "session": "c6eb2b306b044af7",
+          "native_pid": 1279254,
+          "native_sid": "fcfb0ed9-c51b-4ef2-ba91-26498b9bf74b",
+          "generation": 1,
+          "send_http": 200,
+          "hook_calls": [
+            {
+              "number": 1,
+              "status": 200,
+              "path": "/api/sessions/c6eb2b306b044af7/access",
+              "body": "{\"id\":\"c6eb2b306b044af7\",\"title\":\"reentrant-input-hook\",\"project_path\":\"/tmp/aoe-reentrant-hook-qo5xge1b/project\",\"artifact_dir\":\"/tmp/aoe-reentrant-hook-qo5xge1b/config/agent-of-empires-dev/artifacts/c6eb2b306b044af7\",\"group_path\":\"\",\"tool\":\"work-claude\",\"command\":\"work-claude\",\"extra_args\":\"\",\"status\":\"Starting\",\"agent_session_id\":\"fcfb0ed9-c51b-4ef2-ba91-26498b9bf74b\",\"lifecycle_generation\":1,\"dormant\":false,\"pane_dead_observed\":false,\"agent_pane\":{\"state\":\"alive\",\"tmux_session\":\"aoe_dev_reentrant-input-hook_c6eb2b30\",\"physical\":{\"identity\":{\"session_id\":\"$0\",\"pane_id\":\"%0\",\"pane_pid\":1279251},\"server\":{\"socket\":\"/tmp/aoe-reentrant-hook-qo5xge1b/tmux.sock\",\"pid\":1279249,\"birth\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:12474471\"}}}},\"auxiliary\":[{\"target\":{\"kind\":\"host\",\"index\":0},\"state\":\"absent\",\"tmux_session\":null}],\"yolo_mode\":false,\"created_at\":\"2026-10-31T22:59:16.456294401+00:00\",\"last_accessed_at\":\"2026-10-31T22:59:17.332346540+00:00\",\"idle_entered_at\":null,\"last_error\":null,\"branch\":null,\"main_repo_path\":null,\"is_sandboxed\":false,\"outside_repository\":true,\"scratch\":false,\"favorited\":false,\"urgent\":false,\"has_managed_worktree\":false,\"has_cleanable_worktree\":false,\"tie_workdir_to_name\":false,\"smart_rename\":\"inactive\",\"default_name\":false,\"has_terminal\":false,\"profile\":\"main\",\"cleanup_defaults\":{\"delete_worktree\":true,\"delete_branch\":false,\"delete_sandbox\":true,\"delete_to_trash\":true},\"remote_owner\":null,\"remote_owner_key\":null,\"notify_on_waiting\":null,\"notify_on_idle\":null,\"notify_on_error\":null,\"context_resume\":{\"state\":\"indeterminate\",\"reason\":\"runtime_check_required\"},\"acp_worker_state\":\"absent\",\"acp_capable\":true,\"acp_agent\":\"work-claude\",\"claude_fullscreen\":false,\"workspace_repos\":[]}"
+            },
+            {
+              "number": 2,
+              "status": 200,
+              "path": "/api/sessions/c6eb2b306b044af7/snooze",
+              "body": "{\"id\":\"c6eb2b306b044af7\",\"title\":\"reentrant-input-hook\",\"project_path\":\"/tmp/aoe-reentrant-hook-qo5xge1b/project\",\"artifact_dir\":\"/tmp/aoe-reentrant-hook-qo5xge1b/config/agent-of-empires-dev/artifacts/c6eb2b306b044af7\",\"group_path\":\"\",\"tool\":\"work-claude\",\"command\":\"work-claude\",\"extra_args\":\"\",\"status\":\"Starting\",\"agent_session_id\":\"fcfb0ed9-c51b-4ef2-ba91-26498b9bf74b\",\"lifecycle_generation\":1,\"dormant\":false,\"pane_dead_observed\":false,\"agent_pane\":{\"state\":\"alive\",\"tmux_session\":\"aoe_dev_reentrant-input-hook_c6eb2b30\",\"physical\":{\"identity\":{\"session_id\":\"$0\",\"pane_id\":\"%0\",\"pane_pid\":1279251},\"server\":{\"socket\":\"/tmp/aoe-reentrant-hook-qo5xge1b/tmux.sock\",\"pid\":1279249,\"birth\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:12474471\"}}}},\"auxiliary\":[{\"target\":{\"kind\":\"host\",\"index\":0},\"state\":\"absent\",\"tmux_session\":null}],\"yolo_mode\":false,\"created_at\":\"2026-10-31T22:59:16.456294401+00:00\",\"last_accessed_at\":\"2026-10-31T22:59:17.332346540+00:00\",\"idle_entered_at\":null,\"last_error\":null,\"branch\":null,\"main_repo_path\":null,\"is_sandboxed\":false,\"outside_repository\":true,\"scratch\":false,\"favorited\":false,\"urgent\":false,\"snoozed_until\":\"2026-10-31T23:29:17.341625218+00:00\",\"has_managed_worktree\":false,\"has_cleanable_worktree\":false,\"tie_workdir_to_name\":false,\"smart_rename\":\"inactive\",\"default_name\":false,\"has_terminal\":false,\"profile\":\"main\",\"cleanup_defaults\":{\"delete_worktree\":true,\"delete_branch\":false,\"delete_sandbox\":true,\"delete_to_trash\":true},\"remote_owner\":null,\"remote_owner_key\":null,\"notify_on_waiting\":null,\"notify_on_idle\":null,\"notify_on_error\":null,\"context_resume\":{\"state\":\"indeterminate\",\"reason\":\"runtime_check_required\"},\"acp_worker_state\":\"absent\",\"acp_capable\":true,\"acp_agent\":\"work-claude\",\"claude_fullscreen\":false,\"workspace_repos\":[]}"
+            }
+          ],
+          "snoozed_until_after_send_completed": "2026-10-31T23:29:17.341625218Z",
+          "history_sha256": "2e39bb43c4d6aae2593f7c02dbe9b5897378f1b99e5130140b1458fefdd58c1b",
+          "native_input": "PRIVATE_REENTRANT_NATIVE_INPUT",
+          "no_deadlock": true,
+          "limits": [
+            "Controlled native peer, not provider history proof",
+            "Exercises ordinary HTTP Send native fallback plus actual reentrant Access/Snooze; TUI and CLI races have separate deterministic regressions"
+          ],
+          "cleanup": {
+            "native_process_gone": true,
+            "daemon_stopped": true,
+            "private_root_removed": true
+          }
+        }
+      }
+    ],
+    "scope": "Actual isolated AoE CLI/core-daemon/tmux and controlled transcript-reading agent, not a provider incident. Includes S1 non-destruction and S3 same-conversation delivery plus actual reentrant hook. No separate S1/S2 binary run claimed. Initial wrong stabilizing argument failed before fixture startup; only corrected stabilizing-shell execution counts."
+  },
+  "additional": {
+    "cargo_fmt_check": {
+      "job": "bg_209",
+      "exit": 0,
+      "wall_seconds": 9.28
+    },
+    "frontend_unit": {
+      "job": "bg_212",
+      "passed": 4447,
+      "files": 374,
+      "type_errors": 0,
+      "wall_seconds": 142.8
+    },
+    "web_contracts": "format,eslint --max-warnings=0,testtypes,coverage matrix PASS",
+    "dependency_precondition": "Default verifier had no web/node_modules; initialoxfmt check failed before app tests. Installed locked593packages once withNode22.23.3, then all listed frontend checks executed.",
+    "first_smoke_argument_error": "stabilizing mode rejected before startup; corrected existing stabilizing-shell mode executed once; malformed successful case not repeated."
+  },
+  "remaining": "A0db current old-main proof remains valid but actualA←updatedS3 conflicts3 under pending semantic integration. B A-merge/custody regression active, not green. C and5040/5055/5181 incomplete. No remote CI/macOS/Windows/Nix/Codecov verdict."
+}
