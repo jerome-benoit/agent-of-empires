@@ -1,0 +1,106 @@
+{
+  "status": "Blocked: current remote CI has founded failures; A is pushed but not complete or ready. No fixes implemented by this checkpoint.",
+  "source_head": "dc87302e2fab0c4802a3e758cc8afe0ac2c4de72",
+  "source_tree": "57506759cdc6646e60d3ce616159dd3d390287b2",
+  "CI_merge": "3b7008f411df9e6a5e1af19cef1d6102ad8e5fcf",
+  "CI_merge_tree": "57506759cdc6646e60d3ce616159dd3d390287b2",
+  "workflow": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/41191832940",
+  "jobs": [
+    {
+      "name": "core-rest",
+      "id": 124510015716,
+      "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/41191832940/job/124510015716",
+      "log_command": [
+        "gh",
+        "api",
+        "repos/agent-of-empires/agent-of-empires/actions/jobs/124510015716/logs",
+        "--allow-escape-sequences"
+      ],
+      "raw_log_sha256": "1fb97a72a734fa1dba08117054e0bcacd4af0fba7422deac831dee5742365fc6",
+      "safe_local_log": "local://A-dc87302e-CI-core-rest.log",
+      "normalization": "ANSI/OSC and other nonprinting controls removed for safe inspection; original bytes hashed before normalization."
+    },
+    {
+      "name": "web-e2e",
+      "id": 124510015760,
+      "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/41191832940/job/124510015760",
+      "log_command": [
+        "gh",
+        "api",
+        "repos/agent-of-empires/agent-of-empires/actions/jobs/124510015760/logs",
+        "--allow-escape-sequences"
+      ],
+      "raw_log_sha256": "0ae6fde43f3f6866436ea9ce21325041a462fad08f8b3f146170bb426ed5c5db",
+      "safe_local_log": "local://A-dc87302e-CI-web-e2e.log",
+      "normalization": "ANSI/OSC and other nonprinting controls removed for safe inspection; original bytes hashed before normalization."
+    },
+    {
+      "name": "playwright-live",
+      "id": 124510015710,
+      "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/41191832940/job/124510015710",
+      "log_command": [
+        "gh",
+        "api",
+        "repos/agent-of-empires/agent-of-empires/actions/jobs/124510015710/logs",
+        "--allow-escape-sequences"
+      ],
+      "raw_log_sha256": "c3c017398c52f4f5f41b3754ad6749c92f6f4862c2704aca8382845911e78f92",
+      "safe_local_log": "local://A-dc87302e-CI-playwright-live.log",
+      "normalization": "ANSI/OSC and other nonprinting controls removed for safe inspection; original bytes hashed before normalization."
+    }
+  ],
+  "observed_failures": {
+    "core_rest": "5547run:5536passed/11failed/4skipped. Fourmidturn+sevensilent-orphan tests refuse OwnershipUnconfirmed before attach.",
+    "web_e2e": "213passed/1failed/3ignored. Failed structured fork leaves fork_pending/import_pending. Actual original native fork RPC absent from captured log.",
+    "playwright_live": "7failed:4stickyUnknowncontrols+2manualquotacontinuation+1scratchdirectorycleanup."
+  },
+  "validated_groups": [
+    {
+      "id": "A-CI1",
+      "finding": "Runner fixture child and parent use different registry roots; genuine ownership refusal, not a reason to weaken admission.",
+      "source": "tests/integration/common/mod.rs:187-223,306-321; src/acp/acp_client/mod.rs:716-733",
+      "state": "Validated source migration; no patch yet."
+    },
+    {
+      "id": "A-CI2",
+      "finding": "Actual healthy-control traces publish ready=false/unavailable=null and never regain qualified availability while work holds. Four native actions are blocked before HTTP.",
+      "source": "src/server/acp_ws.rs:198-211; src/acp/supervisor/requests.rs:113-141; src/acp/control_cache.rs:230-243; src/server/runtime.rs:259-264",
+      "state": "Forward-progress failure validated by original traces; exact contended lock remains inference. Safe fix under independent cross-validation."
+    },
+    {
+      "id": "A-CI3",
+      "finding": "Quota shutdown drops worker but leaves native runner alive; manual replacement spawn500 prevents existing explicit continuation.",
+      "source": "src/acp/acp_client/connection/prompt.rs:393-420; src/acp/supervisor/drain.rs:137-145; src/acp/supervisor/launch.rs:112-125",
+      "state": "Validated source+actual trace; full manual/automatic/queue policy migration under cross-validation."
+    },
+    {
+      "id": "A-CI4",
+      "finding": "Source path can preserve newborn physical custody without completing Starting construction, leaving delete waiting on vanished constructor.",
+      "source": "src/acp/supervisor/launch.rs:249-251; src/acp/supervisor/mod.rs:232-242",
+      "state": "Source defect validated; exact scratch-CI causal branch remains inference until artifact cross-validation."
+    },
+    {
+      "id": "A-CI5",
+      "finding": "Fork rejection/reset can lose current producer authority before delayed persistence.",
+      "source": "src/server/acp_events.rs:1017-1021,1487-1499; src/acp/acp_client/connection/establish.rs:465-486",
+      "state": "Source race validated; original-CI native RPC occurrence unproved; minimal A/B/C scope under cross-validation."
+    }
+  ],
+  "actual_live_artifact": {
+    "id": 13038977685,
+    "url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/41191832940/artifacts/13038977685",
+    "download_command": "gh run download 41191832940 --repo agent-of-empires/agent-of-empires --name playwright-live-report --dir /home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/CI-A-dc87302e-playwright-live-report",
+    "result": "exit0; originaltraceZIPs,error-contextmarkdownandPNGs inspected; no scenario rerun."
+  },
+  "local_verification_boundary": {
+    "earlier_A_proof": "https://github.com/jerome-benoit/agent-of-empires/blob/b157520b37b79bb713a255bb73808e412da2383b/.github/review-evidence/5053-A-main-ec7-dc87302e.json",
+    "local_shim_probe": "node present; acp-worker/test-shim/node_modules absent in sourceA/defaultverifier/webverifier when inspected now. shim_ready exits early and those cases count as passed. Prior local full-suite counts do not establish these Node-SDK branches exercised.",
+    "prerequisite_install": "npm ci --prefix acp-worker/test-shim succeeded in all three worktrees,2packages each,locked dependencies unchanged. Postfix checks must exercise actual Node fixtures."
+  },
+  "method": "Three primary read-only independent analyses complete. Three targeted independent cross-validations active. One semantic integrator; no source patch or policy weakening before consolidation. No unchanged rerun to confirm CI failures.",
+  "limits": [
+    "No source fix, corrected verdict, green remote CI, ready transition or issue closure claimed.",
+    "No history deletion or original OMP incident reproduction claimed.",
+    "Keep all meaningful existing behavior tests; do not repin wording, extend deadlines or accept refusal as success."
+  ]
+}
