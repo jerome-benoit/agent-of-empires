@@ -1,0 +1,22 @@
+{
+  "source_commit": "134e7e391843183e766416f23d4d6898589f927e",
+  "source_tree": "e830b647e87622488b0a27732739d2df3a6cb929",
+  "binary_sha256": "90031ae024041fbabc61c0121cd5195f2572ebef78039362574ae2522a665c53",
+  "cases": [
+    {
+      "scenario": "retained-load-fallback-before-C-on-B",
+      "command": [
+        "bun",
+        "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/acp-load-fallback-before.ts",
+        "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-B-verified-repairs/target/debug/aoe"
+      ],
+      "exit": 0,
+      "stdout": "BASELINE_ACP_LOAD_ERROR_SUBSTITUTES_FRESH {\"id\":\"384a5244af3b4f31\",\"originalSid\":\"fake-acp-1793431182323-0d69a712\",\"replacementSid\":\"fake-acp-1793431182576-816405dd\",\"loadError\":\"PRIVATE_NATIVE_LOAD_SERVICE_UNAVAILABLE\",\"spawnHttp\":200,\"newRequests\":2,\"promptRequests\":1,\"reset\":{\"SessionContextReset\":{\"reason\":\"session/load failed: PRIVATE_NATIVE_LOAD_SERVICE_UNAVAILABLE\"}},\"scope\":\"real AoE daemon/runner and fake native ACP; proves association replacement, not native history disappearance\"}\nPRIVATE_LOAD_BASELINE_CLEANUP_GREEN\n",
+      "stderr": ""
+    }
+  ],
+  "limits": [
+    "Binary built before source commit, exact verified staged tree; no embedded HEAD identity claim.",
+    "Controlled adapter proves association replacement without Fresh choice, not native transcript deletion."
+  ]
+}
