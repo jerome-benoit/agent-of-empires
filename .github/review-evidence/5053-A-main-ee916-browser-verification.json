@@ -1,0 +1,502 @@
+{
+  "source_snapshot": "b6e624fa05c026cfaa854cc5e44bcec0fe45139c",
+  "source_tree": "19149ec6065e6c56b9a3d058256b3de185898a3f",
+  "main": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+  "published_A_head": "0db7edb1244fe89a08ed45c7008a901526163f56",
+  "scope": "Local verification of staged latest-main integration; no new published source/remote CI claim.",
+  "frontend": {
+    "snapshot": "b6e624fa05c026cfaa854cc5e44bcec0fe45139c",
+    "tree": "19149ec6065e6c56b9a3d058256b3de185898a3f",
+    "base_updated_S3": "fa5040711b62f9638b2d45aa8c7769cee2983972",
+    "main": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+    "unit": {
+      "job": "bg218",
+      "tests": 4495,
+      "files": 375,
+      "type_errors": 0,
+      "wall_seconds": 141.48,
+      "command": "env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH node /home/fraggle/.local/share/mise/installs/node/22.23.3/bin/npx vitest run --coverage --maxWorkers=4 --coverage.include='{src/components/acp/AcpRuntime.tsx,src/components/acp/ApprovalCard.tsx,src/components/acp/Composer.tsx,src/components/acp/ComposerControls.tsx,src/components/acp/PlanModal.tsx,src/components/acp/SessionBanners.tsx,src/components/acp/SessionConfigControls.tsx,src/components/acp/StructuredView.tsx,src/components/acp/startupWait.ts,src/components/acp/useCancelEscalation.ts,src/hooks/acpSession/reducer.ts,src/hooks/acpSession/stateCache.ts,src/hooks/acpSession/useAcpConnection.ts,src/hooks/useAcpSession.ts,src/lib/acpTypes.ts}' --coverage.reportsDirectory=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/A-main-ee916-b6e624fa-unit-coverage"
+    },
+    "contracts": {
+      "job": "bg219",
+      "exit": 0,
+      "wall_seconds": 52.4,
+      "command": "env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH npm run format:check && env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH node node_modules/eslint/bin/eslint.js . --max-warnings=0 && env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH node scripts/check-env-isolation.mjs && env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH npm run typecheck:tests && env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH node tests/validate-coverage-matrix.mjs",
+      "format": "PASS",
+      "ESLint_max_warnings0": "PASS",
+      "env_isolation": "PASS",
+      "test_types": "PASS",
+      "matrix": "PASS"
+    },
+    "build": {
+      "job": "bg220",
+      "exit": 0,
+      "wall_seconds": 28.4,
+      "command": "env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH npm run build",
+      "entry_asset": "index-CJXDzfaa.js",
+      "limits": "Existing chunk-size/dynamic import warnings retained, not suppressed."
+    },
+    "isolated_A_added_line_coverage": {
+      "covered": 217,
+      "total": 233,
+      "percent": 93.13304721030043,
+      "files": [
+        {
+          "file": "web/src/components/acp/AcpRuntime.tsx",
+          "added_executable": 1,
+          "covered": 1,
+          "uncovered": []
+        },
+        {
+          "file": "web/src/components/acp/ApprovalCard.tsx",
+          "added_executable": 20,
+          "covered": 20,
+          "uncovered": []
+        },
+        {
+          "file": "web/src/components/acp/Composer.tsx",
+          "added_executable": 7,
+          "covered": 4,
+          "uncovered": [
+            195,
+            196,
+            197
+          ]
+        },
+        {
+          "file": "web/src/components/acp/ComposerControls.tsx",
+          "added_executable": 0,
+          "covered": 0,
+          "uncovered": []
+        },
+        {
+          "file": "web/src/components/acp/PlanModal.tsx",
+          "added_executable": 2,
+          "covered": 2,
+          "uncovered": []
+        },
+        {
+          "file": "web/src/components/acp/SessionBanners.tsx",
+          "added_executable": 4,
+          "covered": 3,
+          "uncovered": [
+            116
+          ]
+        },
+        {
+          "file": "web/src/components/acp/SessionConfigControls.tsx",
+          "added_executable": 2,
+          "covered": 2,
+          "uncovered": []
+        },
+        {
+          "file": "web/src/components/acp/StructuredView.tsx",
+          "added_executable": 4,
+          "covered": 0,
+          "uncovered": [
+            196,
+            225,
+            345,
+            348
+          ]
+        },
+        {
+          "file": "web/src/components/acp/startupWait.ts",
+          "added_executable": 0,
+          "covered": 0,
+          "uncovered": []
+        },
+        {
+          "file": "web/src/components/acp/useCancelEscalation.ts",
+          "added_executable": 27,
+          "covered": 27,
+          "uncovered": []
+        },
+        {
+          "file": "web/src/hooks/acpSession/reducer.ts",
+          "added_executable": 6,
+          "covered": 6,
+          "uncovered": []
+        },
+        {
+          "file": "web/src/hooks/acpSession/stateCache.ts",
+          "added_executable": 2,
+          "covered": 2,
+          "uncovered": []
+        },
+        {
+          "file": "web/src/hooks/acpSession/useAcpConnection.ts",
+          "added_executable": 7,
+          "covered": 4,
+          "uncovered": [
+            371,
+            372,
+            373
+          ]
+        },
+        {
+          "file": "web/src/hooks/useAcpSession.ts",
+          "added_executable": 38,
+          "covered": 36,
+          "uncovered": [
+            387,
+            396
+          ]
+        },
+        {
+          "file": "web/src/lib/acpTypes.ts",
+          "added_executable": 113,
+          "covered": 110,
+          "uncovered": [
+            1803,
+            1804,
+            1805
+          ]
+        }
+      ]
+    },
+    "limits": "Local unit V8 executable-line coverage against updated S3, not remote Codecov/main full comparison. Rust/mock/native-live still pending at this checkpoint."
+  },
+  "initial_mock_failure": {
+    "snapshot": "b6e624fa05c026cfaa854cc5e44bcec0fe45139c",
+    "tree": "19149ec6065e6c56b9a3d058256b3de185898a3f",
+    "job": "bg221",
+    "command": "env PATH=/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:$PATH CI=1 PLAYWRIGHT_PORT=4197 node /home/fraggle/.local/share/mise/installs/node/22.23.3/bin/npx playwright test --config=playwright.config.ts --workers=3 --retries=0 --trace=retain-on-failure --output=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/A-main-ee916-b6e624fa-mocked",
+    "tests": 393,
+    "passed": 390,
+    "failed": 3,
+    "workers": 3,
+    "retries": 0,
+    "trace": "retain-on-failure",
+    "wall_seconds": 276.55,
+    "failures": [
+      {
+        "test": "sidebar-chrome compact persists",
+        "observation": "Expand missing at5s assertion, present/pressed in later error snapshot",
+        "trace_dir": "sidebar-chrome-compact-mod-cf0bf-stays-tappable-and-persists-chromium"
+      },
+      {
+        "test": "sidebar-chrome empty becomes one session",
+        "observation": "expectedROW1 got0 for5s; later snapshot showsalpha/repo1; routefulfill starts165364.261 afterexpect ends158746.129",
+        "trace_dir": "sidebar-chrome-empty-sideb-94cc9-es-it-once-a-session-exists-chromium"
+      },
+      {
+        "test": "shortcuts rightdock/diff",
+        "observation": "30s whole test deadline in await waitForTimeout50 during second nominal1.5sNodeDate.now loop; cause unknown",
+        "trace_dir": "shortcuts-Cmd-Ctrl-Alt-B-t-48f8c-diff-pane-on-a-session-view-chromium"
+      }
+    ],
+    "artifact_root": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/A-main-ee916-b6e624fa-mocked",
+    "common_source_identity": {
+      "web/src/App.tsx": {
+        "S3": "0c2d05b5b0b84383826b365450c3aaab32bce7bb",
+        "A": "0c2d05b5b0b84383826b365450c3aaab32bce7bb",
+        "same": true
+      },
+      "web/src/components/sidebar": {
+        "S3": "25fdf607cca1ea2d94f3019d3274ab40c1a4ae95",
+        "A": "25fdf607cca1ea2d94f3019d3274ab40c1a4ae95",
+        "same": true
+      },
+      "web/tests/helpers/sidebarMocks.ts": {
+        "S3": "c7da688b4f9ee40635ad83a595a109b7c1bcbe50",
+        "A": "c7da688b4f9ee40635ad83a595a109b7c1bcbe50",
+        "same": true
+      },
+      "web/tests/helpers/terminal-mocks.ts": {
+        "S3": "100f678331b7fa0b4eb4f4ea441c02fd01826932",
+        "A": "100f678331b7fa0b4eb4f4ea441c02fd01826932",
+        "same": true
+      },
+      "web/tests/helpers/mockedTest.ts": {
+        "S3": "347e16cbf1786248a7aa8c00d3aaecfac77d831a",
+        "A": "347e16cbf1786248a7aa8c00d3aaecfac77d831a",
+        "same": true
+      },
+      "web/tests/sidebar-chrome.spec.ts": {
+        "S3": "6bb9883f9b3544161f071416b3c3bfa256710c89",
+        "A": "6bb9883f9b3544161f071416b3c3bfa256710c89",
+        "same": true
+      },
+      "web/tests/shortcuts.spec.ts": {
+        "S3": "8890e41988c7364a2800598564f12e2a27a56aa2",
+        "A": "8890e41988c7364a2800598564f12e2a27a56aa2",
+        "same": true
+      },
+      "web/package.json": {
+        "S3": "0ab9807ed55cf116b7897559d40681cf8a5512b6",
+        "A": "0ab9807ed55cf116b7897559d40681cf8a5512b6",
+        "same": true
+      },
+      "web/package-lock.json": {
+        "S3": "9186b65e0815b8bf3980bb93464b7bb30f3096ed",
+        "A": "9186b65e0815b8bf3980bb93464b7bb30f3096ed",
+        "same": true
+      }
+    },
+    "facts": "Assets built beforepreview andnotmutated; no new webcargo duringrun. Differentdefaultverifier Rustbuild/clippy/nextest active concurrently. No pagefatalexception established in initialscan.",
+    "uncertainty": "No host/resource/clock/app attribution yet. Do not labelflake, increase waits, changeproduct or rerununchanged toconfirm. Two independenttrace analyses active."
+  },
+  "instrumented_facts": [
+    {
+      "case": "shortcuts.probe-Cmd-Ctrl-A-1992b-diff-pane-on-a-session-view-chromium",
+      "heartbeat_gaps_over250ms": [
+        {
+          "kind": "browser",
+          "nodeMono": 1434.45237,
+          "nodeWall": 1793491414848,
+          "browser": {
+            "kind": "browser-heartbeat-gap",
+            "mono": 502.6000000089407,
+            "origin": 1793491414283.7,
+            "wall": 1793491414786,
+            "gap": 308.29999999701977
+          }
+        }
+      ],
+      "key_durations": [
+        {
+          "key": "ControlOrMeta+Alt+b",
+          "milliseconds": 32.62617100000011
+        },
+        {
+          "key": "ControlOrMeta+Alt+b",
+          "milliseconds": 31.15275799999995
+        },
+        {
+          "key": "Shift+D",
+          "milliseconds": 18.67969600000015
+        },
+        {
+          "key": "Shift+D",
+          "milliseconds": 21.787468999999874
+        }
+      ],
+      "finish": [
+        {
+          "kind": "probe-finish",
+          "nodeMono": 4940.349779,
+          "nodeWall": 1793491418354,
+          "status": "passed",
+          "expectedStatus": "passed",
+          "errors": []
+        }
+      ]
+    },
+    {
+      "case": "sidebar.probe-compact-mode-88af3-stays-tappable-and-persists-chromium",
+      "heartbeat_gaps_over250ms": [
+        {
+          "kind": "browser",
+          "nodeMono": 1348.691361,
+          "nodeWall": 1793491414767,
+          "browser": {
+            "kind": "browser-heartbeat-gap",
+            "mono": 460.59999999403954,
+            "origin": 1793491414256,
+            "wall": 1793491414716,
+            "gap": 277.20000000298023
+          }
+        }
+      ],
+      "key_durations": [],
+      "finish": [
+        {
+          "kind": "probe-finish",
+          "nodeMono": 3022.305733,
+          "nodeWall": 1793491416441,
+          "status": "passed",
+          "expectedStatus": "passed",
+          "errors": []
+        }
+      ]
+    },
+    {
+      "case": "sidebar.probe-empty-sideba-bbe18-es-it-once-a-session-exists-chromium",
+      "heartbeat_gaps_over250ms": [
+        {
+          "kind": "browser",
+          "nodeMono": 1353.24615,
+          "nodeWall": 1793491414776,
+          "browser": {
+            "kind": "browser-heartbeat-gap",
+            "mono": 455,
+            "origin": 1793491414268.1,
+            "wall": 1793491414723,
+            "gap": 279.8999999910593
+          }
+        }
+      ],
+      "key_durations": [],
+      "finish": [
+        {
+          "kind": "probe-finish",
+          "nodeMono": 2253.20833,
+          "nodeWall": 1793491415676,
+          "status": "passed",
+          "expectedStatus": "passed",
+          "errors": []
+        }
+      ]
+    }
+  ],
+  "isolated_full_mock": {
+    "snapshot": "b6e624fa05c026cfaa854cc5e44bcec0fe45139c",
+    "tree": "19149ec6065e6c56b9a3d058256b3de185898a3f",
+    "passed": 393,
+    "failed": 0,
+    "workers": 3,
+    "retries": 0,
+    "prior_failure_record": "local://5053-A-main-ee916-mocked-red-checkpoint.json",
+    "instrumentation": "local://5053-A-timing-instrumented-facts.json",
+    "root_cause": "Unknown. No product/test timeout/assertion change. Heavy owned Cargo and Chromium serialized for this run; no causal host attribution proven.",
+    "execution": {
+      "plan": {
+        "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification/web",
+        "output": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/A-main-ee916-mocked-isolated",
+        "env": {
+          "PATH": "/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:/nix/store/xgw813vgzl2q0696sq45adpj0xd690jq-git-2.56.0/bin:/home/fraggle/.dvm/versions/v2.9.7:/home/fraggle/.local/share/mise/installs/pnpm/latest:/home/fraggle/.local/share/mise/installs/node/latest/bin:/home/fraggle/.local/share/mise/shims:/home/fraggle/bin:/home/fraggle/.local/bin:/home/fraggle/.volta/bin:/home/fraggle/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/lib64/ccache:/home/fraggle/.cargo/bin:/usr/local/bin:/usr/bin:/nix/store/pda6j5833xwmiqh8w8bpsccs22hxqlk3-ghostty-1.4.0/bin:",
+          "CI": "1",
+          "PLAYWRIGHT_PORT": "4197"
+        },
+        "steps": [
+          {
+            "name": "mocked-chromium",
+            "argv": [
+              "/home/fraggle/.local/share/mise/installs/node/22.23.3/bin/node",
+              "/home/fraggle/.local/share/mise/installs/node/22.23.3/bin/npx",
+              "playwright",
+              "test",
+              "--config=playwright.config.ts",
+              "--workers=3",
+              "--retries=0",
+              "--trace=retain-on-failure",
+              "--output=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/A-main-ee916-mocked-isolated/results"
+            ]
+          }
+        ]
+      },
+      "started": 1793491602.8712945,
+      "steps": [
+        {
+          "name": "mocked-chromium",
+          "argv": [
+            "/home/fraggle/.local/share/mise/installs/node/22.23.3/bin/node",
+            "/home/fraggle/.local/share/mise/installs/node/22.23.3/bin/npx",
+            "playwright",
+            "test",
+            "--config=playwright.config.ts",
+            "--workers=3",
+            "--retries=0",
+            "--trace=retain-on-failure",
+            "--output=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/A-main-ee916-mocked-isolated/results"
+          ],
+          "started": 1793491602.871532,
+          "state": "finished",
+          "exit": 0,
+          "finished": 1793491832.6307878,
+          "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/A-main-ee916-mocked-isolated/00-mocked-chromium.log"
+        }
+      ],
+      "finished": 1793491832.6313725
+    }
+  },
+  "isolated_mock_live_output": "[WebServer] (node:1825823) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)\n[WebServer] (node:1825970) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)\n\nRunning 393 tests using 3 workers\n(node:1826259) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:1826265) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:1826258) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7(node:1890997) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\u00b7\u00b7(node:1891449) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:1891651) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\n  393 passed (3.8m)\n::notice title=\ud83c\udfad Playwright Run Summary::  393 passed (3.8m)\n",
+  "review_refresh": {
+    "data": {
+      "repository": {
+        "p5058": {
+          "number": 5058,
+          "url": "https://github.com/agent-of-empires/agent-of-empires/pull/5058",
+          "isDraft": true,
+          "headRefName": "fix/5054-indeterminate-resume-probe",
+          "headRefOid": "7ba8ab387d20685ddd56dc8317babf85b4bc820a",
+          "baseRefOid": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+          "mergeable": "MERGEABLE",
+          "mergeStateStatus": "BLOCKED",
+          "reviews": {
+            "nodes": []
+          },
+          "reviewThreads": {
+            "totalCount": 0,
+            "nodes": []
+          }
+        },
+        "p5059": {
+          "number": 5059,
+          "url": "https://github.com/agent-of-empires/agent-of-empires/pull/5059",
+          "isDraft": true,
+          "headRefName": "fix/5053-operation-error-evidence",
+          "headRefOid": "42ef2d94ca342470afc49d6dddb2d07340458f19",
+          "baseRefOid": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+          "mergeable": "MERGEABLE",
+          "mergeStateStatus": "BLOCKED",
+          "reviews": {
+            "nodes": []
+          },
+          "reviewThreads": {
+            "totalCount": 0,
+            "nodes": []
+          }
+        },
+        "p5083": {
+          "number": 5083,
+          "url": "https://github.com/agent-of-empires/agent-of-empires/pull/5083",
+          "isDraft": true,
+          "headRefName": "fix/5054-evidence-based-recovery",
+          "headRefOid": "fa5040711b62f9638b2d45aa8c7769cee2983972",
+          "baseRefOid": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+          "mergeable": "MERGEABLE",
+          "mergeStateStatus": "BLOCKED",
+          "reviews": {
+            "nodes": []
+          },
+          "reviewThreads": {
+            "totalCount": 0,
+            "nodes": []
+          }
+        },
+        "p5142": {
+          "number": 5142,
+          "url": "https://github.com/agent-of-empires/agent-of-empires/pull/5142",
+          "isDraft": true,
+          "headRefName": "fix/5053-acp-runtime-loss",
+          "headRefOid": "0db7edb1244fe89a08ed45c7008a901526163f56",
+          "baseRefOid": "ec7bd0f8cab83c76140de76211679649b4499363",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviews": {
+            "nodes": []
+          },
+          "reviewThreads": {
+            "totalCount": 0,
+            "nodes": []
+          }
+        },
+        "p5177": {
+          "number": 5177,
+          "url": "https://github.com/agent-of-empires/agent-of-empires/pull/5177",
+          "isDraft": true,
+          "headRefName": "fix/5054-owned-worker-retirement",
+          "headRefOid": "ca189fdaac00dfa0a026046cd1b19021651b7ee6",
+          "baseRefOid": "ec7bd0f8cab83c76140de76211679649b4499363",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviews": {
+            "nodes": []
+          },
+          "reviewThreads": {
+            "totalCount": 0,
+            "nodes": []
+          }
+        }
+      }
+    }
+  },
+  "limits": [
+    "No product or test fix was made for the three initial timing failures. Root cause remains unknown.",
+    "393-case isolated run used unchanged production assets, assertions, deadlines, workers3, retries0.",
+    "Rust default/web and actual native/browser suites on this new tree remain pending. Historical A0db proof is not reused as new-tree success.",
+    "Bf6 is local only; C and 5040/5055 incomplete. 5181 source implementation is not runtime verified."
+  ]
+}
