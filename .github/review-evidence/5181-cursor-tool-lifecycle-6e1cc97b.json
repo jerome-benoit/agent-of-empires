@@ -1,0 +1,2709 @@
+{
+  "issue": "https://github.com/agent-of-empires/agent-of-empires/issues/5181",
+  "status": "Corrected and locally verified; draft PR publication next; no remote CI/merge/issue closure claim.",
+  "head": "6e1cc97beba2d349abdb709dc6894ddb9cf3567d",
+  "tree": "3460d0ae4049363e9d9077dcbb9881cc3dc28331",
+  "parent_main": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+  "design": {
+    "source": [
+      "src/acp/transcript.rs:113-125",
+      "src/acp/transcript.rs:165-207",
+      "src/acp/transcript.rs:504-552",
+      "src/acp/transcript.rs:686-707",
+      "src/server/acp_ws.rs:914-1026",
+      "docs/development/internals/structured-view.md:98-101"
+    ],
+    "decision": "Track ordered lifecycle/latest output separately from rendered rows; emit later correlated completion/Stop once without inventing prefix starts.",
+    "scope": "Three files; no frontend/native-control/protocol/schema/dependency changes.",
+    "source_counter_review": "AReplayToolProjectionAudit; no concrete defect found; source only."
+  },
+  "rust": {
+    "snapshot": "34699d2c1001401825d664b6b269ed4a578f7b28",
+    "tree": "3460d0ae4049363e9d9077dcbb9881cc3dc28331",
+    "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5181-34699d2c-web/target/debug/aoe",
+    "sha256": "54b1e5399ce923f1336b6a569a288dbcfeb5b634d5d9c2a5c9f41b825e73eda9",
+    "execution": {
+      "plan": {
+        "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5181-web-verification",
+        "output": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-rust-web-persistent",
+        "unset": [
+          "AOE_TEST_ACP_RUNNER_EXE"
+        ],
+        "env": {
+          "PATH": "/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:/nix/store/xgw813vgzl2q0696sq45adpj0xd690jq-git-2.56.0/bin:/home/fraggle/.dvm/versions/v2.9.7:/home/fraggle/.local/share/mise/installs/pnpm/latest:/home/fraggle/.local/share/mise/installs/node/latest/bin:/home/fraggle/.local/share/mise/shims:/home/fraggle/bin:/home/fraggle/.local/bin:/home/fraggle/.volta/bin:/home/fraggle/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/lib64/ccache:/home/fraggle/.cargo/bin:/usr/local/bin:/usr/bin:/nix/store/pda6j5833xwmiqh8w8bpsccs22hxqlk3-ghostty-1.4.0/bin:",
+          "CARGO_BUILD_JOBS": "1",
+          "CARGO_TARGET_DIR": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target",
+          "TMPDIR": "/tmp/aoeA.XyJ6c1"
+        },
+        "steps": [
+          {
+            "name": "format",
+            "argv": [
+              "cargo",
+              "fmt",
+              "--check"
+            ]
+          },
+          {
+            "name": "build-web",
+            "argv": [
+              "cargo",
+              "build",
+              "--features",
+              "web,e2e-tests"
+            ]
+          },
+          {
+            "name": "freeze-web-binary",
+            "argv": [
+              "cp",
+              "--reflink=auto",
+              "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/debug/aoe",
+              "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5181-34699d2c-web/target/debug/aoe"
+            ]
+          },
+          {
+            "name": "clippy-tests",
+            "argv": [
+              "cargo",
+              "clippy",
+              "--features",
+              "web,e2e-tests",
+              "--tests",
+              "--",
+              "-D",
+              "warnings"
+            ]
+          },
+          {
+            "name": "focused-lifecycle-ws",
+            "argv": [
+              "cargo",
+              "nextest",
+              "run",
+              "--features",
+              "web,e2e-tests",
+              "--lib",
+              "--test-threads=3",
+              "-E",
+              "test(acp::transcript::) or test(server::acp_ws::)"
+            ]
+          },
+          {
+            "name": "nextest-full",
+            "argv": [
+              "cargo",
+              "nextest",
+              "run",
+              "--features",
+              "web,e2e-tests",
+              "--no-fail-fast",
+              "--test-threads=3",
+              "-E",
+              "not binary(e2e)"
+            ]
+          }
+        ]
+      },
+      "started": 1793492715.4896133,
+      "steps": [
+        {
+          "name": "format",
+          "argv": [
+            "cargo",
+            "fmt",
+            "--check"
+          ],
+          "started": 1793492715.4898293,
+          "state": "finished",
+          "exit": 0,
+          "finished": 1793492725.2247221,
+          "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-rust-web-persistent/00-format.log"
+        },
+        {
+          "name": "build-web",
+          "argv": [
+            "cargo",
+            "build",
+            "--features",
+            "web,e2e-tests"
+          ],
+          "started": 1793492725.225031,
+          "state": "finished",
+          "exit": 0,
+          "finished": 1793493736.0158846,
+          "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-rust-web-persistent/01-build-web.log"
+        },
+        {
+          "name": "freeze-web-binary",
+          "argv": [
+            "cp",
+            "--reflink=auto",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/debug/aoe",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5181-34699d2c-web/target/debug/aoe"
+          ],
+          "started": 1793493736.01624,
+          "state": "finished",
+          "exit": 0,
+          "finished": 1793493736.1969662,
+          "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-rust-web-persistent/02-freeze-web-binary.log"
+        },
+        {
+          "name": "clippy-tests",
+          "argv": [
+            "cargo",
+            "clippy",
+            "--features",
+            "web,e2e-tests",
+            "--tests",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "started": 1793493736.1974802,
+          "state": "finished",
+          "exit": 0,
+          "finished": 1793493958.635522,
+          "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-rust-web-persistent/03-clippy-tests.log"
+        },
+        {
+          "name": "focused-lifecycle-ws",
+          "argv": [
+            "cargo",
+            "nextest",
+            "run",
+            "--features",
+            "web,e2e-tests",
+            "--lib",
+            "--test-threads=3",
+            "-E",
+            "test(acp::transcript::) or test(server::acp_ws::)"
+          ],
+          "started": 1793493958.6359918,
+          "state": "finished",
+          "exit": 0,
+          "finished": 1793494225.9541683,
+          "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-rust-web-persistent/04-focused-lifecycle-ws.log"
+        },
+        {
+          "name": "nextest-full",
+          "argv": [
+            "cargo",
+            "nextest",
+            "run",
+            "--features",
+            "web,e2e-tests",
+            "--no-fail-fast",
+            "--test-threads=3",
+            "-E",
+            "not binary(e2e)"
+          ],
+          "started": 1793494225.9545681,
+          "state": "finished",
+          "exit": 0,
+          "finished": 1793494563.8291836,
+          "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-rust-web-persistent/05-nextest-full.log"
+        }
+      ],
+      "finished": 1793494563.8297517
+    },
+    "summaries": {
+      "format": [],
+      "build-web": [
+        "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16m 50s"
+      ],
+      "freeze-web-binary": [],
+      "clippy-tests": [
+        "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 42s"
+      ],
+      "focused-lifecycle-ws": [
+        "    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 26s",
+        "    Starting 22 tests across 1 binary (5273 tests skipped)",
+        "     Summary [   0.119s] 22 tests run: 22 passed, 5273 skipped"
+      ],
+      "nextest-full": [
+        "    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 31s",
+        "    Starting 5490 tests across 5 binaries (4 tests and 1 binary skipped)",
+        "     Summary [ 186.003s] 5490 tests run: 5490 passed, 4 skipped"
+      ]
+    },
+    "limits": "Linux local Rust checks; no before/after browser, remoteCI or provider incident result yet."
+  },
+  "focused_live_output": "   Compiling serde_json v1.0.154\n   Compiling tokio v1.53.3\n   Compiling regex-automata v0.4.18\n   Compiling tokio-util v0.7.20\n   Compiling schemars v1.2.3\n   Compiling hyper v1.12.0\n   Compiling num-rational v0.4.2\n   Compiling num-iter v0.1.46\n   Compiling num-complex v0.4.6\n   Compiling num v0.4.3\n   Compiling hyper-util v0.1.21\n   Compiling ahash v0.8.12\n   Compiling tower v0.5.3\n   Compiling webauthn-rs-proto v0.5.5\n   Compiling tokio-rustls v0.26.6\n   Compiling borrow-or-share v0.2.4\n   Compiling bit-vec v0.8.0\n   Compiling bit-set v0.8.0\n   Compiling fluent-uri v0.4.1\n   Compiling webauthn-rs-core v0.5.5\n   Compiling serde_with v3.24.0\n   Compiling fraction v0.17.0\n   Compiling proc-macro2 v1.0.107\n   Compiling tokio-stream v0.1.19\n   Compiling micromap v0.3.0\n   Compiling vsimd v0.8.0\n   Compiling bytecount v0.6.9\n   Compiling num-cmp v0.1.0\n   Compiling outref v0.5.2\n   Compiling uuid-simd v0.8.0\n   Compiling jsonschema-value v0.59.0\n   Compiling referencing v0.59.0\n   Compiling async-stream v0.3.6\n   Compiling quote v1.0.47\n   Compiling tokio-tungstenite v0.29.0\n   Compiling agent-client-protocol-schema v1.9.1\n   Compiling unicode-general-category v1.1.0\n   Compiling fancy-regex v0.19.2\n   Compiling hyper-rustls v0.27.10\n   Compiling tower-http v0.6.11\n   Compiling regex v1.13.1\n   Compiling matchers v0.2.0\n   Compiling jsonschema-regex v0.59.0\n   Compiling email_address v0.2.9\n   Compiling serde_bytes v0.11.19\n   Compiling bitflags v1.3.2\n   Compiling tower-http v0.7.1\n   Compiling agent-client-protocol v2.2.0\n   Compiling aoe-plugin-api v0.1.0 (/home/fraggle/src/agent-of-empires-git-worktrees/5181-web-verification/aoe-plugin-api)\n   Compiling jsonwebtoken v11.1.0\n   Compiling webauthn-authenticator-rs v0.5.5\n   Compiling tracing-subscriber v0.3.23\n   Compiling rmcp v3.5.1\n   Compiling axum v0.8.9\n   Compiling serial_test v4.0.1\n   Compiling jsonschema v0.59.0\n   Compiling reqwest v0.13.5\n   Compiling syn v3.0.9\n   Compiling tokio-tungstenite v0.30.0\n   Compiling cargo-husky v1.5.0\n   Compiling webauthn-rs v0.5.5\n   Compiling agent-of-empires v1.21.0 (/home/fraggle/src/agent-of-empires-git-worktrees/5181-web-verification)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 26s\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n Nextest run ID 75bbf2ba-ffeb-4b39-9496-46c778d78468 with nextest profile: default\n    Starting 22 tests across 1 binary (5273 tests skipped)\n        PASS [   0.011s] ( 1/22) agent-of-empires acp::transcript::tests::compaction_summary_row_is_keyed_by_compaction\n        PASS [   0.011s] ( 2/22) agent-of-empires acp::transcript::tests::ask_user_question_cards_are_suppressed_in_either_order\n        PASS [   0.012s] ( 3/22) agent-of-empires acp::transcript::tests::agent_message_chunks_split_on_a_new_message_id\n        PASS [   0.010s] ( 4/22) agent-of-empires acp::transcript::tests::notice_divider_and_control_events_render_per_event\n        PASS [   0.016s] ( 5/22) agent-of-empires acp::transcript::tests::empty_output_notice_needs_an_output_less_unsteered_turn\n        PASS [   0.016s] ( 6/22) agent-of-empires acp::transcript::tests::keyed_session_notice_is_replaced_in_place\n        PASS [   0.013s] ( 7/22) agent-of-empires acp::transcript::tests::observed_prior_chunks_carry_the_message_id_into_a_partial_fold\n        PASS [   0.012s] ( 8/22) agent-of-empires acp::transcript::tests::prefix_start_completion_emits_only_its_correlated_terminal\n        PASS [   0.015s] ( 9/22) agent-of-empires acp::transcript::tests::partial_fold_keeps_elicitation_suppression\n        PASS [   0.012s] (10/22) agent-of-empires acp::transcript::tests::prefix_tool_lifecycle_retains_output_and_order_without_rendering_old_rows\n        PASS [   0.016s] (11/22) agent-of-empires acp::transcript::tests::prompts_append_keyed_rows_and_replays_are_dropped\n        PASS [   0.012s] (12/22) agent-of-empires acp::transcript::tests::tool_rows_pick_their_text_stay_unique_and_synthesize_late_starts\n        PASS [   0.016s] (13/22) agent-of-empires acp::transcript::tests::repeated_starts_and_updates_merge_without_losing_richer_fields\n        PASS [   0.013s] (14/22) agent-of-empires acp::transcript::tests::turn_endings_sweep_open_tools_once\n        PASS [   0.012s] (15/22) agent-of-empires server::acp_ws::tests::attention_payloads_are_session_scoped_and_kind_distinct\n        PASS [   0.016s] (16/22) agent-of-empires server::acp_ws::tests::connect_fold_covers_all_history_while_frames_stay_scoped_to_since\n        PASS [   0.014s] (17/22) agent-of-empires server::acp_ws::tests::cursor_bootstrap_keeps_prefix_tools_for_stored_and_live_terminals\n        PASS [   0.029s] (18/22) agent-of-empires server::acp_ws::tests::control_fold_skips_events_the_drain_already_applied\n        PASS [   0.024s] (19/22) agent-of-empires server::acp_ws::tests::fold_control_state_tracks_the_turn_flags_dispatch_reads\n        PASS [   0.011s] (20/22) agent-of-empires server::acp_ws::tests::reconnect_fold_marks_a_message_that_follows_the_cursor\n        PASS [   0.029s] (21/22) agent-of-empires server::acp_ws::tests::lagged_broadcast_reports_gap_and_rebuilds_control_state\n        PASS [   0.016s] (22/22) agent-of-empires server::acp_ws::tests::retained_notice_keeps_its_dismissal_identity_after_reconnect\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n     Summary [   0.119s] 22 tests run: 22 passed, 5273 skipped\n",
+  "full_summary": [
+    "    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 31s",
+    "    Starting 5490 tests across 5 binaries (4 tests and 1 binary skipped)",
+    "     Summary [ 186.003s] 5490 tests run: 5490 passed, 4 skipped"
+  ],
+  "normal_commit": {
+    "plan": {
+      "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5054-owned-worker-retirement",
+      "output": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-normal-commit-persistent",
+      "env": {
+        "PATH": "/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:/nix/store/xgw813vgzl2q0696sq45adpj0xd690jq-git-2.56.0/bin:/home/fraggle/.dvm/versions/v2.9.7:/home/fraggle/.local/share/mise/installs/pnpm/latest:/home/fraggle/.local/share/mise/installs/node/latest/bin:/home/fraggle/.local/share/mise/shims:/home/fraggle/bin:/home/fraggle/.local/bin:/home/fraggle/.volta/bin:/home/fraggle/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/lib64/ccache:/home/fraggle/.cargo/bin:/usr/local/bin:/usr/bin:/nix/store/pda6j5833xwmiqh8w8bpsccs22hxqlk3-ghostty-1.4.0/bin:",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_TARGET_DIR": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target",
+        "TMPDIR": "/tmp/aoeA.XyJ6c1"
+      },
+      "steps": [
+        {
+          "name": "normal-commit",
+          "argv": [
+            "git",
+            "commit",
+            "-m",
+            "fix(acp): settle tools opened before cursor",
+            "-m",
+            "Retain tool lifecycle and output across skipped cursor prefixes.\nClose only open tools and correlate the later terminal without replaying\nhistorical rows.\n\nRefs #5181"
+          ]
+        }
+      ]
+    },
+    "started": 1793494745.330831,
+    "steps": [
+      {
+        "name": "normal-commit",
+        "argv": [
+          "git",
+          "commit",
+          "-m",
+          "fix(acp): settle tools opened before cursor",
+          "-m",
+          "Retain tool lifecycle and output across skipped cursor prefixes.\nClose only open tools and correlate the later terminal without replaying\nhistorical rows.\n\nRefs #5181"
+        ],
+        "started": 1793494745.331057,
+        "state": "finished",
+        "exit": 0,
+        "finished": 1793494794.529588,
+        "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-normal-commit-persistent/00-normal-commit.log"
+      }
+    ],
+    "finished": 1793494794.5298681
+  },
+  "normal_hook_live_output": "+cargo clippy -- -D warnings\n   Compiling agent-of-empires v1.21.0 (/home/fraggle/src/agent-of-empires-git-worktrees/5054-owned-worker-retirement)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 43.34s\n+cargo fmt -- --check\n[fix/5181-late-transcript-tool-state 6e1cc97be] fix(acp): settle tools opened before cursor\n 3 files changed, 498 insertions(+), 42 deletions(-)\n",
+  "browser": {
+    "snapshot": "34699d2c1001401825d664b6b269ed4a578f7b28",
+    "tree": "3460d0ae4049363e9d9077dcbb9881cc3dc28331",
+    "committed_pushed_head": "6e1cc97beba2d349abdb709dc6894ddb9cf3567d",
+    "before_binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-A-abac976c-web/target/debug/aoe",
+    "after_binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5181-34699d2c-web/target/debug/aoe",
+    "after_sha256": "54b1e5399ce923f1336b6a569a288dbcfeb5b634d5d9c2a5c9f41b825e73eda9",
+    "baseline_transcript_difference": "Whole-file identity to main is FALSE; immutable diff shows only A diagnostic event branches/test constructors. Prefix observe_prior and cancelled Stop/sweep path unchanged. Standalone-main Rust regressions independently pass. No standalone-main before UI run claimed.",
+    "baseline_transcript_diff": "diff --git a/src/acp/transcript.rs b/src/acp/transcript.rs\nindex ed5fbc754..77efc8d66 100644\n--- a/src/acp/transcript.rs\n+++ b/src/acp/transcript.rs\n@@ -327,13 +327,23 @@ impl TranscriptModel {\n                 deltas\n             }\n             // The failure itself is the turn's visible product, so no empty-output notice.\n-            Event::AgentStartupError { message } => {\n+            Event::AgentStartupError { message, .. } => {\n                 let mut deltas = self.sweep_open_tools(seq);\n                 self.turn_active = false;\n                 self.turn_has_output = true;\n                 deltas.push(self.notice(seq, format!(\"agent startup failed: {message}\")));\n                 deltas\n             }\n+            Event::AcpConnectionUnavailable { source, cause, .. } => {\n+                let mut deltas = self.sweep_open_tools(seq);\n+                self.turn_active = false;\n+                self.turn_has_output = true;\n+                deltas.push(self.notice(\n+                    seq,\n+                    format!(\"ACP connection unavailable ({source:?}, {cause:?})\"),\n+                ));\n+                deltas\n+            }\n             // A dedicated remediation screen renders this, so the timeline stays quiet.\n             Event::IncompatibleAgent { .. } => {\n                 let deltas = self.sweep_open_tools(seq);\n@@ -380,7 +390,7 @@ impl TranscriptModel {\n                     None => vec![self.push(id, TranscriptRowKind::CompactionSummary, text.clone())],\n                 }\n             }\n-            Event::SessionContextReset { reason } => {\n+            Event::SessionContextReset { reason, .. } => {\n                 let has_prior_prompt = self.rows.iter().any(|r| {\n                     matches!(\n                         r.kind,\n@@ -404,7 +414,7 @@ impl TranscriptModel {\n                     text,\n                 )]\n             }\n-            Event::PromptRuntimeError { message } => {\n+            Event::PromptRuntimeError { message, .. } => {\n                 self.turn_has_output = true;\n                 vec![self.notice(seq, format!(\"prompt failed: {message}\"))]\n             }\n@@ -894,17 +904,13 @@ mod tests {\n         // (event, row id, kind, text)\n         let cases = [\n             (\n-                Event::AgentStartupError {\n-                    message: \"node missing\".into(),\n-                },\n+                Event::AgentStartupError { message: \"node missing\".into(), native_subject: None },\n                 \"notice-1\",\n                 TranscriptRowKind::Notice,\n                 \"agent startup failed: node missing\".to_string(),\n             ),\n             (\n-                Event::PromptRuntimeError {\n-                    message: \"stream died\".into(),\n-                },\n+                Event::PromptRuntimeError { message: \"stream died\".into(), evidence: None, native_subject: None },\n                 \"notice-1\",\n                 TranscriptRowKind::Notice,\n                 \"prompt failed: stream died\".to_string(),\n@@ -1025,6 +1031,7 @@ mod tests {\n         // A context-reset divider needs a reason or a prior prompt.\n         let reset = |reason: &str| Event::SessionContextReset {\n             reason: reason.into(),\n+            fork_rejection: None,\n         };\n         assert!(fold([reset(\"\")]).rows().is_empty());\n         assert!(fold([reset(\"session/load failed: bad id\")])\n@@ -1612,6 +1619,7 @@ mod tests {\n             stopped(\"cancelled\"),\n             Event::AgentStartupError {\n                 message: \"boom\".into(),\n+                native_subject: None,\n             },\n             Event::IncompatibleAgent {\n                 detail: crate::acp::state::StartupErrorDetail::UnsupportedProtocolVersion {\n@@ -1643,6 +1651,8 @@ mod tests {\n         };\n         let runtime_error = Event::PromptRuntimeError {\n             message: \"boom\".into(),\n+            evidence: None,\n+            native_subject: None,\n         };\n         // (events between the prompt and its stop, notice expected)\n         let cases = [\n",
+    "execution": {
+      "plan": {
+        "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification",
+        "output": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-browser-persistent",
+        "env": {
+          "PATH": "/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:/nix/store/xgw813vgzl2q0696sq45adpj0xd690jq-git-2.56.0/bin:/home/fraggle/.dvm/versions/v2.9.7:/home/fraggle/.local/share/mise/installs/pnpm/latest:/home/fraggle/.local/share/mise/installs/node/latest/bin:/home/fraggle/.local/share/mise/shims:/home/fraggle/bin:/home/fraggle/.local/bin:/home/fraggle/.volta/bin:/home/fraggle/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/lib64/ccache:/home/fraggle/.cargo/bin:/usr/local/bin:/usr/bin:/nix/store/pda6j5833xwmiqh8w8bpsccs22hxqlk3-ghostty-1.4.0/bin:"
+        },
+        "steps": [
+          {
+            "name": "before",
+            "argv": [
+              "bun",
+              "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-lifecycle-browser-smoke.ts",
+              "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-A-abac976c-web/target/debug/aoe",
+              "before",
+              "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-browser-persistent/images"
+            ]
+          },
+          {
+            "name": "after",
+            "argv": [
+              "bun",
+              "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-lifecycle-browser-smoke.ts",
+              "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5181-34699d2c-web/target/debug/aoe",
+              "after",
+              "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-browser-persistent/images"
+            ]
+          }
+        ]
+      },
+      "started": 1793494618.5332637,
+      "steps": [
+        {
+          "name": "before",
+          "argv": [
+            "bun",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-lifecycle-browser-smoke.ts",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-A-abac976c-web/target/debug/aoe",
+            "before",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-browser-persistent/images"
+          ],
+          "started": 1793494618.5333974,
+          "state": "finished",
+          "exit": 0,
+          "finished": 1793494683.2377677,
+          "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-browser-persistent/00-before.log"
+        },
+        {
+          "name": "after",
+          "argv": [
+            "bun",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-lifecycle-browser-smoke.ts",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5181-34699d2c-web/target/debug/aoe",
+            "after",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-browser-persistent/images"
+          ],
+          "started": 1793494683.2380254,
+          "state": "finished",
+          "exit": 0,
+          "finished": 1793494687.3513253,
+          "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-browser-persistent/01-after.log"
+        }
+      ],
+      "finished": 1793494687.3517034
+    },
+    "results": [
+      {
+        "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-A-abac976c-web/target/debug/aoe",
+        "label": "before-null",
+        "promptId": null,
+        "id": "d267735e067c4516",
+        "terminalSeq": 8,
+        "initialWire": [
+          {
+            "kind": "open",
+            "connection": 1,
+            "url": "ws://127.0.0.1:5236/sessions/d267735e067c4516/acp/ws?since=6"
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "d267735e067c4516",
+              "seq": 6,
+              "state": {
+                "session_id": "d267735e067c4516",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:56:59.961767260Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "recent_diffs": [],
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "available_commands": [],
+                "available_modes": [],
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "connection_unavailable": null,
+                "connection_ready": true,
+                "config_options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ],
+                "background_agents": [],
+                "turn_active": true,
+                "steering": false,
+                "cancelling": false,
+                "compacting": false,
+                "last_seq": 6,
+                "updated_at": "2026-11-01T00:57:00.452557473Z",
+                "prompt_wake_eligible": false
+              },
+              "unchanged": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "transcript_snapshot",
+              "session_id": "d267735e067c4516",
+              "seq": 6,
+              "rows": []
+            }
+          }
+        ],
+        "beforeReload": [
+          {
+            "kind": "open",
+            "connection": 1,
+            "url": "ws://127.0.0.1:5236/sessions/d267735e067c4516/acp/ws?since=6"
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "d267735e067c4516",
+              "seq": 6,
+              "state": {
+                "session_id": "d267735e067c4516",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:56:59.961767260Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "recent_diffs": [],
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "available_commands": [],
+                "available_modes": [],
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "connection_unavailable": null,
+                "connection_ready": true,
+                "config_options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ],
+                "background_agents": [],
+                "turn_active": true,
+                "steering": false,
+                "cancelling": false,
+                "compacting": false,
+                "last_seq": 6,
+                "updated_at": "2026-11-01T00:57:00.452557473Z",
+                "prompt_wake_eligible": false
+              },
+              "unchanged": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "transcript_snapshot",
+              "session_id": "d267735e067c4516",
+              "seq": 6,
+              "rows": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "session_id": "d267735e067c4516",
+              "seq": 7,
+              "event": {
+                "CancelRequested": {
+                  "escalates_at": "2026-11-01T00:57:10.646133905Z"
+                }
+              }
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "d267735e067c4516",
+              "seq": 7,
+              "state": {
+                "session_id": "d267735e067c4516",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:56:59.961767260Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "compacting": false,
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "prompt_wake_eligible": false,
+                "updated_at": "2026-11-01T00:57:00.646664380Z",
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "connection_unavailable": null,
+                "connection_ready": true,
+                "last_seq": 7,
+                "cancelling": true,
+                "turn_active": true,
+                "steering": false
+              },
+              "unchanged": [
+                "available_commands",
+                "available_modes",
+                "config_options",
+                "recent_diffs",
+                "background_agents"
+              ]
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "session_id": "d267735e067c4516",
+              "seq": 8,
+              "event": {
+                "Stopped": {
+                  "reason": "cancelled"
+                }
+              }
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "d267735e067c4516",
+              "seq": 8,
+              "state": {
+                "session_id": "d267735e067c4516",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": null,
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "compacting": false,
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "prompt_wake_eligible": false,
+                "updated_at": "2026-11-01T00:57:00.653251379Z",
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "connection_unavailable": null,
+                "connection_ready": true,
+                "last_seq": 8,
+                "cancelling": false,
+                "turn_active": false,
+                "steering": false
+              },
+              "unchanged": [
+                "available_commands",
+                "available_modes",
+                "config_options",
+                "recent_diffs",
+                "background_agents"
+              ]
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "heartbeat"
+            }
+          }
+        ],
+        "replayBefore": [
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 1,
+            "event": {
+              "AuthStatusUpdated": {
+                "status": null
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 2,
+            "event": {
+              "PromptCapabilities": {
+                "image": false,
+                "audio": false,
+                "embedded_context": false,
+                "load_session": true,
+                "steering": false
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 3,
+            "event": {
+              "AcpSessionAssigned": {
+                "acp_session_id": "fake-acp-1793494619749-d30288ea",
+                "connection_ready": true
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 4,
+            "event": {
+              "ConfigOptionsUpdated": {
+                "options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 5,
+            "event": {
+              "UserPromptSent": {
+                "text": "EXPLICIT_LATE_ATTACH_INPUT",
+                "synthesized": false
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 6,
+            "event": {
+              "ToolCallStarted": {
+                "tool_call": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:56:59.961767260Z"
+                }
+              }
+            }
+          }
+        ],
+        "replayAfter": [
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 1,
+            "event": {
+              "AuthStatusUpdated": {
+                "status": null
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 2,
+            "event": {
+              "PromptCapabilities": {
+                "image": false,
+                "audio": false,
+                "embedded_context": false,
+                "load_session": true,
+                "steering": false
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 3,
+            "event": {
+              "AcpSessionAssigned": {
+                "acp_session_id": "fake-acp-1793494619749-d30288ea",
+                "connection_ready": true
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 4,
+            "event": {
+              "ConfigOptionsUpdated": {
+                "options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 5,
+            "event": {
+              "UserPromptSent": {
+                "text": "EXPLICIT_LATE_ATTACH_INPUT",
+                "synthesized": false
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 6,
+            "event": {
+              "ToolCallStarted": {
+                "tool_call": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:56:59.961767260Z"
+                }
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 7,
+            "event": {
+              "CancelRequested": {
+                "escalates_at": "2026-11-01T00:57:10.646133905Z"
+              }
+            }
+          },
+          {
+            "session_id": "d267735e067c4516",
+            "seq": 8,
+            "event": {
+              "Stopped": {
+                "reason": "cancelled"
+              }
+            }
+          }
+        ],
+        "stoppedBeforeReload": false,
+        "stoppedAfterReload": true,
+        "nativeCancel": 1,
+        "nativeLog": "[1793494619742] fake-acp starting pid=2748416 argv=[\"/nix/store/2mxhj3nrvxxqm6gf6rwnrvz048zqdclp-bun-1.4.2/bin/bun\",\"/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification/web/tests/helpers/fakeAcpAgent.mjs\"]\n[1793494619742] main() entry\n[1793494619747] handleRequest method=initialize id=281474976710656\n[1793494619748] handleRequest method=session/new id=281474976710657\n[1793494619959] handleRequest method=session/prompt id=281474976710658\n[1793494619959] session/prompt prompt=[{\"type\":\"text\",\"text\":\"EXPLICIT_LATE_ATTACH_INPUT\"}]\n[1793494620646] session/cancel sessionId=fake-acp-1793494619749-d30288ea\n"
+      },
+      {
+        "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-A-abac976c-web/target/debug/aoe",
+        "label": "before-explicit",
+        "promptId": "explicit-late-attach-turn",
+        "id": "8eeeb22586af4a7b",
+        "terminalSeq": 8,
+        "initialWire": [
+          {
+            "kind": "open",
+            "connection": 1,
+            "url": "ws://127.0.0.1:5236/sessions/8eeeb22586af4a7b/acp/ws?since=6"
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "8eeeb22586af4a7b",
+              "seq": 6,
+              "state": {
+                "session_id": "8eeeb22586af4a7b",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:57:31.935614944Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "recent_diffs": [],
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "available_commands": [],
+                "available_modes": [],
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "connection_unavailable": null,
+                "connection_ready": true,
+                "config_options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ],
+                "background_agents": [],
+                "turn_active": true,
+                "steering": false,
+                "cancelling": false,
+                "compacting": false,
+                "last_seq": 6,
+                "updated_at": "2026-11-01T00:57:32.389266872Z",
+                "prompt_wake_eligible": false
+              },
+              "unchanged": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "transcript_snapshot",
+              "session_id": "8eeeb22586af4a7b",
+              "seq": 6,
+              "rows": []
+            }
+          }
+        ],
+        "beforeReload": [
+          {
+            "kind": "open",
+            "connection": 1,
+            "url": "ws://127.0.0.1:5236/sessions/8eeeb22586af4a7b/acp/ws?since=6"
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "8eeeb22586af4a7b",
+              "seq": 6,
+              "state": {
+                "session_id": "8eeeb22586af4a7b",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:57:31.935614944Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "recent_diffs": [],
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "available_commands": [],
+                "available_modes": [],
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "connection_unavailable": null,
+                "connection_ready": true,
+                "config_options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ],
+                "background_agents": [],
+                "turn_active": true,
+                "steering": false,
+                "cancelling": false,
+                "compacting": false,
+                "last_seq": 6,
+                "updated_at": "2026-11-01T00:57:32.389266872Z",
+                "prompt_wake_eligible": false
+              },
+              "unchanged": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "transcript_snapshot",
+              "session_id": "8eeeb22586af4a7b",
+              "seq": 6,
+              "rows": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "session_id": "8eeeb22586af4a7b",
+              "seq": 7,
+              "event": {
+                "CancelRequested": {
+                  "escalates_at": "2026-11-01T00:57:42.577776243Z"
+                }
+              }
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "8eeeb22586af4a7b",
+              "seq": 7,
+              "state": {
+                "session_id": "8eeeb22586af4a7b",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:57:31.935614944Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "compacting": false,
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "prompt_wake_eligible": false,
+                "updated_at": "2026-11-01T00:57:32.578647144Z",
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "connection_unavailable": null,
+                "connection_ready": true,
+                "last_seq": 7,
+                "cancelling": true,
+                "turn_active": true,
+                "steering": false
+              },
+              "unchanged": [
+                "available_commands",
+                "available_modes",
+                "config_options",
+                "recent_diffs",
+                "background_agents"
+              ]
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "session_id": "8eeeb22586af4a7b",
+              "seq": 8,
+              "event": {
+                "Stopped": {
+                  "reason": "cancelled"
+                }
+              }
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "8eeeb22586af4a7b",
+              "seq": 8,
+              "state": {
+                "session_id": "8eeeb22586af4a7b",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": null,
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "compacting": false,
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "prompt_wake_eligible": false,
+                "updated_at": "2026-11-01T00:57:32.587362759Z",
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "connection_unavailable": null,
+                "connection_ready": false,
+                "last_seq": 8,
+                "cancelling": false,
+                "turn_active": false,
+                "steering": false
+              },
+              "unchanged": [
+                "available_commands",
+                "available_modes",
+                "config_options",
+                "recent_diffs",
+                "background_agents"
+              ]
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "8eeeb22586af4a7b",
+              "seq": 8,
+              "state": {
+                "session_id": "8eeeb22586af4a7b",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": null,
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "compacting": false,
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "prompt_wake_eligible": false,
+                "updated_at": "2026-11-01T00:57:32.587362759Z",
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "connection_unavailable": null,
+                "connection_ready": true,
+                "last_seq": 8,
+                "cancelling": false,
+                "turn_active": false,
+                "steering": false
+              },
+              "unchanged": [
+                "available_commands",
+                "available_modes",
+                "config_options",
+                "recent_diffs",
+                "background_agents"
+              ]
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "heartbeat"
+            }
+          }
+        ],
+        "replayBefore": [
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 1,
+            "event": {
+              "AuthStatusUpdated": {
+                "status": null
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 2,
+            "event": {
+              "PromptCapabilities": {
+                "image": false,
+                "audio": false,
+                "embedded_context": false,
+                "load_session": true,
+                "steering": false
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 3,
+            "event": {
+              "AcpSessionAssigned": {
+                "acp_session_id": "fake-acp-1793494651822-df294796",
+                "connection_ready": true
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 4,
+            "event": {
+              "ConfigOptionsUpdated": {
+                "options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 5,
+            "event": {
+              "UserPromptSent": {
+                "text": "EXPLICIT_LATE_ATTACH_INPUT",
+                "prompt_id": "explicit-late-attach-turn",
+                "synthesized": false
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 6,
+            "event": {
+              "ToolCallStarted": {
+                "tool_call": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:57:31.935614944Z"
+                }
+              }
+            }
+          }
+        ],
+        "replayAfter": [
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 1,
+            "event": {
+              "AuthStatusUpdated": {
+                "status": null
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 2,
+            "event": {
+              "PromptCapabilities": {
+                "image": false,
+                "audio": false,
+                "embedded_context": false,
+                "load_session": true,
+                "steering": false
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 3,
+            "event": {
+              "AcpSessionAssigned": {
+                "acp_session_id": "fake-acp-1793494651822-df294796",
+                "connection_ready": true
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 4,
+            "event": {
+              "ConfigOptionsUpdated": {
+                "options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 5,
+            "event": {
+              "UserPromptSent": {
+                "text": "EXPLICIT_LATE_ATTACH_INPUT",
+                "prompt_id": "explicit-late-attach-turn",
+                "synthesized": false
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 6,
+            "event": {
+              "ToolCallStarted": {
+                "tool_call": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:57:31.935614944Z"
+                }
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 7,
+            "event": {
+              "CancelRequested": {
+                "escalates_at": "2026-11-01T00:57:42.577776243Z"
+              }
+            }
+          },
+          {
+            "session_id": "8eeeb22586af4a7b",
+            "seq": 8,
+            "event": {
+              "Stopped": {
+                "reason": "cancelled"
+              }
+            }
+          }
+        ],
+        "stoppedBeforeReload": false,
+        "stoppedAfterReload": true,
+        "nativeCancel": 1,
+        "nativeLog": "[1793494651815] fake-acp starting pid=2750536 argv=[\"/nix/store/2mxhj3nrvxxqm6gf6rwnrvz048zqdclp-bun-1.4.2/bin/bun\",\"/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification/web/tests/helpers/fakeAcpAgent.mjs\"]\n[1793494651815] main() entry\n[1793494651820] handleRequest method=initialize id=281474976710656\n[1793494651821] handleRequest method=session/new id=281474976710657\n[1793494651934] handleRequest method=session/prompt id=281474976710658\n[1793494651934] session/prompt prompt=[{\"type\":\"text\",\"text\":\"EXPLICIT_LATE_ATTACH_INPUT\"}]\n[1793494652578] session/cancel sessionId=fake-acp-1793494651822-df294796\n"
+      },
+      {
+        "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5181-34699d2c-web/target/debug/aoe",
+        "label": "after-null",
+        "promptId": null,
+        "id": "ebc1a7f1cb504863",
+        "terminalSeq": 8,
+        "initialWire": [
+          {
+            "kind": "open",
+            "connection": 1,
+            "url": "ws://127.0.0.1:5236/sessions/ebc1a7f1cb504863/acp/ws?since=6"
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "ebc1a7f1cb504863",
+              "seq": 6,
+              "state": {
+                "session_id": "ebc1a7f1cb504863",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:58:04.188983403Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "recent_diffs": [],
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "available_commands": [],
+                "available_modes": [],
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "config_options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ],
+                "background_agents": [],
+                "turn_active": true,
+                "steering": false,
+                "cancelling": false,
+                "compacting": false,
+                "last_seq": 6,
+                "updated_at": "2026-11-01T00:58:04.645711880Z"
+              },
+              "unchanged": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "transcript_snapshot",
+              "session_id": "ebc1a7f1cb504863",
+              "seq": 6,
+              "rows": []
+            }
+          }
+        ],
+        "beforeReload": [
+          {
+            "kind": "open",
+            "connection": 1,
+            "url": "ws://127.0.0.1:5236/sessions/ebc1a7f1cb504863/acp/ws?since=6"
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "ebc1a7f1cb504863",
+              "seq": 6,
+              "state": {
+                "session_id": "ebc1a7f1cb504863",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:58:04.188983403Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "recent_diffs": [],
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "available_commands": [],
+                "available_modes": [],
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "config_options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ],
+                "background_agents": [],
+                "turn_active": true,
+                "steering": false,
+                "cancelling": false,
+                "compacting": false,
+                "last_seq": 6,
+                "updated_at": "2026-11-01T00:58:04.645711880Z"
+              },
+              "unchanged": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "transcript_snapshot",
+              "session_id": "ebc1a7f1cb504863",
+              "seq": 6,
+              "rows": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "session_id": "ebc1a7f1cb504863",
+              "seq": 7,
+              "event": {
+                "CancelRequested": {
+                  "escalates_at": "2026-11-01T00:58:14.861566474Z"
+                }
+              }
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "ebc1a7f1cb504863",
+              "seq": 7,
+              "state": {
+                "session_id": "ebc1a7f1cb504863",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:58:04.188983403Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "cancelling": true,
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "updated_at": "2026-11-01T00:58:04.862117046Z",
+                "last_seq": 7,
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "compacting": false,
+                "steering": false,
+                "turn_active": true
+              },
+              "unchanged": [
+                "available_commands",
+                "available_modes",
+                "config_options",
+                "recent_diffs",
+                "background_agents"
+              ]
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "session_id": "ebc1a7f1cb504863",
+              "seq": 8,
+              "event": {
+                "Stopped": {
+                  "reason": "cancelled"
+                }
+              }
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "ebc1a7f1cb504863",
+              "seq": 8,
+              "state": {
+                "session_id": "ebc1a7f1cb504863",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": null,
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "cancelling": false,
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "updated_at": "2026-11-01T00:58:04.880005126Z",
+                "last_seq": 8,
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "compacting": false,
+                "steering": false,
+                "turn_active": false
+              },
+              "unchanged": [
+                "available_commands",
+                "available_modes",
+                "config_options",
+                "recent_diffs",
+                "background_agents"
+              ]
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "transcript_delta",
+              "session_id": "ebc1a7f1cb504863",
+              "seq": 8,
+              "delta": {
+                "Append": {
+                  "id": "stopped-late-attach-tool-8",
+                  "group_id": "tool-late-attach-tool",
+                  "kind": "tool_stopped",
+                  "at": "2026-11-01T00:58:04.880426435Z",
+                  "text": "",
+                  "tool_call_id": "late-attach-tool"
+                }
+              }
+            }
+          }
+        ],
+        "replayBefore": [
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 1,
+            "event": {
+              "AuthStatusUpdated": {
+                "status": null
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 2,
+            "event": {
+              "PromptCapabilities": {
+                "image": false,
+                "audio": false,
+                "embedded_context": false,
+                "load_session": true,
+                "steering": false
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 3,
+            "event": {
+              "AcpSessionAssigned": {
+                "acp_session_id": "fake-acp-1793494684124-c871bc2f"
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 4,
+            "event": {
+              "ConfigOptionsUpdated": {
+                "options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 5,
+            "event": {
+              "UserPromptSent": {
+                "text": "EXPLICIT_LATE_ATTACH_INPUT",
+                "synthesized": false
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 6,
+            "event": {
+              "ToolCallStarted": {
+                "tool_call": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:58:04.188983403Z"
+                }
+              }
+            }
+          }
+        ],
+        "replayAfter": [
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 1,
+            "event": {
+              "AuthStatusUpdated": {
+                "status": null
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 2,
+            "event": {
+              "PromptCapabilities": {
+                "image": false,
+                "audio": false,
+                "embedded_context": false,
+                "load_session": true,
+                "steering": false
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 3,
+            "event": {
+              "AcpSessionAssigned": {
+                "acp_session_id": "fake-acp-1793494684124-c871bc2f"
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 4,
+            "event": {
+              "ConfigOptionsUpdated": {
+                "options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 5,
+            "event": {
+              "UserPromptSent": {
+                "text": "EXPLICIT_LATE_ATTACH_INPUT",
+                "synthesized": false
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 6,
+            "event": {
+              "ToolCallStarted": {
+                "tool_call": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:58:04.188983403Z"
+                }
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 7,
+            "event": {
+              "CancelRequested": {
+                "escalates_at": "2026-11-01T00:58:14.861566474Z"
+              }
+            }
+          },
+          {
+            "session_id": "ebc1a7f1cb504863",
+            "seq": 8,
+            "event": {
+              "Stopped": {
+                "reason": "cancelled"
+              }
+            }
+          }
+        ],
+        "stoppedBeforeReload": true,
+        "stoppedAfterReload": true,
+        "nativeCancel": 1,
+        "nativeLog": "[1793494684117] fake-acp starting pid=2752792 argv=[\"/nix/store/2mxhj3nrvxxqm6gf6rwnrvz048zqdclp-bun-1.4.2/bin/bun\",\"/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification/web/tests/helpers/fakeAcpAgent.mjs\"]\n[1793494684117] main() entry\n[1793494684122] handleRequest method=initialize id=281474976710656\n[1793494684124] handleRequest method=session/new id=281474976710657\n[1793494684187] handleRequest method=session/prompt id=281474976710658\n[1793494684187] session/prompt prompt=[{\"type\":\"text\",\"text\":\"EXPLICIT_LATE_ATTACH_INPUT\"}]\n[1793494684861] session/cancel sessionId=fake-acp-1793494684124-c871bc2f\n"
+      },
+      {
+        "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5181-34699d2c-web/target/debug/aoe",
+        "label": "after-explicit",
+        "promptId": "explicit-late-attach-turn",
+        "id": "523b9e4d9adf4fe1",
+        "terminalSeq": 8,
+        "initialWire": [
+          {
+            "kind": "open",
+            "connection": 1,
+            "url": "ws://127.0.0.1:5236/sessions/523b9e4d9adf4fe1/acp/ws?since=6"
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "523b9e4d9adf4fe1",
+              "seq": 6,
+              "state": {
+                "session_id": "523b9e4d9adf4fe1",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:58:06.137012567Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "recent_diffs": [],
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "available_commands": [],
+                "available_modes": [],
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "config_options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ],
+                "background_agents": [],
+                "turn_active": true,
+                "steering": false,
+                "cancelling": false,
+                "compacting": false,
+                "last_seq": 6,
+                "updated_at": "2026-11-01T00:58:06.585347567Z"
+              },
+              "unchanged": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "transcript_snapshot",
+              "session_id": "523b9e4d9adf4fe1",
+              "seq": 6,
+              "rows": []
+            }
+          }
+        ],
+        "beforeReload": [
+          {
+            "kind": "open",
+            "connection": 1,
+            "url": "ws://127.0.0.1:5236/sessions/523b9e4d9adf4fe1/acp/ws?since=6"
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "523b9e4d9adf4fe1",
+              "seq": 6,
+              "state": {
+                "session_id": "523b9e4d9adf4fe1",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:58:06.137012567Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "recent_diffs": [],
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "available_commands": [],
+                "available_modes": [],
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "config_options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ],
+                "background_agents": [],
+                "turn_active": true,
+                "steering": false,
+                "cancelling": false,
+                "compacting": false,
+                "last_seq": 6,
+                "updated_at": "2026-11-01T00:58:06.585347567Z"
+              },
+              "unchanged": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "transcript_snapshot",
+              "session_id": "523b9e4d9adf4fe1",
+              "seq": 6,
+              "rows": []
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "session_id": "523b9e4d9adf4fe1",
+              "seq": 7,
+              "event": {
+                "CancelRequested": {
+                  "escalates_at": "2026-11-01T00:58:16.776000915Z"
+                }
+              }
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "523b9e4d9adf4fe1",
+              "seq": 7,
+              "state": {
+                "session_id": "523b9e4d9adf4fe1",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:58:06.137012567Z"
+                },
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "cancelling": true,
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "updated_at": "2026-11-01T00:58:06.776623248Z",
+                "last_seq": 7,
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "compacting": false,
+                "steering": false,
+                "turn_active": true
+              },
+              "unchanged": [
+                "available_commands",
+                "available_modes",
+                "config_options",
+                "recent_diffs",
+                "background_agents"
+              ]
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "session_id": "523b9e4d9adf4fe1",
+              "seq": 8,
+              "event": {
+                "Stopped": {
+                  "reason": "cancelled"
+                }
+              }
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "reduced_state",
+              "session_id": "523b9e4d9adf4fe1",
+              "seq": 8,
+              "state": {
+                "session_id": "523b9e4d9adf4fe1",
+                "agent": "claude",
+                "model": null,
+                "mode": "Default",
+                "current_plan": null,
+                "todos": [],
+                "in_flight_tool": null,
+                "pending_approvals": [],
+                "pending_elicitations": [],
+                "cancelling": false,
+                "thinking": null,
+                "rate_limit": null,
+                "usage": null,
+                "updated_at": "2026-11-01T00:58:06.788491835Z",
+                "last_seq": 8,
+                "current_mode_id": null,
+                "last_agent_switch": null,
+                "compacting": false,
+                "steering": false,
+                "turn_active": false
+              },
+              "unchanged": [
+                "available_commands",
+                "available_modes",
+                "config_options",
+                "recent_diffs",
+                "background_agents"
+              ]
+            }
+          },
+          {
+            "connection": 1,
+            "message": {
+              "kind": "transcript_delta",
+              "session_id": "523b9e4d9adf4fe1",
+              "seq": 8,
+              "delta": {
+                "Append": {
+                  "id": "stopped-late-attach-tool-8",
+                  "group_id": "tool-late-attach-tool",
+                  "kind": "tool_stopped",
+                  "at": "2026-11-01T00:58:06.788766164Z",
+                  "text": "",
+                  "tool_call_id": "late-attach-tool"
+                }
+              }
+            }
+          }
+        ],
+        "replayBefore": [
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 1,
+            "event": {
+              "AuthStatusUpdated": {
+                "status": null
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 2,
+            "event": {
+              "PromptCapabilities": {
+                "image": false,
+                "audio": false,
+                "embedded_context": false,
+                "load_session": true,
+                "steering": false
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 3,
+            "event": {
+              "AcpSessionAssigned": {
+                "acp_session_id": "fake-acp-1793494686072-6089ce59"
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 4,
+            "event": {
+              "ConfigOptionsUpdated": {
+                "options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 5,
+            "event": {
+              "UserPromptSent": {
+                "text": "EXPLICIT_LATE_ATTACH_INPUT",
+                "prompt_id": "explicit-late-attach-turn",
+                "synthesized": false
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 6,
+            "event": {
+              "ToolCallStarted": {
+                "tool_call": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:58:06.137012567Z"
+                }
+              }
+            }
+          }
+        ],
+        "replayAfter": [
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 1,
+            "event": {
+              "AuthStatusUpdated": {
+                "status": null
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 2,
+            "event": {
+              "PromptCapabilities": {
+                "image": false,
+                "audio": false,
+                "embedded_context": false,
+                "load_session": true,
+                "steering": false
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 3,
+            "event": {
+              "AcpSessionAssigned": {
+                "acp_session_id": "fake-acp-1793494686072-6089ce59"
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 4,
+            "event": {
+              "ConfigOptionsUpdated": {
+                "options": [
+                  {
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "current_value": "claude-opus-4-7",
+                    "options": [
+                      {
+                        "value": "claude-opus-4-7",
+                        "name": "Claude Opus 4.7"
+                      },
+                      {
+                        "value": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "effort",
+                    "name": "Reasoning Effort",
+                    "category": "thought_level",
+                    "current_value": "default",
+                    "options": [
+                      {
+                        "value": "default",
+                        "name": "Default"
+                      },
+                      {
+                        "value": "low",
+                        "name": "Low"
+                      },
+                      {
+                        "value": "medium",
+                        "name": "Medium"
+                      },
+                      {
+                        "value": "high",
+                        "name": "High"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 5,
+            "event": {
+              "UserPromptSent": {
+                "text": "EXPLICIT_LATE_ATTACH_INPUT",
+                "prompt_id": "explicit-late-attach-turn",
+                "synthesized": false
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 6,
+            "event": {
+              "ToolCallStarted": {
+                "tool_call": {
+                  "id": "late-attach-tool",
+                  "name": "LATE_ATTACH_NATIVE_TOOL",
+                  "kind": "read",
+                  "args_preview": "",
+                  "started_at": "2026-11-01T00:58:06.137012567Z"
+                }
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 7,
+            "event": {
+              "CancelRequested": {
+                "escalates_at": "2026-11-01T00:58:16.776000915Z"
+              }
+            }
+          },
+          {
+            "session_id": "523b9e4d9adf4fe1",
+            "seq": 8,
+            "event": {
+              "Stopped": {
+                "reason": "cancelled"
+              }
+            }
+          }
+        ],
+        "stoppedBeforeReload": true,
+        "stoppedAfterReload": true,
+        "nativeCancel": 1,
+        "nativeLog": "[1793494686066] fake-acp starting pid=2753449 argv=[\"/nix/store/2mxhj3nrvxxqm6gf6rwnrvz048zqdclp-bun-1.4.2/bin/bun\",\"/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification/web/tests/helpers/fakeAcpAgent.mjs\"]\n[1793494686066] main() entry\n[1793494686070] handleRequest method=initialize id=281474976710656\n[1793494686072] handleRequest method=session/new id=281474976710657\n[1793494686135] handleRequest method=session/prompt id=281474976710658\n[1793494686135] session/prompt prompt=[{\"type\":\"text\",\"text\":\"EXPLICIT_LATE_ATTACH_INPUT\"}]\n[1793494686776] session/cancel sessionId=fake-acp-1793494686072-6089ce59\n"
+      }
+    ],
+    "negative_observation": "Baseline waits for a later actual WebSocket heartbeat after terminal reduced_state before asserting missing terminal; no fixed sleep.",
+    "direct_manual_browser": {
+      "snapshot": "34699d2c1001401825d664b6b269ed4a578f7b28",
+      "tree": "3460d0ae4049363e9d9077dcbb9881cc3dc28331",
+      "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5181-34699d2c-web/target/debug/aoe",
+      "sha256": "54b1e5399ce923f1336b6a569a288dbcfeb5b634d5d9c2a5c9f41b825e73eda9",
+      "url": "http://127.0.0.1:5235/session/1f157bcf7d084716",
+      "action": "browser.open then direct click aria/Stop; no reload",
+      "after_text": "0 unread, 0 waiting for your input\naoe\nSearch anything\u2026\nCtrlK\nDEV\nSessions\n?\nproject\n(1)\n\u2812\n5181 cursor tool settlement\nPROJECTS, NO SESSIONS\n(0)\n\nNo registered Projects. Add one to keep a repo handy without a session.\n\nCOMPACT TOOLS\n\nEXPLICIT_5181_VISUAL_INPUT\n\nREAD\nLATE_ATTACHED_TOOL_5181\n10.8s\nstopped\n@\n/\nDefault\nClaude Opus 4.7\nDefault\nLow\nMedium\nHigh\nHost default\nDiff\nTerminal\nCHANGES\nvs main\nNo changes vs\nmain",
+      "stop_button_absent": true,
+      "images": [
+        "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-direct-browser-running.png",
+        "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5181-direct-browser-stopped.png"
+      ],
+      "tab": "closed",
+      "service_cleanup": "Exited0; nativeNew1, nativeLoad0, nativePrompt1, nativeCancel1, cancelledTerminal1; exact original runner unchanged; cleanup green",
+      "live_service_output": "Lifecycle5181Visual34699 [service] \u2014 exited \u2014 up 22.3s\nready=true persist=false detached=false exit=0\nLIFECYCLE_5181_VISUAL_VISUAL_READY {\"baseUrl\":\"http://127.0.0.1:5235\",\"id\":\"1f157bcf7d084716\",\"originalOwner\":{\"pid\":275\n4150,\"generation\":1793494695063,\"birth\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:13188325\"}}}\nstop\nLIFECYCLE_5181_VISUAL_BROWSER_GREEN {\"id\":\"1f157bcf7d084716\",\"originalOwner\":{\"pid\":2754150,\"generation\":1793494695063,\"\nbirth\":{\"boot_id\":\"3ed81544-dfda-41c6-ae72-231db224a126\",\"start_id\":\"proc:13188325\"}},\"nativeNew\":1,\"nativeLoad\":0,\"nati\nvePrompt\":1,\"nativeCancel\":1,\"cancelledTerminal\":1}\nLIFECYCLE_5181_VISUAL_BROWSER_CLEANUP_GREEN"
+    },
+    "public_images": [
+      {
+        "filename": "5181-cancel-before-fix.png",
+        "url": "https://raw.githubusercontent.com/jerome-benoit/agent-of-empires/3fa95c4474cbee2224ae2082cc9027074b490baa/.github/review-evidence/5181-cancel-before-fix.png",
+        "sha": "557c4ef4a093bd1b65b91d9ff9f727489d6dfcd4",
+        "readback": "exact Git blob identity"
+      },
+      {
+        "filename": "5181-cancel-after-fix.png",
+        "url": "https://raw.githubusercontent.com/jerome-benoit/agent-of-empires/8735868c2aa2c07f23d5fbfcfdb701a58657437a/.github/review-evidence/5181-cancel-after-fix.png",
+        "sha": "0f100d6ccc87d46b1168ffea0cb03a7dfbb825fd",
+        "readback": "exact Git blob identity"
+      }
+    ],
+    "driver_source": "import assert from 'node:assert/strict';\nimport { mkdirSync, readFileSync } from 'node:fs';\nimport { join } from 'node:path';\nimport { createRequire } from 'node:module';\nimport { spawnAoeServe } from '/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification/web/tests/helpers/aoeServe.ts';\nimport { startAcpSession, replayFrames, script, endTurn, HOLD } from '/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification/web/tests/helpers/acp.ts';\nconst { chromium, expect } = createRequire('/home/fraggle/src/agent-of-empires-git-worktrees/5052-web-verification/web/package.json')('@playwright/test');\nconst [binary, phase, output] = process.argv.slice(2);\nassert(binary && ['before', 'after'].includes(phase) && output);\nmkdirSync(output, { recursive: true });\nconst browser = await chromium.launch({ headless: true });\ntry {\n  for (const promptId of [null, 'explicit-late-attach-turn']) {\n    const label = `${phase}-${promptId ? 'explicit' : 'null'}`;\n    process.env.AOE_E2E_BINARY = binary;\n    let serve;\n    const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });\n    const wire: any[] = [];\n    let ordinal = 0;\n    page.on('websocket', socket => {\n      if (!socket.url().includes('/acp/ws')) return;\n      const connection = ++ordinal;\n      wire.push({ kind: 'open', connection, url: socket.url() });\n      socket.on('framereceived', ({ payload }) => {\n        const text = typeof payload === 'string' ? payload : payload.toString('utf8');\n        try { wire.push({ connection, message: JSON.parse(text) }); }\n        catch { wire.push({ connection, unparsed: text }); }\n      });\n    });\n    try {\n      const started = await startAcpSession(async options => {\n        serve = await spawnAoeServe({ ...options, workerIndex: 0, parallelIndex: 36 });\n        return serve;\n      }, { title: `5181 ${label}`, fakeAcpScript: script(endTurn({ sessionUpdate: 'tool_call', toolCallId: 'late-attach-tool', title: 'LATE_ATTACH_NATIVE_TOOL', kind: 'read', status: 'pending' }, HOLD)) });\n      const id = started.sessionId;\n      const prompt = await fetch(`${serve.baseUrl}/api/sessions/${id}/acp/prompt`, {\n        method: 'POST', headers: { 'content-type': 'application/json' },\n        body: JSON.stringify({ text: 'EXPLICIT_LATE_ATTACH_INPUT', ...(promptId ? { prompt_id: promptId } : {}) }),\n      });\n      assert(prompt.ok, `${label}: prompt ${prompt.status} ${await prompt.text()}`);\n      await expect.poll(async () => JSON.stringify(await replayFrames(serve.baseUrl, id)), { timeout: 30000 }).toContain('LATE_ATTACH_NATIVE_TOOL');\n      const replayBefore = await replayFrames(serve.baseUrl, id);\n      await page.goto(`${serve.baseUrl}/session/${id}`);\n      const card = page.getByRole('button', { name: 'LATE_ATTACH_NATIVE_TOOL', exact: true }).locator('xpath=ancestor::div[contains(@class,\"rounded-md\")][1]');\n      await expect(card.getByText('running', { exact: true })).toBeVisible({ timeout: 15000 });\n      await expect.poll(() => wire.some(frame => frame.message?.kind === 'transcript_snapshot'), { timeout: 15000 }).toBe(true);\n      const initialWire = structuredClone(wire);\n      const open = initialWire.find(frame => frame.kind === 'open');\n      assert(open && Number(new URL(open.url).searchParams.get('since')) > 0, 'browser must attach after the tool start');\n      const bootstrap = initialWire.find(frame => frame.message?.kind === 'transcript_snapshot');\n      assert(bootstrap, 'cursor bootstrap must arrive before cancellation');\n      assert.equal(bootstrap.message.rows.length, 0, 'cursor bootstrap must not recreate prefix rows');\n      await page.screenshot({ path: join(output, `${label}-running.png`) });\n      await page.getByRole('button', { name: 'Stop', exact: true }).click({ timeout: 15000 });\n      await expect(page.getByRole('textbox', { name: /^Send a message/ })).toBeVisible({ timeout: 15000 });\n      await expect.poll(async () => (await replayFrames(serve.baseUrl, id)).filter(frame => frame.event?.Stopped?.reason === 'cancelled').length, { timeout: 15000 }).toBe(1);\n      const replayAfter = await replayFrames(serve.baseUrl, id);\n      const terminalSeq = replayAfter.find(frame => frame.event?.Stopped?.reason === 'cancelled').seq;\n      await expect.poll(() => wire.some(frame => frame.message?.kind === 'reduced_state' && frame.message.seq >= terminalSeq), { timeout: 15000 }).toBe(true);\n      const liveStopped = () => wire.filter(frame => frame.message?.kind === 'transcript_delta').map(frame => frame.message.delta?.Append).filter(row => row?.kind === 'tool_stopped' && row?.tool_call_id === 'late-attach-tool');\n      if (phase === 'after') {\n        await expect(card.getByText('stopped', { exact: true })).toBeVisible({ timeout: 15000 });\n        await expect(card.getByText('running', { exact: true })).toBeHidden();\n        assert.equal(liveStopped().length, 1, 'one correlated live terminal');\n      } else {\n        const terminalIndex = wire.findIndex(frame => frame.message?.kind === 'reduced_state' && frame.message.seq >= terminalSeq);\n        await expect.poll(() => wire.slice(terminalIndex + 1).some(frame => frame.message?.kind === 'heartbeat'), { timeout: 35000 }).toBe(true);\n        await expect(card.getByText('running', { exact: true })).toBeVisible();\n        assert.equal(liveStopped().length, 0, 'baseline lacks the correlated live terminal');\n      }\n      await page.screenshot({ path: join(output, `${label}-cancelled.png`) });\n      const beforeReload = structuredClone(wire);\n      await page.reload();\n      await expect(card.getByText('stopped', { exact: true })).toBeVisible({ timeout: 15000 });\n      await expect(card.getByText('running', { exact: true })).toBeHidden();\n      const nativeLog = readFileSync(join(serve.home, 'fake-acp.log'), 'utf8');\n      assert.equal([...nativeLog.matchAll(/session\\/cancel sessionId=/g)].length, 1);\n      console.log('LIFECYCLE_5181_RESULT', JSON.stringify({ binary, label, promptId, id, terminalSeq, initialWire, beforeReload, replayBefore, replayAfter, stoppedBeforeReload: phase === 'after', stoppedAfterReload: true, nativeCancel: 1, nativeLog }));\n    } finally {\n      await page.close();\n      if (serve) await serve.stop();\n      console.log('LIFECYCLE_5181_CLEANUP_GREEN', label);\n    }\n  }\n} finally { await browser.close(); }\n",
+    "limits": "Before uses frozen A-abac web binary, not fictitious standalone-main UI run. Controlled native peer, not original provider incident."
+  },
+  "limits": [
+    "Actual controlled native peer, not external provider incident.",
+    "Before UI binary is historical A-abac, not standalone-main; transcript differences from parent-main are disclosed in immutable diff.",
+    "Only Linux local checks; no remote CI, macOS/Windows/Nix or Codecov success inferred.",
+    "All browser tabs and isolated native fixtures cleaned up; no issue closed or PR marked ready."
+  ]
+}
