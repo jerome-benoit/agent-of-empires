@@ -1,0 +1,1916 @@
+{
+  "issue": 5053,
+  "epic": 5052,
+  "depends_on": {
+    "pull_request": 5177,
+    "head": "0a0dd8ac88186be0eef898d95f6ea0d2f2a55ecb"
+  },
+  "status": "C local verification passed and code commit pushed. Immutable evidence for Draft review only; no ready transition, merge or issue closure.",
+  "source": {
+    "compiled_working_tree_git_head": "076fbccdfe8530d0e89cefe3284872dfbe811ec7",
+    "owned_source_fingerprint": "0985fc8231403903fc446e2f49243c53eaddd3bd7c89deeb1c51c5f0de01ad9e",
+    "fingerprint_format": "SHA-256 of UTF-8 JSON path-to-SHA256 map, sorted keys and separators comma/colon; DELETED for intentionally removed paths.",
+    "owned_files": {
+      "src/acp/supervisor/fork_rejection.rs": "DELETED",
+      "tests/integration/acp_runner_control.rs": "DELETED",
+      "tests/integration/acp_silent_orphan.rs": "DELETED",
+      ".github/workflows/tests.yml": "64965bc67bb0b3141bb4628fd174f1d0f04c96d1c5ce34de37eca41d34595704",
+      "Cargo.toml": "f8df1f295f7e220ff19008f1bacd4a4688d74ae1e5832890fee8705e721b225b",
+      "acp-worker/test-shim/shim.mjs": "fd752e9be2a053283b00ff244c097956eb45413871bc865993eeb6e2e558a332",
+      "docs/development/internals/structured-view.md": "c3888644fdf5c18fb5fe734cbc4916194e57e2ed1997ae00430ac2ae502c43d3",
+      "docs/structured-view.md": "4e6ca1585033b184df1927c74ce5b596e764cac2c5c7be4209d40458900a88d9",
+      "docs/structured-view/controls.md": "ce6b8c4fea106d6cc90167e152f07e2477e219619a28e1a4b645823d228d7f70",
+      "src/acp/acp_client/between_prompt.rs": "aa916668a89d08b18d204bec7b157b60f4eb2333b6bfb9e3f18a6f7598da3a6e",
+      "src/acp/acp_client/close.rs": "eab03d12718ff990b61c7f88b316015e1e1a72450616f78738f1af5f2e9f4f18",
+      "src/acp/acp_client/commands.rs": "f535ffededcbd57eba8d2eaeae44c92efa55bc9b645ee98ee051aba20add2e57",
+      "src/acp/acp_client/config_options.rs": "095875f6d509a78118e13d73f23c0257a5724ddab889579224776507d39e388d",
+      "src/acp/acp_client/connection/command_loop.rs": "8adafbb696e0194d0ecaa1283ed93b8ade3e8d7789bd86b1e27ba64638497ddd",
+      "src/acp/acp_client/connection/establish.rs": "0bf15eec095105c26e2479ebd62d33a0d245c1792c95853e3f08f406f0913ac9",
+      "src/acp/acp_client/connection/mod.rs": "36b4dd057674aa3632ccc16c84d040422fdb47777db6c991011d63d635fa2ff2",
+      "src/acp/acp_client/connection/notifications.rs": "e125eeaeff71044209fc1d975545409e7d847c3c1c2865df6ccdb2445d319be5",
+      "src/acp/acp_client/connection/prompt.rs": "d9c39d6d89e73bb833e0eed8d828c135fd0d690714f73738d0cf4b70a6342aa7",
+      "src/acp/acp_client/connection/tests.rs": "ab193ecc5a713fa73d722fd5f8943ffd66d6cd137c87f624076fde9897e83122",
+      "src/acp/acp_client/control.rs": "20b067d3a7d5e4bfee33c10839da5dc92b40834b88e6b1288dbe882d63aabb10",
+      "src/acp/acp_client/delete.rs": "4e61fc41b108ed03b28c2cd4b3614189f52aaeff16c5bdbbea586216e60f6c88",
+      "src/acp/acp_client/errors.rs": "893dfcf0634df815fff252aaccdf602417b5440f49267f0bcd9bbbcb9a9081e7",
+      "src/acp/acp_client/fs_handlers.rs": "c309e916b76f3e1ecfbd64eab46298e2a38f64fa7fa1c09901f5bd511d371e03",
+      "src/acp/acp_client/handshake.rs": "28b451eb9aba620754f7fcb9c6840c9c011cc51f326c2cbf97a81c6def9e9fa2",
+      "src/acp/acp_client/lifecycle.rs": "e3c4bb23954bc503fe14a2465f4fece94305f55258b0e18348e70e5b22d6ced7",
+      "src/acp/acp_client/list.rs": "3c3c8e5c41d64b09f722601a4f0fd76da4f5924bf2fefad451bb8514fc6af50a",
+      "src/acp/acp_client/mod.rs": "92b86e697a0fb804290983a94ccedb5e3b472c1dd88ece2e90f4b91c4f322ce4",
+      "src/acp/acp_client/pending.rs": "cba8fdaca3cb1feaf3dd1cb9151fb0da6e122b41a81cf647bcbcc56bd769160f",
+      "src/acp/acp_client/permission_handlers.rs": "b5e0a7b32c914b98f8ad9be4da8a34d854b1fb8a68ab6631debda6c328a12cce",
+      "src/acp/acp_client/raw_input.rs": "33ceb5ee683baf0f484b6244664315688e263efe9be4cf120fb520a8482cf64a",
+      "src/acp/acp_client/reset.rs": "2c70d44da844e4c718bf03753707c53dc911ec856748e2d7aa15e0e7310a5544",
+      "src/acp/acp_client/runner.rs": "a7fbd6388b60b7cc3467b08fd1e9ddc3f4fa5d277e03002d27a27cde1c6aaf59",
+      "src/acp/acp_client/session_identity.rs": "0e4ec2212c27a8b832787e837b336a87954a08c94af87b3a9f201bf7433dd07e",
+      "src/acp/acp_client/spawn.rs": "ba5d886acf2dcc13161d28f16b7e8cec2f50af4d591aa74b11e8d7e443e1cdb7",
+      "src/acp/acp_client/steer.rs": "18f4232b6e6fa76334b3ac2cd3db8b2783466a4169ff1c20e75c0e73b4c75c25",
+      "src/acp/acp_client/terminal_handlers.rs": "f4332192826152843b075b7fe090f26d30db68e3e3a5d417d9d1c9ae461cac58",
+      "src/acp/acp_client/test_helpers.rs": "0110ecf7aaaae90042ce0497bb51082258cc023e386a80ec25eb02c550a46783",
+      "src/acp/acp_client/tool_context.rs": "44ab06ae911103e952ef36eb68a295f401f95aab1e4b5afcab0912a03e887c79",
+      "src/acp/acp_client/update_events.rs": "dc319096976a4dfadeb14ee72418bac02e393eb6f0a212d44cbef79514a37748",
+      "src/acp/acp_client/watchdog.rs": "be82b0469480cc48480b7c983615a7bfa01c5f9e4da4adff9d192e58a9368955",
+      "src/acp/background_agent.rs": "575a05e81d08b2e5011be35920daa71a3ddc8686f63a4b0e869f6715d82f9411",
+      "src/acp/capability_probe.rs": "adcbaabc83913fde72cf49a4e1aca889476d56f5b01212dcfc2125ff438f2bb8",
+      "src/acp/client/http.rs": "1e9ded2fd2201e9f23b015ce4db112cc9e169e86176966b97d76a0e69495017e",
+      "src/acp/context_primer.rs": "8fbaa5dd8e2df63e08126fd2518e28af61291ec007e625b90ff5594e5a4f27e7",
+      "src/acp/control_cache.rs": "e4e5eaec52169562f2445240b1ff8c0b3467b05048471a1f8e33037fca8b56d5",
+      "src/acp/control_protocol.rs": "35f23d07df926fcf8b793a844d769c11c0ffd84f0881232be63ab863e447db65",
+      "src/acp/establishment.rs": "4061260faf7aad2d4c6981b6432dcc264eb85cef399a3e2a002973709c6d3f41",
+      "src/acp/event_sender.rs": "e64a39733b9a83f057ac9f9b3ca0d387a6ceb66bbc0ab9e15bc7e8d559a915ba",
+      "src/acp/event_store/attachments.rs": "9c4cc8b3aa621f9ae6c70aaea3f3a4d5203ed661fefe697bc42989dd43f6ea98",
+      "src/acp/event_store/control.rs": "eeeda2cd756475f17a2f301da09775ea52604c5aabdd8f5c34b3d9e50ae84b72",
+      "src/acp/event_store/establishment.rs": "47d2829263cdd0fad5a2d9ca92a3a40a3d6667513f2e260eb72cf59955ab990a",
+      "src/acp/event_store/mod.rs": "cf2a0f866226336d16bb2287031092142cc079f6aed4404663e6d90c5c66704c",
+      "src/acp/event_store/rate_limit.rs": "ada4cae39e9b183a4b65f7d12656da822d17d5d91930902e880373371330fc05",
+      "src/acp/event_store/replay.rs": "dd1b2ae6d67399d5ffa45dfff3405fce14e05d8e8d3e71806303a81fc80edd1d",
+      "src/acp/event_store/search.rs": "9cfe0341db9215b8552e33a65be0ed36b16625162acfc48f244b77e8e23942db",
+      "src/acp/event_store/turns.rs": "afac1b69bc430a77e3b3d6e01edaad22b8502546e842c4a0ef88b23679fbeecf",
+      "src/acp/event_store/wakeups.rs": "9c2f4946a07ade3d4afcd55411cee348e7aaf2e4013b6eceed23975e9b85b7c5",
+      "src/acp/mod.rs": "fe01d88e4b310496cb90cfb911b5572275c6aee38b25c6530186e62186a50e51",
+      "src/acp/operation_effect.rs": "5d69211e2c4cff1ec47ba4c4e042fc38d3f2bdc963cbb6eea744e2f8193c2aa9",
+      "src/acp/protocol.rs": "fd54e9a5f77223ddf510d07af5af79d9df6a9cc6d17e2f69b946ffc6b533d0db",
+      "src/acp/runner_lifecycle.rs": "7ffa0a2be037c68b8d1046ac7c815f955ebe71b49a2d5e8f63fee6c990804473",
+      "src/acp/sandbox.rs": "405405e613ad26dcb44a1e04458ca8872de1f4407e8bf47795f5dc991a6e928f",
+      "src/acp/state.rs": "df371a37dc76118bebeb6a37d284f2798f304e659ea74904e6a412de44fde335",
+      "src/acp/supervisor/drain.rs": "ca6d3edbe2c92d1deb7a9f1a36881305bc2f7425d786028e8bad72f47b06ab29",
+      "src/acp/supervisor/launch.rs": "02efb55c33350ea51cbcc8e63b832e083e7f0d7993bb4d7825dace8a0ffbadf3",
+      "src/acp/supervisor/mod.rs": "0c7aa36446e5898b1bffc827ddd179f65efbc21003b25223373b17cf96583add",
+      "src/acp/supervisor/publish.rs": "662232275ab49f16af94fd900208f51bd5ea22eb353d2011e1ae9734c8e7338c",
+      "src/acp/supervisor/requests.rs": "24e967af7ff865b8841fde150c686de9d833d36059a3e4b3d61a33c00b929000",
+      "src/acp/supervisor/sink.rs": "3fb66ecb98b6ef1ca735bab599d2b48be940434fcf6a93d771aef98f380a3b11",
+      "src/acp/supervisor/teardown.rs": "9b880717610bbeba5a0dcfc2f932dfa044f22e614b4838393b34c6b09dcc92fa",
+      "src/acp/supervisor/test_support.rs": "39b167427350997896fb3022c8c20fbb3d47f9debf889a7e9d2d214286f0bd3e",
+      "src/acp/task_transcript.rs": "104f0469b40363167b1afcf7749d44859fe6e145acda4237aa07dab1573b1a58",
+      "src/acp/terminal_handler.rs": "627aab047d38d3bab92b4e80d620d9462489bf501187bcc5d50aa2e4049fa260",
+      "src/acp/transcript.rs": "6cbfe7a78f7ed478350828eaa988d14b8eaa6124d88a7bec7fd46201de018390",
+      "src/acp/workflow_journal.rs": "5f3b742e77731fd8021feafe90844a310802e9127c5e71008e77df3a64d3dc9c",
+      "src/cli/acp.rs": "676d3a324bbd20b02380f5677b1bf3548c2a96892f523e550df82e2b9ec781dc",
+      "src/cli/add.rs": "b9f24c200ad07883b04be0a66361de403e4345c83fef3da565ea109d3e81a171",
+      "src/cli/worktree.rs": "96e0765eff37ce09c034e9ebbcd2d8cb67d5fff57fe0613fd4c06cb489745d38",
+      "src/daemon/wire.rs": "9ddf317fce1aba350eb96b61711c045d5b0efb06798dfda9ac84925a98373c6e",
+      "src/events/mod.rs": "d1140f78d2da44a1807c0137790ec4aa81a7a33b880ca9836aa4e28c9683bf24",
+      "src/migrations/mod.rs": "1d7ee905613a8821e440ac6d2ddd251ea6d89e44ae39126b247dcbb353bd21cc",
+      "src/migrations/v033_isolate_sandbox_content.rs": "83df7c09c72fd432dc9b62a4bf18473f77154d41ef0e37767f698ed4e33e30a3",
+      "src/migrations/v054_acp_establishment.rs": "94a2d862d6c903d7a219c2821950987a11b30958c4d9186b372ec55d33ddff80",
+      "src/migrations/v055_acp_event_scope.rs": "4fa7e2077c1b771da511006e23cbb30d2c5dff3a5462e1da62b99211c8967b99",
+      "src/migrations/v056_native_prompt_publication.rs": "abd15ac9c949861f331735a22a81e827171a0e888c4803cae0d922b1eff6168d",
+      "src/migrations/v057_acp_budget_knowledge.rs": "b7827cc308633dc91bb97d8895f82869c9f0ea4f48c306aaba2512b698119bbd",
+      "src/plugin/session_api.rs": "ce6b698306eb85e151a4c41537bf21937fc7dbfc3369dbab307f93118d17a7ae",
+      "src/process/linux.rs": "3879fac30fde343bbd0069be5a80768c6dc8f40a97a1b82e95131f679688f2d8",
+      "src/process/runner/connection.rs": "9ad9d0339f33a13ffb397a61e86ddd27650ccbb91bd8fd3b40b3e98f7cd81348",
+      "src/process/runner/jsonrpc.rs": "9bb89eb5f398d20cd99f6a4af65834b44a2468e0385f1ac70f9887eceac65bc8",
+      "src/process/runner/mod.rs": "5eccd6b30ca048526aae13369277d26e8f54c35d5d8f8990bfa3fd719a2974a9",
+      "src/process/runner/shared.rs": "9f725666ff21be61bee029a44588e7758aed71a30c33abd54e27409d396f9b68",
+      "src/process/runner/test_support.rs": "10f517f60db444c05de9ccf6e226db574fbd6c94704b3c71d7724c2add1ee341",
+      "src/server/acp_events.rs": "aea1576845ae0f77c1592254b7575ea28aae103b110ecbfa2c486a08f5b16c9d",
+      "src/server/acp_reconciler/idle.rs": "c2567b54d13f5e30932d9ebefd24244f732f67af144388c19c2dd10ad6d8c88e",
+      "src/server/acp_reconciler/mod.rs": "588d0f03abb6ef6b1d3acce4bd117f7d4da0b7f759b2d690807ce55629b0bb50",
+      "src/server/acp_reconciler/rate_limit.rs": "98f6f12a107438f3cb383b9491d69cf8628c26178a16ddc75f54903b3d628840",
+      "src/server/acp_reconciler/resume.rs": "fd4c98907c9875e1b7624710c386ae5c746e0665c72a2c79b7a0952c418aee7d",
+      "src/server/acp_reconciler/test_fixtures.rs": "2946215ccc00acb9e7416e5b5dc57a5f6e8172f11daf01c85330ccb68ecb6e94",
+      "src/server/acp_ws.rs": "d886f3be17c8eb53381e39cb91b13cdcf21d1aec0c84cf087a608e78a0ccbce7",
+      "src/server/api/acp/config.rs": "2a3dcf1bfb02b41e673cee95d494e6f6257ae01e64bc51c9bc869940417f793c",
+      "src/server/api/acp/history.rs": "96a96f179f376ea18e409c56527eb3fdaed038a5336bd466b5cfe60c65e49956",
+      "src/server/api/acp/mod.rs": "a20495a6a11615cf43ad41840962c4c3db8a33cdeff0de8e7845a2ca86952059",
+      "src/server/api/acp/prompt.rs": "232d86970fe8c5e8f7d712f958d57bb101e54360c5ca7290705f97558ab5cfbe",
+      "src/server/api/acp/prompt/tests.rs": "f1a51ad63d7daf3366db68f4524b98dd9cb77ef012341e54d72bb3d49dbfb635",
+      "src/server/api/acp/view.rs": "3984bd8005ed8d1daa735c2d48bf8349900bb196b6b6823fd6d8561fa82b76c7",
+      "src/server/api/acp/worker.rs": "285b0090919a139cb2fb93199f40c64d2631eeeab9c4f59736197cbefc96e6b3",
+      "src/server/api/file_provenance.rs": "b21f08013d8fe0a0283fd0a6b25a749df6eff623292f5545595942ef7e343caf",
+      "src/server/api/sessions/delete.rs": "cf2e09afe872f9ce70be437601915eab0e35e2e3b965fa4565f7e22008403e6f",
+      "src/server/api/sessions/diff.rs": "3bc2015722f39d2de7bd341481cf925e4e8009f6accacdfa61d98ffa916c254a",
+      "src/server/api/sessions/lifecycle.rs": "e65cef453f566883e84f409458ac65b7b13f487d078f8fb915b4ee14fcd8c252",
+      "src/server/api/sessions/list.rs": "b59f53a35447a1350f47ae7e98d879e89e28fab1b96e66afbd2d196b2d60e1cb",
+      "src/server/api/sessions/model.rs": "9260d8a0806eea49f6e755b8b1c304f81814f6265192ac36b9ea1e2b7b548389",
+      "src/server/api/sessions/rename.rs": "babfe859d6de786b993a062e5b1c0a10a020a31aa491c5af23ae2563400739d8",
+      "src/server/api/sessions/tests.rs": "aa2a80afbb6e461f167059eba76c26f82bfb3b503a331714d3dbee44992b1f0f",
+      "src/server/attach_project.rs": "1b0c1b19e44c484a03be1af2ae70e54c65518107c208d81ed05f91ed5be3b5ad",
+      "src/server/runtime.rs": "c02c6fcf4f19f5a9a76a6c3164a9699e132f06edb68a6bb01be83a244ae61cd7",
+      "src/server/session_service.rs": "49faf52ae94e9ca6887bff5d59c2579d9de153de826ff5fd13c84eddb92d97fe",
+      "src/server/session_spawn.rs": "53d5e07503c8c642915179f153f95f5fe95a697163e595d342440a624a6edebf",
+      "src/server/session_store.rs": "f5e1b4ec07db5d8b60c8340ed5c7f62aaebd50204e2f5008862e8d8a58a4e9b7",
+      "src/server/startup.rs": "ad4a2af7610002ce765e265e13dfe69beee5ebae71d49a558c3329c483bd4636",
+      "src/server/startup_recovery.rs": "c66850e6b08e6e30d14abfd5518510d80a5ef181d2848900fcd05c7849ce757e",
+      "src/server/test_support.rs": "a21642c4d8b5770db9388d4a124f99c3895f85b3076fc1809c6510e990de0ba9",
+      "src/session/conversation_summary.rs": "05654047b35498fad14593333be790c52a478db5d5e3a9080f980891f5fa1522",
+      "src/session/deletion.rs": "dafd3bd9f884f8a01b601dfb3dd77fecb6e171430d6dce02025c1587be56e7cf",
+      "src/session/instance/accessors.rs": "1fd139f131d6bdc0f38150c101ec8e1839d8852d04abf98e37c6a41d35e3e5ea",
+      "src/session/instance/execution.rs": "687beca7f3ced96ad5097b3af8909e6f06bfb9ed24bc165898cfcd42d9038c91",
+      "src/session/instance/lifecycle.rs": "0f6cacadbc948ba7ff64cfa8cc448b750a96aedcb689cd38e8ab0369282ec0b1",
+      "src/session/instance/mod.rs": "628eafa3077e513edb1b94d2e20d04bfb3f26874ca9d3a0627435cc10d0705d7",
+      "src/session/instance/ready.rs": "1ac6168003419e66d5ae78ba01716adffc6181f50387f96fdcace969a8b7e0e8",
+      "src/session/instance/start.rs": "03ad572eac8993500c90e3bb06b20ce9bc467d27aa4854c79a19388863cd055e",
+      "src/session/mod.rs": "93478d0f7c8464138d526e658aec8738ed3a5dd244993fc6ea069fa6e1506ba8",
+      "src/session/purge_owners.rs": "da73778fa24dad5dd07bcb2a52054f318a964797bad794e7f32131fc4db9d91d",
+      "src/session/storage.rs": "21a5c4a9072c4f178e300cb4aba355804cc133f5c990460cbccff3d9014df978",
+      "src/tui/structured_view/mod.rs": "ad98a42b602f74e58f3f52b2b01b6b394c2b42f6783562b35fd6d5014278fd4a",
+      "src/tui/structured_view/reducer.rs": "6d92713fc3e9bb9feb4be31629fe2e8663cd50396a2ec9ea367bda1f88a1de27",
+      "src/tui/structured_view/render.rs": "aaa42ab9cced16fd3a00cfbb2b5018b0159617e59011a307b08425cf945c985f",
+      "src/tui/structured_view/state.rs": "f666eebff32cd0041d06ef224859bf61624b83a9982f58d35029bac0ec209de9",
+      "tests/integration/acp_mcp.rs": "805d1a824b30a7067d4c730687cca64231a1dd07669dd846ba7320fb18d14aef",
+      "tests/integration/acp_midturn_resume.rs": "7ffdb851f13552a80e59957d884d34f5b5ba0aea154d816739e4d58f5db216be",
+      "tests/integration/acp_model_respawn.rs": "e34c2dc32eaf370ccd0fe0dc29c6af406f3ef854a66770e48f395be666435917",
+      "tests/integration/acp_provider_respawn.rs": "b847b7e202ff41b15873d6654dc44c30cf135c184cf314daad8ed27164fe01a0",
+      "tests/integration/acp_runner_managed_control.rs": "4e4987f9af4ace8ea62af80074dec93f89f729ca109cafaed4811183bbf8cff3",
+      "tests/integration/acp_runner_managed_replay.rs": "c3fc2abfda249c23ef7502050f49c83cd0ec0653b344c52367ad8e939d22e10a",
+      "tests/integration/acp_runner_orphan.rs": "28499008d71e69705f34036936053edc4a4a89beaec6b87fea6b18c1458530a4",
+      "tests/integration/acp_session_delete.rs": "d69672c1605f97ced423a120ece87a9a07e0aee244a9f9de3aba9e50602a5846",
+      "tests/integration/acp_session_import.rs": "f3596c127d40e868609c3f7dac0ee396a227ffbcecd8d4aa1aecd3775024b426",
+      "tests/integration/acp_smoke.rs": "1aaea077f44252f3254574b1075e32d4342ea270b3611bba97a70870d3a994bc",
+      "tests/integration/common/managed.rs": "2dcd90ceb2cd158d6c33bc2754a972d847dd4b6b81a1cc5850d105ea2195b0f1",
+      "tests/integration/common/managed_runner.rs": "12c22788bd02916b8aaaa193f5c9925d1e5ecf604b6a374b8fe753bfbe090b67",
+      "tests/integration/common/mod.rs": "552708bd05126b2ae597ac62c635250a4347f16055f4b247339d06956023e8fd",
+      "tests/integration/common/node.rs": "cf4c844ee3a5d3f20bc266c28254bb5e8969dfdf13c77c6db31f05b0258e168e",
+      "tests/integration/main.rs": "6cddcb23e4b276ac6a7e009018e2f3fb13d4919dfd6658e85342c4725aa8d8a1",
+      "web/src/components/acp/AskUserQuestionCard.test.tsx": "12dced76fc57e2ce7b9c6cd51700a94ae7e67591dcd25c34187c6fc3bc0274b2",
+      "web/src/components/acp/AskUserQuestionCard.tsx": "d783611dce53fd5dc799f18cf081ab14a8d67b1e23c2b39be0fe54001cc2c05f",
+      "web/src/components/acp/Composer.tsx": "30cad1827b5292f4a5d3aa03ea6d9c6446d77f497193565597f06532d78f825a",
+      "web/src/components/acp/ComposerControls.tsx": "5dd4c60f70f3b72719ee991bb8566cfefa6f26c13ffad674fb11fabf94208c04",
+      "web/src/components/acp/SessionConfigControls.test.tsx": "5326e29eae3bc74b99932d0727291aa330b9635733b8250580692ed633dbd32f",
+      "web/src/components/acp/StructuredView.tsx": "0fd0e9d74cf4e174ad119240bbc9b1a7c14edd1d8cd768761387e4edf68c4861",
+      "web/src/components/acp/SystemNotices.test.tsx": "ba5b3cf57d37eb999e4e4cea3c000529ad58aa7fd82d69331790eea59e09746c",
+      "web/src/components/acp/__tests__/SessionBanners.test.tsx": "8b30ed350834cf86274dadb7ffab4b102823b0f3fce31cfad5a84dd71ca23db9",
+      "web/src/components/acp/__tests__/useProviderSwitch.test.tsx": "4dc1dc7fb60da6372f1abbbf7e63e17bc32bcf9845482c78208130ad19a03df4",
+      "web/src/components/acp/activityMessages.test.ts": "5fe90d99f2b18e96fe087b7b943debc3bb32e4e05b0833c1d3f1624d89400f13",
+      "web/src/components/acp/activityMessages.ts": "1801a33bb43dbd2611aa0c3aa9fa45eb577b7093b4e89c5e17e514bd265db0ac",
+      "web/src/components/acp/useProviderSwitch.ts": "acc88c66d06c618b95e429c7af1db0e2c81d5f952d7c1afeb55d73d818bdadea",
+      "web/src/hooks/acpSession/reducer.test.ts": "6e2d9248ab7c659fcec4d146b66504e7e26fdff576d627d751d762e9ef994fa7",
+      "web/src/hooks/acpSession/reducer.ts": "afc9686b5fd1f74f6dd2c9c279b39e297d8bf928fb6d9968ff08234786a36050",
+      "web/src/hooks/acpSession/replay.test.ts": "f66e11c99a1f1eda99db71716b3a5c9acd957a9b88cc133f2addf2967097d0e1",
+      "web/src/hooks/acpSession/replay.ts": "dd5dabf75ddb2d8f4687a297ee295a1d966d33a687e4943f3b6880f1ae51ee90",
+      "web/src/hooks/useAcpSession.test.ts": "b3c769325633d9f32f241edfa9b9ad55b4250ec9140c16e05f654f5722c48c35",
+      "web/src/hooks/useAcpSession.ts": "7f27d59dc2fb825ce1a303b43fdb42c73bebe7ddc0e7859455e7dc1b544173b3",
+      "web/src/hooks/useHistoryWindow.ts": "2f7564b8c09ca5d909f4fd38fde1499959831c467e92c2e35036c2a8a01feb7b",
+      "web/src/lib/acpHistoryWindow.test.ts": "8e51ba46d83916e76c2ee3eacd749ab93bdd64840795dec9c829ab23aa9d9dcb",
+      "web/src/lib/acpHistoryWindow.ts": "b7f62dc65e68c321809395453f4caae36ff310cd4ff4e4f2a245ddcc03bfd85a",
+      "web/src/lib/acpTypes.reducer.test.ts": "8b5c717f4be5568e158023d2c097fb41704cf297c7a153c0aa64e440fd382353",
+      "web/src/lib/acpTypes.test.ts": "7ae36563dbe110e3a5860c59f0cc03bf22c1c86de8238cf9570540256932e401",
+      "web/src/lib/acpTypes.ts": "1dc27aa114faa47dd9239939cb38512e7d57ba6a3dbb5fb066fdb0f5ef681eea",
+      "web/src/lib/api.ts": "8eaa8ce2c76adc0978b3caa8d1a67f0a89ff098e11bb4efa40594adc39965e6d",
+      "web/src/lib/modeChannel.test.ts": "c69347e4a3363581df6697ca233518f72b4aff56959a45a23ef20773252d7096",
+      "web/src/lib/modeChannel.ts": "6edc2049095930d9d694a66a2d21d4847a9605e5207660112803e34cc8d967c9",
+      "web/src/lib/switchAcpProvider.test.ts": "55f152113c1bc747828a3f1eee5bf9f5871cdb03aa0a4a19005f216726f85c74",
+      "web/tests/acp-config-pickers-ui.spec.ts": "d2852eb1ff73d20873c666e3e849f8e6e5201b6ae5037e685f7da7fc5b2675ba",
+      "web/tests/capture/screenshots.spec.ts": "37d65c53fa3df9fe0bc77afd4979f5e0b304495b3542536adfc81c41f01eff8a",
+      "web/tests/coverage-matrix.json": "8d342e3ebb41b707fdfb91db7732b934d8eeba0b6f8d6be25ab5cc8a916282c8",
+      "web/tests/helpers/acp.ts": "98dd82f0a74f1016cae202a2f7f1ccc0f36a869daadcca3ef7bea2b4c3585541",
+      "web/tests/helpers/acpControlSnapshot.ts": "3628a1deddc300c046ee1051092fcc6c0ef44d88e72a8328c9e3e8d424638e3b",
+      "web/tests/helpers/aoeServe.ts": "09d735d9ef07e3a2bd74d33dc7900117b2f1ef624828b7a0fe2b1ce0fa52480e",
+      "web/tests/helpers/isolatedEnv.ts": "14afb0f86dff9bb6494254b83b0768e74d8f693af1530acdd5fcd0af91487292",
+      "web/tests/live/acp-session-history.spec.ts": "56efb05f1573425d66441fd4400dd66949883f70b3648cb48c0ada397e6e7c07",
+      "web/tests/live/acp-stories/agent-status.spec.ts": "3c1e6b415eeb026a001811ad60fe745fd3ab9c869286e3ff05d6694a4c107cb8",
+      "web/tests/live/acp-stories/composer-controls.spec.ts": "98b801b71acf1643380f619b34e0676614424c2eb7443bf82404d0b51bba4de3",
+      "web/tests/live/acp-transcript.spec.ts": "42123d9ee46d3961ed7965fff3f018a54791a91ad9a5799bc26e425ac7789a66",
+      "web/tests/live/acp-worker-api.spec.ts": "aa5b80e595da65c5fb5eb8d3bc3743075f7ed11f0613503c981c13c15a5ce008",
+      "web/tests/live/right-panel.spec.ts": "fa1a84a7fdd24e1e6fd5ab76011736adb42249080211ed9f455867ba09910c0d",
+      "web/tests/live/session-lifecycle.spec.ts": "b10522f02edcdb9ec3742dae2817aeefcbe3290b6f85ed93389db12c89e4c4d4"
+    },
+    "provider_acp_changed": false,
+    "private_control_protocol": 6,
+    "database_schema": 57,
+    "prepared_git_tree": "1d9b1a5a2b49aee7f0f53a3d23c2c6214d1d015b",
+    "changed_paths_from_B": 181,
+    "prepared_tree_owned_file_hashes_exact": true,
+    "published_code_commit": "440449ce665889527f1037ff043dd9a9a9f831ec",
+    "published_git_tree": "1d9b1a5a2b49aee7f0f53a3d23c2c6214d1d015b",
+    "published_parent": "0a0dd8ac88186be0eef898d95f6ea0d2f2a55ecb",
+    "code_commit_signature": "Explicit contributor-approved unsigned C commit only; normal hooks passed; no Git configuration changed.",
+    "published_tree_owned_file_hashes_exact": true,
+    "code_branch": "fix/5053-retained-acp-conversations"
+  },
+  "verification": {
+    "default": {
+      "fmt": "passed",
+      "clippy_tests_deny_warnings": "passed",
+      "focused": {
+        "passed": 47,
+        "retries": 0,
+        "cases": [
+          {
+            "status": "PASS",
+            "duration": "   2.206s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::control::tests::adopted_failure_barrier_orders_buffered_notifications_and_bootstrap_commit",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.711s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::control::tests::resumed_prompt_completes_only_for_its_own_runner_request",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   2.286s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::permission_handlers::tests::managed_native_unpublished_decisions_refuse_without_user_outcomes",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   1.331s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::reset::tests::native_identity_admits_immediate_post_response_callbacks_before_config",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.746s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::reset::tests::native_identity_reset_uses_original_result_not_buffered_update_ids",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.943s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::reset::tests::reset_between_prompts_with_open_work_is_refused",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   1.394s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::reset::tests::retained_native_default_callbacks_finish_before_a_waiting_fresh",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.429s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::steer::tests::follow_up_during_compaction_is_rejected_instead_of_steered",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.943s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::steer::tests::native_compaction_completion_survives_registry_and_lifecycle_contention",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.876s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::steer::tests::native_compaction_start_survives_registry_and_lifecycle_contention",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   7.733s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::test_helpers::original_human_decisions_cross_pending_and_applied_without_current_authority",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.437s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::test_helpers::worker_readiness_waits_for_actual_usable_after_applied",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.012s",
+            "binary": "agent-of-empires",
+            "test": "acp::acp_client::update_events::tests::compaction_markers",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.014s",
+            "binary": "agent-of-empires",
+            "test": "acp::establishment::tests::deferred_creation_admits_its_first_original_once_without_replacing_consent",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.319s",
+            "binary": "agent-of-empires",
+            "test": "acp::supervisor::launch::tests::attach_resumes_tailing_a_background_agent_that_survived_the_restart",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.703s",
+            "binary": "agent-of-empires",
+            "test": "acp::supervisor::teardown::tests::an_abrupt_worker_loss_is_not_held_open_by_a_pending_task_tailer",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.398s",
+            "binary": "agent-of-empires",
+            "test": "acp::supervisor::teardown::tests::shutdown_and_wait_retires_a_term_ignoring_runner_before_reaping",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   1.158s",
+            "binary": "agent-of-empires",
+            "test": "acp::supervisor::test_support::acp_provider_respawn::provider_pick_beats_configured_host_environment",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.640s",
+            "binary": "agent-of-empires",
+            "test": "acp::supervisor::test_support::acp_runner_managed_replay::runner_native_identity_is_announced_before_callbacks_and_never_reassigned",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.452s",
+            "binary": "agent-of-empires",
+            "test": "acp::supervisor::test_support::acp_runner_managed_replay::runner_proxies_agent_requests_over_the_control_channel",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.531s",
+            "binary": "agent-of-empires",
+            "test": "acp::supervisor::test_support::acp_smoke::shim_agent_sees_a_dismissed_question_as_cancelled",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.583s",
+            "binary": "agent-of-empires",
+            "test": "acp::task_transcript::tests::a_superseded_tailer_cannot_finish_or_release_the_new_launch",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   2.081s",
+            "binary": "agent-of-empires",
+            "test": "acp::workflow_journal::real_journal_tests::a_run_without_its_journal_settles_recorded_agents",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.165s",
+            "binary": "agent-of-empires",
+            "test": "cli::worktree::tests::cleanup_removes_an_abandoned_purge_only_while_still_marked",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.032s",
+            "binary": "agent-of-empires",
+            "test": "process::runner::shared::tests::native_callback_framing_waits_for_registry_without_changing_original_stamp",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.023s",
+            "binary": "agent-of-empires",
+            "test": "process::runner::shared::tests::original_io_framing_progresses_while_lifecycle_admission_is_blocked",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.296s",
+            "binary": "agent-of-empires",
+            "test": "process::runner::shared::tests::post_new_command_catalog_keeps_original_scope_until_application",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.329s",
+            "binary": "agent-of-empires",
+            "test": "server::acp_events::tests::acp_event_listener_tracks_only_actual_current_load_session_capability",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   1.781s",
+            "binary": "agent-of-empires",
+            "test": "server::acp_events::tests::owned_channel_ready_heals_only_the_current_identity_fenced_connection_error",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.634s",
+            "binary": "agent-of-empires",
+            "test": "server::acp_events::tests::recover_structured_unread_after_lag_marks_only_a_missed_turn_end",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.534s",
+            "binary": "agent-of-empires",
+            "test": "server::acp_events::tests::stale_sidebar_observation_cannot_replace_a_later_native_failure",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.619s",
+            "binary": "agent-of-empires",
+            "test": "server::acp_reconciler::tests::drain_queued_prompts_wakes_a_dormant_session_with_a_queue",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   1.743s",
+            "binary": "agent-of-empires",
+            "test": "server::acp_reconciler::tests::retained_legacy_refusal_never_dials_or_spends_reconciler_budget",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   2.621s",
+            "binary": "agent-of-empires",
+            "test": "server::acp_ws::tests::contended_native_observation_requalifies_at_the_same_frontier_without_holding_guards",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.381s",
+            "binary": "agent-of-empires",
+            "test": "server::api::acp::config::tests::a_failed_pick_write_stops_the_worker_and_reports_it",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.371s",
+            "binary": "agent-of-empires",
+            "test": "server::api::acp::prompt::tests::a_direct_prompt_and_the_queue_drain_cannot_both_own_the_same_turn",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.439s",
+            "binary": "agent-of-empires",
+            "test": "server::api::acp::prompt::tests::current_owned_native_receipt_needs_no_historical_ready_and_refreshes_before_fold",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.357s",
+            "binary": "agent-of-empires",
+            "test": "server::api::acp::prompt::tests::send_now_delivers_the_rows_stored_attachments_not_the_requests",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.683s",
+            "binary": "agent-of-empires",
+            "test": "server::api::acp::tests::persist_failure_never_retires_a_replacement_worker",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.360s",
+            "binary": "agent-of-empires",
+            "test": "server::api::acp::tests::terminal_handoff_cas_follows_the_adopted_durable_row_through_a_reload",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.357s",
+            "binary": "agent-of-empires",
+            "test": "server::api::acp::view::tests::disable_without_context_retires_an_unborn_producer_without_journal_debt",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.897s",
+            "binary": "agent-of-empires",
+            "test": "server::api::acp::view::tests::durable_handoff_reconstruction_preserves_launch_and_checked_cleanup",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   1.278s",
+            "binary": "agent-of-empires",
+            "test": "server::api::acp::worker::tests::restart_rechecks_session_and_cancellation_after_waiting_for_exclusion",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.716s",
+            "binary": "agent-of-empires",
+            "test": "server::api::acp::worker::tests::restart_survives_request_cancellation_after_worker_retirement",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.796s",
+            "binary": "agent-of-empires",
+            "test": "server::api::sessions::lifecycle::durable_stop_tests::deferred_cli_creation_and_stopped_start_preserve_original_admission_at_capacity",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   0.448s",
+            "binary": "agent-of-empires",
+            "test": "server::api::sessions::tests::permanent_delete_reaps_a_refused_owned_constructor_before_removing_its_scratch",
+            "detail": ""
+          },
+          {
+            "status": "PASS",
+            "duration": "   1.286s",
+            "binary": "agent-of-empires",
+            "test": "server::startup_recovery::tests::recovery_refuses_shelved_rows_after_the_candidate_snapshot",
+            "detail": ""
+          }
+        ]
+      },
+      "full_nextest": {
+        "passed": 5624,
+        "failed": 0,
+        "existing_ignored": 4,
+        "retries": 0,
+        "test_threads": 1,
+        "seconds": 932.684,
+        "public_log": {
+          "path": "logs/default-nextest.log",
+          "sha256": "c9924bb79dccf90c2f829bbd518461d22c2434301b3e3c3e744df883ab0a2296",
+          "private_host_paths_redacted": true
+        }
+      },
+      "doctests": {
+        "passed": 0,
+        "failed": 0,
+        "existing_ignored": 1
+      },
+      "embedded_nix_assets": {
+        "passed": 75
+      }
+    },
+    "production_smoke": {
+      "plan_steps": 39,
+      "includes_build_hash_and_driver_compilation_steps": true,
+      "failed": 0,
+      "binary_sha256": "b50d7c2a817f92751869fbe5d57c9c6ebe8606ec814473439293d4c20357b326",
+      "observations": [
+        {
+          "step": "prepare-production-candidate-directory",
+          "exit": 0,
+          "seconds": 0.002,
+          "observations": []
+        },
+        {
+          "step": "build-current-production-binary",
+          "exit": 0,
+          "seconds": 140.276,
+          "observations": []
+        },
+        {
+          "step": "freeze-current-production-binary",
+          "exit": 0,
+          "seconds": 0.18,
+          "observations": []
+        },
+        {
+          "step": "hash-frozen-current-production-binary",
+          "exit": 0,
+          "seconds": 0.348,
+          "observations": []
+        },
+        {
+          "step": "actual-workflow-child-identity-and-separated-proof-domains",
+          "exit": 0,
+          "seconds": 2.173,
+          "observations": [
+            {
+              "marker": "C_WORKFLOW_CHILD_REFERENCE_GREEN",
+              "observation": {
+                "id": "f63cfd7ac425469c",
+                "sid": "fake-acp-1793859768424-65e0597a",
+                "parent": "e2265dad-0a1d-4cd2-bf72-64bed96ae794",
+                "child": "aa3ac60c-43e5-4b99-ad01-ad4ac5fd6a5f",
+                "end": "aa3ac60c-43e5-4b99-ad01-ad4ac5fd6a5f",
+                "progressBeforeEnd": true,
+                "parentEnd": "e2265dad-0a1d-4cd2-bf72-64bed96ae794",
+                "nativeNew": 1
+              }
+            },
+            {
+              "marker": "C_WORKFLOW_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "actual-admitted-prompt-owns-canonical-slot-before-native-output",
+          "exit": 0,
+          "seconds": 1.51,
+          "observations": [
+            {
+              "marker": "C_NATIVE_ADMISSION_ACTIVE_THEN_GENUINE_COMPLETION_GREEN",
+              "observation": {
+                "id": "52806687b2b7476b",
+                "admission": {
+                  "session_id": "52806687b2b7476b",
+                  "seq": 6,
+                  "scope": "operation_current",
+                  "event": "ThinkingStarted",
+                  "operation": {
+                    "correlation": {
+                      "operation_id": "3587e3ec-bb66-48ae-8534-8abfba7e8b7a"
+                    }
+                  }
+                },
+                "active": true,
+                "idle": false
+              }
+            },
+            {
+              "marker": "C_GENUINE_FIRST_CREATION_GREEN",
+              "observation": {
+                "id": "52806687b2b7476b",
+                "sid": "fake-acp-1793859770600-1bfffcd2",
+                "owner": {
+                  "pid": 3518261,
+                  "generation": 1793859770347,
+                  "birth": {
+                    "start_id": "proc:6912684"
+                  }
+                },
+                "nativeNew": 1,
+                "nativeLoad": 0,
+                "nativePrompt": 1
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "actual-New-retains-constructor-current-assignment",
+          "exit": 0,
+          "seconds": 1.46,
+          "observations": [
+            {
+              "marker": "C_GENUINE_FIRST_CREATION_GREEN",
+              "observation": {
+                "id": "f9a6d729d12f4710",
+                "sid": "fake-acp-1793859772077-db805a17",
+                "owner": {
+                  "pid": 3518816,
+                  "generation": 1793859771911,
+                  "birth": {
+                    "start_id": "proc:6912842"
+                  }
+                },
+                "nativeNew": 1,
+                "nativeLoad": 0,
+                "nativePrompt": 1
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-nonregression-actual-genuine-first-creation",
+          "exit": 0,
+          "seconds": 1.466,
+          "observations": [
+            {
+              "marker": "C_GENUINE_FIRST_CREATION_GREEN",
+              "observation": {
+                "id": "a56c6318b0804c90",
+                "sid": "fake-acp-1793859773499-12f0d020",
+                "owner": {
+                  "pid": 3519376,
+                  "generation": 1793859773377,
+                  "birth": {
+                    "start_id": "proc:6912985"
+                  }
+                },
+                "nativeNew": 1,
+                "nativeLoad": 0,
+                "nativePrompt": 1
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-nonregression-actual-prompt-error-then-completed-second-prompt-same-native",
+          "exit": 0,
+          "seconds": 1.502,
+          "observations": [
+            {
+              "marker": "C_PROMPT_FAILURE_SAME_LIVE_NATIVE_GREEN",
+              "observation": {
+                "id": "1ef54ab668f7497f",
+                "sid": "fake-acp-1793859775033-7bb0da27",
+                "nativePid": 3519995,
+                "nativeBirth": "6913135",
+                "runnerPid": 3519971,
+                "nativeNew": 1,
+                "nativeLoad": 0,
+                "nativePrompt": 2,
+                "ordinaryErrorObserved": true,
+                "nextExplicitInputProducedNativeOutput": true,
+                "authorityUnchanged": true
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "R3-native-default-retained-after-caller-after-fix",
+          "exit": 0,
+          "seconds": 29.704,
+          "observations": [
+            {
+              "marker": "C_NATIVE_DEFAULT_DURATION_AFTER_CALLER_DEADLINE_GREEN",
+              "observation": {
+                "id": "71e1a64eeb874474",
+                "initialSid": "fake-acp-1793859776480-5856449c",
+                "firstFreshSid": "fake-acp-1793859776709-e1fcdaea",
+                "finalSid": "fake-acp-1793859804823-58ab0092",
+                "firstCallerStatus": 500,
+                "secondCallerStatus": 202,
+                "noArmWhileOriginalNativeDefaultHeld": true,
+                "lateDefaultPublished": true,
+                "sameNativeBirthRunnerBirthGen": true,
+                "nextExplicitPromptCompletes": true,
+                "counts": {
+                  "New": 3,
+                  "Load": 0,
+                  "Prompt": 2
+                },
+                "limit": "Public second-clear/progress observation, not a private writer-queued gate; no fake authority or implicit retry"
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "R2-native-default-reverse-FS-progress-during-second-clear",
+          "exit": 0,
+          "seconds": 29.898,
+          "observations": [
+            {
+              "marker": "C_NATIVE_DEFAULT_REVERSE_PROGRESS_BEFORE_SECOND_FRESH_GREEN",
+              "observation": {
+                "id": "b2ba3edcf3f84d26",
+                "initialSid": "fake-acp-1793859806287-d081fe36",
+                "firstFreshSid": "fake-acp-1793859806481-336572f6",
+                "finalSid": "fake-acp-1793859834584-d8bcbb1f",
+                "firstCallerStatus": 500,
+                "secondCallerStatus": 202,
+                "noArmWhileOriginalNativeDefaultHeld": true,
+                "actualReverseFSEffectAndNativeResponse": true,
+                "lateDefaultPublished": true,
+                "sameNativeBirthRunnerBirthGen": true,
+                "nextExplicitPromptCompletes": true,
+                "counts": {
+                  "New": 3,
+                  "Load": 0,
+                  "Prompt": 2
+                },
+                "limit": "Public second-clear/progress observation, not a private writer-queued gate; no fake authority or implicit retry"
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-healthy-explicit-Fresh-same-original-native",
+          "exit": 0,
+          "seconds": 1.514,
+          "observations": [
+            {
+              "marker": "C_EXPLICIT_LIVE_FRESH_SAME_NATIVE_GREEN",
+              "observation": {
+                "id": "dccbd7c1da9c4403",
+                "oldSid": "fake-acp-1793859836091-fe5c18b5",
+                "newSid": "fake-acp-1793859836201-544e415a",
+                "nativePid": 3524826,
+                "nativeBirth": "6919240",
+                "runnerPid": 3524801,
+                "nativeNew": 2,
+                "nativeLoad": 0,
+                "nativePrompt": 2,
+                "originalHistoryPreserved": true,
+                "nextExplicitPromptCompleted": true
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-real-adopted-original-native-then-explicit-Fresh",
+          "exit": 0,
+          "seconds": 1.719,
+          "observations": [
+            {
+              "marker": "C_ADOPTED_EXPLICIT_FRESH_SAME_NATIVE_GREEN",
+              "observation": {
+                "id": "cb388cd3c1104db1",
+                "oldSid": "fake-acp-1793859837629-9fb2bd1f",
+                "newSid": "fake-acp-1793859838010-4e29734a",
+                "nativePid": 3525368,
+                "nativeBirth": "6919398",
+                "runnerPid": 3525344,
+                "nativeNew": 2,
+                "nativeLoad": 0,
+                "nativePrompt": 3,
+                "originalHistoryPreserved": true,
+                "actualDaemonAdoption": true,
+                "actualNativeGenerationRebased": false,
+                "nextExplicitPromptCompleted": true
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-Fresh-waits-original-human-release",
+          "exit": 0,
+          "seconds": 1.679,
+          "observations": [
+            {
+              "marker": "C_FRESH_ORIGINAL_HUMAN_GATE_GREEN",
+              "observation": {
+                "id": "4938bce198754247",
+                "oldSid": "fake-acp-1793859839387-46466702",
+                "currentSid": "fake-acp-1793859839640-5c55a829",
+                "mode": "release",
+                "originalCallbackPublishedBeforeNativeReply": true,
+                "actualAppliedWhileHumanPending": true,
+                "oldNativeProgressDuringClear": true,
+                "noDurableArmBeforeHuman": true,
+                "clearStatus": 202,
+                "clearElapsedMs": 241,
+                "actualDecision204": true,
+                "nativeDecision": "allow-once",
+                "nextExplicitPromptCompletes": true,
+                "sameNativeBirthRunnerBirthGeneration": true,
+                "counts": {
+                  "New": 2,
+                  "Load": 0,
+                  "Prompt": 1
+                },
+                "limit": "Public clear publication plus actual progress, not deterministic private writer-queued acknowledgement; does not certify late POST-arm SDK settlement"
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-Fresh-original-human-prearm-deadline",
+          "exit": 0,
+          "seconds": 29.533,
+          "observations": [
+            {
+              "marker": "C_FRESH_ORIGINAL_HUMAN_GATE_GREEN",
+              "observation": {
+                "id": "c03a5f79577a4e6b",
+                "oldSid": "fake-acp-1793859841038-5618abe6",
+                "currentSid": "fake-acp-1793859841038-5618abe6",
+                "mode": "deadline",
+                "originalCallbackPublishedBeforeNativeReply": true,
+                "actualAppliedWhileHumanPending": true,
+                "oldNativeProgressDuringClear": true,
+                "noDurableArmBeforeHuman": true,
+                "clearStatus": 500,
+                "clearElapsedMs": 28143,
+                "actualDecision204": true,
+                "nativeDecision": "allow-once",
+                "nextExplicitPromptCompletes": true,
+                "sameNativeBirthRunnerBirthGeneration": true,
+                "counts": {
+                  "New": 1,
+                  "Load": 0,
+                  "Prompt": 1
+                },
+                "limit": "Public clear publication plus actual progress, not deterministic private writer-queued acknowledgement; does not certify late POST-arm SDK settlement"
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-original-SDK-late-Fresh-settlement",
+          "exit": 0,
+          "seconds": 29.58,
+          "observations": [
+            {
+              "marker": "C_LATE_ORIGINAL_FRESH_SDK_SETTLEMENT_GREEN",
+              "observation": {
+                "id": "25eb84c3be8444f7",
+                "oldSid": "fake-acp-1793859870618-91bc30d0",
+                "newSid": "fake-acp-1793859870719-0725674c",
+                "callerStatus": 500,
+                "originalPrefixPersisted": true,
+                "exactPendingAttemptApplied": true,
+                "noSecondFreshOrPromptReplay": true,
+                "nextExplicitPromptCompletes": true,
+                "sameNativeBirthRunnerBirthGeneration": true,
+                "counts": {
+                  "New": 2,
+                  "Load": 0,
+                  "Prompt": 2
+                },
+                "limit": "Controlled peer; no direct typed SDK unit-suite completion or arbitrary drain-interruption proof"
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-nonregression-actual-retained-Load-error-no-Fresh",
+          "exit": 0,
+          "seconds": 1.736,
+          "observations": [
+            {
+              "marker": "C_RETAINED_STOP_OBSERVED",
+              "observation": {
+                "status": 204,
+                "body": ""
+              }
+            },
+            {
+              "marker": "C_RETAINED_SPAWN_OBSERVED",
+              "observation": {
+                "status": 200,
+                "body": "{\"session_id\":\"8f0d7d2d04854125\",\"agent\":\"claude\",\"status\":\"running\"}"
+              }
+            },
+            {
+              "marker": "C_RETAINED_LOAD_ERROR_NO_FRESH_GREEN",
+              "observation": {
+                "id": "8f0d7d2d04854125",
+                "sid": "fake-acp-1793859900299-36c9777b",
+                "nativeNew": 1,
+                "nativeLoad": 1,
+                "nativePrompt": 1,
+                "authorityState": "blocked",
+                "targetOperation": "load",
+                "nativeGeneration": 3,
+                "refusedHttp": 409,
+                "historyPreserved": true
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-nonregression-actual-original-producer-before-runtime-hook",
+          "exit": 0,
+          "seconds": 1.422,
+          "observations": [
+            {
+              "marker": "C_GENUINE_FIRST_CREATION_GREEN",
+              "observation": {
+                "id": "5d0b41ac37954bd7",
+                "sid": "fake-acp-1793859901877-b9c24d23",
+                "owner": {
+                  "pid": 3531226,
+                  "generation": 1793859901714,
+                  "birth": {
+                    "start_id": "proc:6925823"
+                  }
+                },
+                "nativeNew": 1,
+                "nativeLoad": 0,
+                "nativePrompt": 1
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-nonregression-actual-malformed-native-envelope-keeps-uncertainty",
+          "exit": 0,
+          "seconds": 1.757,
+          "observations": [
+            {
+              "marker": "C_RETAINED_STOP_OBSERVED",
+              "observation": {
+                "status": 204,
+                "body": ""
+              }
+            },
+            {
+              "marker": "C_RETAINED_SPAWN_OBSERVED",
+              "observation": {
+                "status": 200,
+                "body": "{\"session_id\":\"98bb8a3b0c1b4bc5\",\"agent\":\"claude\",\"status\":\"running\"}"
+              }
+            },
+            {
+              "marker": "C_RETAINED_LOAD_ERROR_NO_FRESH_GREEN",
+              "observation": {
+                "id": "98bb8a3b0c1b4bc5",
+                "sid": "fake-acp-1793859903272-c7955d48",
+                "nativeNew": 1,
+                "nativeLoad": 1,
+                "nativePrompt": 1,
+                "authorityState": "blocked",
+                "blockReason": "outcome_unknown",
+                "refusedHttp": 409,
+                "historyPreserved": true
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-nonregression-actual-original-prefix160-and-New-reverse-effects",
+          "exit": 0,
+          "seconds": 1.591,
+          "observations": [
+            {
+              "marker": "C_ORIGINAL_NEW_REVERSE_CALLBACKS_AND_READY_GREEN",
+              "observation": {
+                "id": "eb6b3509bc184a2b",
+                "sid": "fake-acp-1793859905047-3fa4fb43",
+                "owner": {
+                  "pid": 3532305,
+                  "generation": 1793859904902,
+                  "birth": {
+                    "start_id": "proc:6926139"
+                  }
+                },
+                "originalBootstrapNotifications": 160,
+                "originalFsAndTerminalCallbacks": true,
+                "nativeNew": 1,
+                "nativeLoad": 0,
+                "nativePrompt": 1
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-nonregression-actual-known-Load-valid-foreign-valid-callback-SID",
+          "exit": 0,
+          "seconds": 1.761,
+          "observations": [
+            {
+              "marker": "C_RETAINED_STOP_OBSERVED",
+              "observation": {
+                "status": 204,
+                "body": ""
+              }
+            },
+            {
+              "marker": "C_RETAINED_SPAWN_OBSERVED",
+              "observation": {
+                "status": 200,
+                "body": "{\"session_id\":\"377035a473f14f28\",\"agent\":\"claude\",\"status\":\"running\"}"
+              }
+            },
+            {
+              "marker": "C_KNOWN_LOAD_EXACT_CALLBACK_SID_GREEN",
+              "observation": {
+                "id": "377035a473f14f28",
+                "sid": "fake-acp-1793859906638-43bf4090",
+                "nativeNew": 1,
+                "nativeLoad": 1,
+                "nativePrompt": 2,
+                "positiveFileCallback": true,
+                "wrongSidRejectedWithoutFile": true,
+                "validGrantStillUsable": true,
+                "selectedSIDAndHistoryPreserved": true,
+                "nextExplicitPromptCompleted": true
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-original-Node-managed-FS-terminal",
+          "exit": 0,
+          "seconds": 1.755,
+          "observations": [
+            {
+              "marker": "C_ORIGINAL_NODE_MANAGED_FS_TERMINAL_GREEN",
+              "observation": {
+                "id": "89a01a173bfe4b81",
+                "sid": "shim-bb54045d-b842-4af1-beed-8e53a54eb683",
+                "nodeBinary": "<isolated-fixture>/node",
+                "nativePid": 3533385,
+                "nativeBirth": "6926478",
+                "runnerPid": 3533361,
+                "runnerBirth": "proc:6926476",
+                "runnerGeneration": 1793859908266,
+                "originalNodeNewRequestObserved": true,
+                "noLoadRequest": true,
+                "actualFSFileAndEcho": true,
+                "actualTerminalOutputExit0": true,
+                "twoExplicitPromptsCompleted": true,
+                "sameNativeAndRunnerBirth": true,
+                "sameAppliedAndSID": true,
+                "limits": "Not direct typed SDK deletion or six-suite completion; no unsupported exact New count claimed"
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "baseline-real-original-human-pending-across-Applied",
+          "exit": 0,
+          "seconds": 1.54,
+          "observations": [
+            {
+              "marker": "C_ORIGINAL_NEW_APPLIED_WHILE_ACTUAL_HUMAN_PENDING_GREEN",
+              "observation": {
+                "id": "534a8230ddce4e1c",
+                "sid": "fake-acp-1793859910240-50583df5",
+                "originalCallbackPublishedBeforeNativeReply": true,
+                "actualAppliedWhileHumanPending": true,
+                "actualDecision204": true,
+                "nativeDecision": "allow-once",
+                "nextExplicitPromptCompletes": true,
+                "sameAppliedAndSID": true,
+                "counts": {
+                  "New": 1,
+                  "Load": 0,
+                  "Prompt": 1
+                },
+                "limit": "Precondition only; does NOT exercise waiting Fresh writer, reset deadline or late Fresh SDK settlement"
+              }
+            },
+            {
+              "marker": "C_FIRST_CREATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "actual-pruned-result-same-Native-current-reattach-then-one-distinct-intent",
+          "exit": 0,
+          "seconds": 1.842,
+          "observations": [
+            {
+              "marker": "C_NATIVE_PUBLICATION_RETENTION_INDEPENDENT_GREEN",
+              "observation": {
+                "id": "93987750f11447ac",
+                "sid": "fake-acp-1793859911666-6b806fe3",
+                "nativePid": 3534454,
+                "nativeBirth": "6926803",
+                "ordinaryRowsReallyPruned": true,
+                "boundedFactUnchanged": true,
+                "noDuplicateResult": true,
+                "noPromptReplayOrFresh": true,
+                "distinctExplicitNewIntentAdmitted": true
+              }
+            },
+            {
+              "marker": "C_NATIVE_RETENTION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "actual-Native-unknown-budget-and-pruned-sequence-floor-then-distinct-input",
+          "exit": 0,
+          "seconds": 2.1,
+          "observations": [
+            {
+              "marker": "C_REAL_PRUNED_NATIVE_SEQUENCE_FLOOR_GREEN",
+              "observation": {
+                "retainedOrdinaryFrontier": 7,
+                "actualDeletedNativeFrontier": 9,
+                "startupSequences": [
+                  12,
+                  13
+                ]
+              }
+            },
+            {
+              "marker": "C_REAL_UNKNOWN_RETAINED_CONTROL_PROVENANCE",
+              "observation": [
+                {
+                  "seq": 1,
+                  "kind": "AuthStatusUpdated",
+                  "scope": 2,
+                  "nativeOrigin": true
+                },
+                {
+                  "seq": 2,
+                  "kind": "ConfigOptionsUpdated",
+                  "scope": 2,
+                  "nativeOrigin": true
+                },
+                {
+                  "seq": 3,
+                  "kind": "AcpSessionAssigned",
+                  "scope": 2,
+                  "nativeOrigin": true
+                },
+                {
+                  "seq": 4,
+                  "kind": "PromptCapabilities",
+                  "scope": 2,
+                  "nativeOrigin": true
+                },
+                {
+                  "seq": 5,
+                  "kind": "UserPromptSent",
+                  "scope": 1,
+                  "host": true,
+                  "nativeOrigin": false,
+                  "input": {
+                    "text": "C_FIRST_ACTUAL_PENDING_INPUT",
+                    "synthesized": false
+                  }
+                },
+                {
+                  "seq": 6,
+                  "kind": "AcpSessionAssigned",
+                  "scope": 1,
+                  "nativeOrigin": false
+                },
+                {
+                  "seq": 7,
+                  "kind": "PromptCapabilities",
+                  "scope": 1,
+                  "nativeOrigin": false
+                },
+                {
+                  "seq": 12,
+                  "kind": "AcpSessionAssigned",
+                  "scope": 1,
+                  "nativeOrigin": false
+                },
+                {
+                  "seq": 13,
+                  "kind": "PromptCapabilities",
+                  "scope": 1,
+                  "nativeOrigin": false
+                }
+              ]
+            },
+            {
+              "marker": "C_REAL_NATIVE_BUDGET_KNOWLEDGE_RETENTION_GREEN",
+              "observation": {
+                "id": "4a4060beeabf4e3b",
+                "sid": "fake-acp-1793859913717-329f0585",
+                "nativePid": 3535034,
+                "nativeBirth": "6926998",
+                "realOriginalOperation": "50330824-0d8f-4bcc-bccb-b036ffb9c38e",
+                "admissionActuallyPruned": true,
+                "firstOutcomeActuallyNative": true,
+                "unknownPreserves": {
+                  "spent": 4,
+                  "armed": 1,
+                  "known": 0
+                },
+                "resultRowsActuallyPruned": 2,
+                "coldUnknownPersisted": true,
+                "publicUnknown": true,
+                "distinctInputActuallyWritten": true,
+                "onlyOwnedCompletionResets": {
+                  "spent": 0,
+                  "armed": 0,
+                  "known": 1
+                },
+                "nativeNew": 1,
+                "nativeLoad": 0,
+                "nativePrompt": 2,
+                "limit": "SQL edits model lost retained data and prior durable spend; no Native receipt or authority synthesized; no forever-timer assertion"
+              }
+            },
+            {
+              "marker": "C_REAL_BUDGET_KNOWLEDGE_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "actual-WAL-schema56-to57-retains-budget-and-known-zero",
+          "exit": 0,
+          "seconds": 1.395,
+          "observations": [
+            {
+              "marker": "C_MIGRATION56_TO57_ACTUAL_PARENT_STARTUP_GREEN",
+              "observation": {
+                "schemaVersion": 57,
+                "backupSchema": 56,
+                "walBytesPreserved": true,
+                "originalBytesPreserved": true,
+                "attachmentsPreserved": true,
+                "existingBudgetPreserved": true,
+                "knownZeroPreservedOnRestart": true,
+                "scope": "migration only; no Native outcome or authority synthesized"
+              }
+            },
+            {
+              "marker": "C_KNOWLEDGE_MIGRATION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "actual-own-adopted-Native-quota-preserves-state",
+          "exit": 0,
+          "seconds": 2.91,
+          "observations": [
+            {
+              "marker": "C_WORKFLOW_CHILD_ACTUAL_REATTACH_GREEN",
+              "observation": {
+                "id": "44599e81f38c4ba2",
+                "sid": "fake-acp-1793859917203-3889ddad",
+                "oldDaemon": 3535744,
+                "newDaemon": 3536225,
+                "nativePid": 3536195,
+                "nativeBirth": "6927346",
+                "parent": "85f025de-9a42-4bcb-9cc2-be0b2156f119",
+                "child": "4a4e6a29-1fd2-4c66-8be8-210f27afe04b",
+                "resumed": "4a4e6a29-1fd2-4c66-8be8-210f27afe04b"
+              }
+            },
+            {
+              "marker": "C_ADOPTED_RATE_LIMIT_PRESERVED_GREEN",
+              "observation": {
+                "id": "44599e81f38c4ba2",
+                "sid": "fake-acp-1793859917203-3889ddad",
+                "diagnostic": {
+                  "correlation": {
+                    "operation_id": "eb847448-cccf-4f7e-8bae-686df37dfc6c"
+                  },
+                  "outcome": "failed"
+                },
+                "rateLimit": {
+                  "status": "rate limit reached",
+                  "kind": "rate_limit"
+                }
+              }
+            },
+            {
+              "marker": "C_WORKFLOW_CHILD_REFERENCE_GREEN",
+              "observation": {
+                "id": "44599e81f38c4ba2",
+                "sid": "fake-acp-1793859917203-3889ddad",
+                "parent": "85f025de-9a42-4bcb-9cc2-be0b2156f119",
+                "child": "4a4e6a29-1fd2-4c66-8be8-210f27afe04b",
+                "end": "4a4e6a29-1fd2-4c66-8be8-210f27afe04b",
+                "progressBeforeEnd": true,
+                "parentEnd": "85f025de-9a42-4bcb-9cc2-be0b2156f119",
+                "nativeNew": 1
+              }
+            },
+            {
+              "marker": "C_WORKFLOW_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "actual-journal-refusal-and-explicit-next-input-sameNative",
+          "exit": 0,
+          "seconds": 1.551,
+          "observations": [
+            {
+              "marker": "C_DURABLE_ADMISSION_REFUSAL_AND_DISTINCT_EXPLICIT_RECOVERY_GREEN",
+              "observation": {
+                "id": "ccdd54d8855547d5",
+                "sid": "fake-acp-1793859920021-9f59aa94",
+                "nativePid": 3536788,
+                "nativeBirth": "6927628",
+                "refused": {
+                  "correlation": {
+                    "operation_id": "92b5de4f-7693-4647-bd4f-4ec523a5d37b"
+                  }
+                },
+                "next": {
+                  "correlation": {
+                    "operation_id": "1a85f87b-9417-4540-a2bb-4b17ed05e32f"
+                  },
+                  "outcome": "succeeded"
+                }
+              }
+            },
+            {
+              "marker": "C_DURABLE_ADMISSION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "actual-reattach-provider-error-and-explicit-continuation",
+          "exit": 0,
+          "seconds": 3.104,
+          "observations": [
+            {
+              "marker": "C_WORKFLOW_CHILD_ACTUAL_REATTACH_GREEN",
+              "observation": {
+                "id": "c858d4a0a2814c87",
+                "sid": "fake-acp-1793859921502-93bb4fc0",
+                "oldDaemon": 3536849,
+                "newDaemon": 3537333,
+                "nativePid": 3537300,
+                "nativeBirth": "6927786",
+                "parent": "19edfd21-554e-47d8-a087-a22788ef3d05",
+                "child": "6b6a13f4-9b00-48cf-ab7c-5049e7d650dc",
+                "resumed": "6b6a13f4-9b00-48cf-ab7c-5049e7d650dc"
+              }
+            },
+            {
+              "marker": "C_ADOPTED_PROVIDER_ERROR_CONTINUATION_GREEN",
+              "observation": {
+                "id": "c858d4a0a2814c87",
+                "sid": "fake-acp-1793859921502-93bb4fc0",
+                "nativePid": 3537300,
+                "nativeBirth": "6927786",
+                "failed": {
+                  "correlation": {
+                    "operation_id": "e723db01-08ce-4ea9-b0d5-c9b958df39ed"
+                  },
+                  "outcome": "failed"
+                },
+                "next": {
+                  "correlation": {
+                    "operation_id": "501e0cb8-220a-40ee-adad-b38ef561a3bd"
+                  },
+                  "outcome": "succeeded"
+                }
+              }
+            },
+            {
+              "marker": "C_WORKFLOW_CHILD_REFERENCE_GREEN",
+              "observation": {
+                "id": "c858d4a0a2814c87",
+                "sid": "fake-acp-1793859921502-93bb4fc0",
+                "parent": "19edfd21-554e-47d8-a087-a22788ef3d05",
+                "child": "6b6a13f4-9b00-48cf-ab7c-5049e7d650dc",
+                "end": "6b6a13f4-9b00-48cf-ab7c-5049e7d650dc",
+                "progressBeforeEnd": true,
+                "parentEnd": "19edfd21-554e-47d8-a087-a22788ef3d05",
+                "nativeNew": 1
+              }
+            },
+            {
+              "marker": "C_WORKFLOW_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "real-Native-partial-result-refuses-equal-diagnostic-and-terminal-sequence",
+          "exit": 0,
+          "seconds": 1.59,
+          "observations": [
+            {
+              "marker": "C_PROMPT_SEAL_CORRUPTION_REFUSED_GREEN",
+              "observation": {
+                "mode": "equal-seq",
+                "id": "5f44c444d7e34dbe",
+                "sid": "fake-acp-1793859924692-14073cee",
+                "nativePid": 3537932,
+                "nativeBirth": "6928100",
+                "originalProofPreserved": true,
+                "noNativeRecoveryRPC": true
+              }
+            },
+            {
+              "marker": "C_PROMPT_SEAL_CORRUPTION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "real-Native-success-refuses-another-requests-diagnostic",
+          "exit": 0,
+          "seconds": 1.706,
+          "observations": [
+            {
+              "marker": "C_PROMPT_SEAL_CORRUPTION_REFUSED_GREEN",
+              "observation": {
+                "mode": "successful-diagnostic",
+                "id": "2e53ab7626954af5",
+                "sid": "fake-acp-1793859926241-f1b668a3",
+                "nativePid": 3538482,
+                "nativeBirth": "6928250",
+                "originalProofPreserved": true,
+                "noNativeRecoveryRPC": true
+              }
+            },
+            {
+              "marker": "C_PROMPT_SEAL_CORRUPTION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "actual-current2-new-child-and-recovery-remain-original1",
+          "exit": 0,
+          "seconds": 3.563,
+          "observations": [
+            {
+              "marker": "C_WORKFLOW_GENUINE_CURRENT2_ORIGINAL1_REBASE_GREEN",
+              "observation": {
+                "id": "a4ea68415a1e4d69",
+                "sid": "fake-acp-1793859927858-197af239",
+                "originalGeneration": 1,
+                "currentGeneration": 2,
+                "nativePid": 3539034,
+                "nativeBirth": "6928422",
+                "actualToolEnsure": 200,
+                "actualAuxiliaryStop": 204,
+                "originalSealUnchanged": true
+              }
+            },
+            {
+              "marker": "C_WORKFLOW_CHILD_ACTUAL_REATTACH_GREEN",
+              "observation": {
+                "id": "a4ea68415a1e4d69",
+                "sid": "fake-acp-1793859927858-197af239",
+                "oldDaemon": 3538574,
+                "newDaemon": 3539122,
+                "nativePid": 3539034,
+                "nativeBirth": "6928422",
+                "parent": "86f99c7b-9af1-4475-9acc-f983898e46f8",
+                "child": "12088f9b-5312-4c16-95e0-d4b9033c0ccd",
+                "resumed": "12088f9b-5312-4c16-95e0-d4b9033c0ccd"
+              }
+            },
+            {
+              "marker": "C_WORKFLOW_NEW_CHILD_FIRST_IO_CURRENT2_ORIGINAL1_GREEN",
+              "observation": {
+                "id": "a4ea68415a1e4d69",
+                "sid": "fake-acp-1793859927858-197af239",
+                "currentGeneration": 2,
+                "sourceGeneration": 1,
+                "recoveredChild": "12088f9b-5312-4c16-95e0-d4b9033c0ccd",
+                "newChild": "f9c3fec8-d144-4148-9e1a-173a332c374d",
+                "newChildEnd": "f9c3fec8-d144-4148-9e1a-173a332c374d",
+                "nativePid": 3539034,
+                "nativeBirth": "6928422"
+              }
+            },
+            {
+              "marker": "C_WORKFLOW_CHILD_REFERENCE_GREEN",
+              "observation": {
+                "id": "a4ea68415a1e4d69",
+                "sid": "fake-acp-1793859927858-197af239",
+                "parent": "86f99c7b-9af1-4475-9acc-f983898e46f8",
+                "child": "12088f9b-5312-4c16-95e0-d4b9033c0ccd",
+                "end": "12088f9b-5312-4c16-95e0-d4b9033c0ccd",
+                "progressBeforeEnd": true,
+                "parentEnd": "86f99c7b-9af1-4475-9acc-f983898e46f8",
+                "nativeNew": 1
+              }
+            },
+            {
+              "marker": "C_WORKFLOW_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "actual-Original-IO-contention-then-Native-retirement-and-checked-durable-forget",
+          "exit": 0,
+          "seconds": 1.62,
+          "observations": [
+            {
+              "marker": "C_ORIGINAL_IO_SURVIVES_ACTUAL_CONTENTION_GREEN",
+              "observation": {
+                "id": "0d6b41cf75ba448a",
+                "sid": "shim-0213cc86-7be9-4d8e-81bd-7b6bd808db4f",
+                "actualFsFile": true,
+                "actualLaterSdkError": -32602,
+                "nativePid": 3539736,
+                "nativeBirth": "6928779",
+                "sameNativeAndSID": true,
+                "noCurrentStampInvented": true
+              }
+            },
+            {
+              "marker": "C_DURABLE_FORGET_REAL_NATIVE_AND_JOURNAL_GREEN",
+              "observation": {
+                "id": "0d6b41cf75ba448a",
+                "sid": "shim-0213cc86-7be9-4d8e-81bd-7b6bd808db4f",
+                "nativePid": 3539736,
+                "nativeBirth": "6928779",
+                "before": {
+                  "acp_events": 12,
+                  "acp_rate_limit_budgets": 1,
+                  "acp_establishment_commit": 1
+                },
+                "after": {
+                  "acp_events": 0,
+                  "acp_rate_limit_budgets": 0,
+                  "acp_establishment_commit": 0
+                },
+                "actualOriginalRetired": true,
+                "profileRowAbsent": true,
+                "publicSessionsAbsent": true,
+                "limits": "foreign sentinel signals and concurrent summary publication not exercised"
+              }
+            },
+            {
+              "marker": "C_ORIGINAL_IO_CONTENTION_CLEANUP_GREEN"
+            }
+          ]
+        },
+        {
+          "step": "actual-public-catalog-HTTP-before-and-after-three-cases",
+          "exit": 0,
+          "seconds": 2.916,
+          "observations": [
+            {
+              "marker": "C_CATALOG_ACTUAL_HTTP_GREEN",
+              "observation": {
+                "name": "before-blocked-facade",
+                "binary": "<isolated-fixture>/aoe",
+                "nativeStarted": false,
+                "noManagedSessionMutation": true,
+                "noSecondNew": false
+              }
+            },
+            {
+              "marker": "C_CATALOG_ACTUAL_HTTP_GREEN",
+              "observation": {
+                "name": "after-native-notification-first",
+                "binary": "<isolated-fixture>/aoe",
+                "expected": "native-notification-first",
+                "nativeStarted": true,
+                "noManagedSessionMutation": true,
+                "noSecondNew": true
+              }
+            },
+            {
+              "marker": "C_CATALOG_ACTUAL_HTTP_GREEN",
+              "observation": {
+                "name": "after-empty-then-native-response",
+                "binary": "<isolated-fixture>/aoe",
+                "expected": "native-response-after-empty",
+                "nativeStarted": true,
+                "noManagedSessionMutation": true,
+                "noSecondNew": true
+              }
+            }
+          ]
+        },
+        {
+          "step": "compile-live-witness-public-library-driver",
+          "exit": 0,
+          "seconds": 1.743,
+          "observations": []
+        },
+        {
+          "step": "hash-actual-public-library-smoke-artifacts",
+          "exit": 0,
+          "seconds": 0.123,
+          "observations": []
+        },
+        {
+          "step": "actual-public-catalog-notification-first",
+          "exit": 0,
+          "seconds": 0.068,
+          "observations": [
+            {
+              "marker": "C_PUBLIC_CATALOG_NATIVE_GREEN",
+              "observation": "mode=notification-first native_pid=3541268 first_snapshot_validated=true owned_exit=true reap_required=true managed_worker=false"
+            }
+          ]
+        },
+        {
+          "step": "actual-public-catalog-response-after-empty",
+          "exit": 0,
+          "seconds": 0.059,
+          "observations": [
+            {
+              "marker": "C_PUBLIC_CATALOG_NATIVE_GREEN",
+              "observation": "mode=response-after-empty native_pid=3541282 first_snapshot_validated=true owned_exit=true reap_required=true managed_worker=false"
+            }
+          ]
+        },
+        {
+          "step": "actual-public-catalog-shutdown",
+          "exit": 0,
+          "seconds": 0.069,
+          "observations": [
+            {
+              "marker": "C_PUBLIC_CATALOG_NATIVE_GREEN",
+              "observation": "mode=shutdown native_pid=3541294 first_snapshot_validated=false owned_exit=true reap_required=false managed_worker=false"
+            }
+          ]
+        }
+      ],
+      "native_peer_scope": "Actual isolated AoE binaries, daemon/tmux and SDK child-process I/O with controlled ACP protocol fixtures. No live vendor-provider compatibility claim and no fabricated authority/lease/registry.",
+      "expected_refusal_cases": "The plan also verifies deliberate caller deadline, corrupt retained proof and locally refused admission. Their expected refusal is not a failed smoke step."
+    },
+    "actual_cli_tui_browser": {
+      "id": "d5ec88f6776a4781",
+      "nativeSid": "fake-acp-1793857608676-90f32cb4",
+      "freshSid": "fake-acp-1793857619382-43dfb836",
+      "counts": {
+        "initialize": 1,
+        "session/new": 2,
+        "session/load": 0,
+        "session/prompt": 2
+      },
+      "requests": [
+        {
+          "method": "session/new",
+          "sessionId": "fake-acp-1793857608676-90f32cb4"
+        },
+        {
+          "method": "session/prompt",
+          "sessionId": "fake-acp-1793857608676-90f32cb4",
+          "prompt": [
+            {
+              "type": "text",
+              "text": "C_CLI_EXPLICIT_DISTINCT_INPUT"
+            }
+          ]
+        },
+        {
+          "method": "session/new",
+          "sessionId": "fake-acp-1793857619382-43dfb836"
+        },
+        {
+          "method": "session/prompt",
+          "sessionId": "fake-acp-1793857619382-43dfb836",
+          "prompt": [
+            {
+              "type": "text",
+              "text": "C_BROWSER_EXPLICIT_DISTINCT_INPUT"
+            }
+          ]
+        }
+      ],
+      "actualCli": true,
+      "actualTuiOriginalPending": true,
+      "actualTuiFreshPrefix": true,
+      "actualBrowserOriginalAnswer": true,
+      "actualBrowserCurrentAnswer": true,
+      "same_physical_owner_observed": true,
+      "owner_provenance_digest": "aa19ea8253ce7a78fab68204ba7d26318476f62d0892b8b16b71d32c5f786675",
+      "pending_original_tui": "Actual PTY renders the existing web-form fallback and Native input unconfirmed. Ctrl-Q exits 0 without answering or changing authority.",
+      "fresh": "Explicit CLI /clear, second session/new, same Native and runner births; retained plan and one prefix leaf verified in actual PTY and browser.",
+      "browser": "Actual Original and Current forms answered through browser UI; distinct CLI and browser prompts reach the same Native; final canonical projection is ready without unavailable banner.",
+      "owned_cleanup_observed": "C_SURFACE_OWNED_CLEANUP_GREEN",
+      "screenshot_note": "current-native-answer.webp was captured before final canonical availability settled; the later observed DOM has no unconfirmed banner."
+    },
+    "chromium_live": {
+      "passed": 79,
+      "failed": 0,
+      "source_fingerprint": "cd0b6788739c1f60a4bd4e3e42d282ae23e1d1b8c7e7a3bd3fe7502cfc1e8bb5",
+      "binary_sha256": "613710ada4a4b8d45eb1c1bdc9a115481f3fc5c423cada62d7edc365c8bbeaf3"
+    },
+    "documentation_captures": {
+      "passed": 2,
+      "failed": 0,
+      "source_fingerprint": "d3c27a5c1e8ca623b45300adb38dfca9d710264f2ec47863dec87805b1196739"
+    },
+    "frontend": {
+      "source": "fdb614999ec16b1c4125ecfa2c14969b3beede951129aae8cde63c6b0156d306",
+      "format_files": 1038,
+      "app_ts": "pass",
+      "test_ts": "pass",
+      "lint_env": "pass",
+      "coverage_matrix": "pass",
+      "vitest_files": 375,
+      "vitest_tests": 4497,
+      "type_errors": 0,
+      "vitest_seconds": 268.22,
+      "total_seconds": 318.8,
+      "vite_modules": 3941,
+      "vite_seconds": 1.7,
+      "dist_sha256": "e15690445cc04bc6d7ba4a8b101d10b2b3c4d632d846da50aad89dc691a60bc9"
+    },
+    "capture_fixture_changed_after_full_frontend": "Only web/tests/capture/screenshots.spec.ts changed under web after the full frontend matrix. Its format, app/test TypeScript, ESLint/env inventory, coverage-matrix validation and two real Chromium captures passed afterwards.",
+    "runtime_equivalence": {
+      "C119_to_C120": "capture fixture only; productionRust/app byteidentical",
+      "C120_to_C121": "cfgtest unitvariantpattern lint only; runtime/app unchanged",
+      "web_diff_since_full_frontend106": [
+        "web/tests/capture/screenshots.spec.ts"
+      ]
+    },
+    "web_feature": {
+      "source": "0985fc8231403903fc446e2f49243c53eaddd3bd7c89deeb1c51c5f0de01ad9e",
+      "focused_passed": 47,
+      "focused_seconds": 43.715,
+      "full_passed": 5625,
+      "full_seconds": 938.31,
+      "full_existing_ignored": 4,
+      "retries": 0,
+      "test_threads": 1,
+      "doctests": {
+        "passed": 0,
+        "failed": 0,
+        "existing_ignored": 1
+      },
+      "total_seconds": 1627.03,
+      "binary_sha256": "613710ada4a4b8d45eb1c1bdc9a115481f3fc5c423cada62d7edc365c8bbeaf3",
+      "dist_index_sha256": "e15690445cc04bc6d7ba4a8b101d10b2b3c4d632d846da50aad89dc691a60bc9",
+      "clippy_tests_deny_warnings": "passed",
+      "public_log": {
+        "path": "logs/web-nextest.log",
+        "sha256": "ac4ec4cbd3bee7a76a082cf2eaa7591804b907bb2c9db325b29f7c76896d2528",
+        "private_host_paths_redacted": true
+      }
+    },
+    "binary_equivalence": {
+      "C121_default_production_sha256": "b50d7c2a817f92751869fbe5d57c9c6ebe8606ec814473439293d4c20357b326",
+      "C121_web_sha256": "613710ada4a4b8d45eb1c1bdc9a115481f3fc5c423cada62d7edc365c8bbeaf3",
+      "actual_UI_C119_web_sha256": "613710ada4a4b8d45eb1c1bdc9a115481f3fc5c423cada62d7edc365c8bbeaf3",
+      "exact_equal_web_binaries": true,
+      "current_dist_index_sha256": "e15690445cc04bc6d7ba4a8b101d10b2b3c4d632d846da50aad89dc691a60bc9"
+    }
+  },
+  "scope_limits": [
+    "C/#5053 only. No #5040 or #5055 implementation.",
+    "No ready-for-review transition, merge or issue closure.",
+    "Historical per-tool completion is not inferred from Main cancel. #5181 remains separate.",
+    "Original and Current authority are never inferred from history, cached profile fields or caller timeout.",
+    "The tested source is stacked on B at the recorded commit; it is not rebased onto the later upstream main."
+  ],
+  "assets": {
+    "fresh-prefix-once.webp": {
+      "sha256": "c841ba1e3d6f5a75e59aeb0384b15870615b80ea23a668d078003f171d263151",
+      "path": "assets/fresh-prefix-once.webp"
+    },
+    "retained-history-and-plan.webp": {
+      "sha256": "8f85d3761e4ad6dbbcfb42bcfb99763fd05f190faa99cd7373deb5480a9ccd73",
+      "path": "assets/retained-history-and-plan.webp"
+    },
+    "current-native-question.webp": {
+      "sha256": "b868a7067a29cac643e67b9d95ba19630f4ebe0c584e8f622944165f5b8b3076",
+      "path": "assets/current-native-question.webp"
+    },
+    "current-native-answer.webp": {
+      "sha256": "6867d6aea1d8d62b02bb4859fd0db07aeab922cd95e1b2695e15a2ed7d2e16eb",
+      "path": "assets/current-native-answer.webp"
+    },
+    "overview.png": {
+      "sha256": "95f32b7f6236df1da61736626ba2a8c7a4bc6ea8e54514f0af7d78a85c42a826",
+      "path": "assets/overview.png"
+    },
+    "mobile.png": {
+      "sha256": "75e1fe17e3e579fa0938ff8fe8f3fb2b5e01c468560d9ddb63db58d66fbeaa9c",
+      "path": "assets/mobile.png"
+    },
+    "approval.png": {
+      "sha256": "50dc69afe8efc5c91909476df0509be40cafe1a22332ecf12fd75caee428cc0b",
+      "path": "assets/approval.png"
+    }
+  }
+}
