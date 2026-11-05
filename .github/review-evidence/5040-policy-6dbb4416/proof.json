@@ -1,0 +1,656 @@
+{
+  "issue": 5040,
+  "epic": 5052,
+  "status": "all local verification complete; signed source published; Draft PR pending",
+  "approval": {
+    "source": "Explicit maintainer selection in this conversation, recorded in issue5040 and epic5052",
+    "contract": {
+      "explicit_user_choice": "J\u2019approuve comme mainteneur",
+      "user_asserted_product_authority": true,
+      "approved_whole_matrix": true,
+      "recorded_utc": "2026-11-05T11:44:36Z",
+      "predecessor_C": {
+        "PR": 5368,
+        "commit": "440449ce665889527f1037ff043dd9a9a9f831ec"
+      },
+      "matrix": [
+        [
+          "First ambiguous probe",
+          "Preserve recorded ID, binding and durable failed-probe marker. Pane death does not prove missing or unloaded history."
+        ],
+        [
+          "Later Default, automatic wake, Allow/send",
+          "Refuse without another Native invocation or transfer of the message to Fresh. No identical automatic failure loop."
+        ],
+        [
+          "Attach",
+          "Observe or attach to the existing runtime without replacement."
+        ],
+        [
+          "Restart same history",
+          "Require explicit reassertion of the qualified identity, except the explicitly retried persistent pin below. Retain all admission and liveness fences."
+        ],
+        [
+          "Fresh",
+          "Separate explicit intent. Do not delete the old transcript or automatically replay its message."
+        ],
+        [
+          "auto_resume_on_restart = false",
+          "Allow the configured-Fresh manual launch/restart, not a substitution by an automatic wake/send."
+        ],
+        [
+          "Persistent/spent pins",
+          "A persistent Use pin may explicitly retry the same qualified target. A spent pin requires a new assertion. A fork is spent at dispatch. No new automatic retry loop."
+        ],
+        [
+          "Direct CLI, API and TUI",
+          "Use the same server decision and scope, ownership, lifecycle generation, capture, namespace and CAS protections."
+        ]
+      ],
+      "additional_invariants": [
+        "Same-ID replay/qualification does not clear the durable marker.",
+        "A live-provider error is not an ambiguous resume-probe failure.",
+        "No automatic cherry-pick/rebase of the #5041 reference policy.",
+        "No ready, reviewer request, merge or issue closure.",
+        "No #5055 implementation before the approved #5040 cut is complete."
+      ],
+      "signature_permission": "The earlier --no-gpg-sign approval was for the one C commit only; not for later commits."
+    }
+  },
+  "base_commit": "440449ce665889527f1037ff043dd9a9a9f831ec",
+  "source_files": {
+    "src/session/instance/resume.rs": "7b750f50adb5f4bf9a939089baf3849b25cc66fbf18d2169212ede43c82e28d1",
+    "src/session/instance/start.rs": "1f2df75df0dbe05e45fb7033e96bafc1e446df93e9438e2ea18b9e70961a0dbf",
+    "src/server/api/sessions/lifecycle.rs": "8007599f9a22ecb1665e4bf3aff731d147a8b410dcb0476e3884c8237ffdd49b",
+    "src/daemon/error.rs": "983fdd4ab9a59ee38530b11de56f114175f2268d5b2ac33916ca65c0d6c85836",
+    "src/server/api/sessions/ensure.rs": "3e5519466a4bb6171cd8d20c1dce07b37efe7c4a79462bd0590e3b78f2e3efae",
+    "src/session/instance/ready.rs": "a714b9593c0d6810f75bb0003191433ba0ffc20aa7df1a720ce9a5c8aecbc0e1",
+    "src/session/restart.rs": "12d20d50836f69a1b9953b725da672e10ff7523ee5d763a80bce61dbba42beb4",
+    "src/cli/session.rs": "111e516066bbc3352183d04a8c87f72ae31efe42517d60fffcb74296495e86a9",
+    "src/session/instance/launch_command.rs": "0e11d7b1d473474fddc07da394d177c333938db31a45ea10efb159b5b488698f",
+    "docs/guides/session-resume.md": "67c03b58f97fbe106dc997274d111f872bf410bd081a57541a20e3b4b80dffe4",
+    "docs/api.md": "bbbfacdfb185c722828de8028a1a7f995d2ceb2e088e76f734bdf5090a1122ef"
+  },
+  "source_fingerprint": "6dbb4416ba7791cb22c3087e44189f745a3890748a22af94f1c570505385d1f6",
+  "runtime_source_fingerprint": "WIP-C440449ce-terminal-files-a34344f2263c1cefafadf2bafdc3fac347d6784ac3d29ca2749b51bf543ed544",
+  "runtime_binary_sha256": "d42b65bed5a6c9f97fa1224512700841807ff6c446d52844ef66287c5018765d",
+  "focused_regression_count": 19,
+  "actual_native": {
+    "scope": "actual isolated AoE CLI/core-daemon/tmux/TUI and transcript-reading controlled Native fixtures; no vendor-provider compatibility claim",
+    "cases": [
+      {
+        "name": "captured-spent-pin-and-approved-recovery",
+        "original_sid": "76efd81e-e624-4118-811a-eb260a570b04",
+        "configured_fresh_sid": "9424742a-d2b7-46a1-9c79-c33fa3992aaf",
+        "initial_probe_preserves_history": true,
+        "spent_pin_is_Default": true,
+        "blocked_actions": [
+          {
+            "action": "start",
+            "http": 409,
+            "error": "managed_resume_refused",
+            "cause": "previous_probe_failed",
+            "native_launches_unchanged": true
+          },
+          {
+            "action": "ensure-attach",
+            "http": 409,
+            "error": "managed_resume_refused",
+            "cause": "previous_probe_failed",
+            "native_launches_unchanged": true
+          },
+          {
+            "action": "send",
+            "http": 409,
+            "error": "managed_resume_refused",
+            "cause": "previous_probe_failed",
+            "native_launches_unchanged": true
+          },
+          {
+            "action": "restart",
+            "http": 409,
+            "error": "managed_resume_refused",
+            "cause": "previous_probe_failed",
+            "native_launches_unchanged": true
+          },
+          {
+            "action": "cli-start",
+            "exit": 1,
+            "native_launches_unchanged": true
+          },
+          {
+            "action": "cli-restart",
+            "exit": 1,
+            "native_launches_unchanged": true
+          }
+        ],
+        "actual_tui": {
+          "actual_home_observed": true,
+          "actual_refusal_observed": true,
+          "frame": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-approved-policy-actual-configured-log-a34344f2-ed9jg0mb/tui-refused.txt"
+        },
+        "actual_cli_attach": true,
+        "same_recovery_native_pid": 769344,
+        "same_recovery_input_pid": 769344,
+        "optout_send": {
+          "action": "optout-send",
+          "http": 409,
+          "error": "managed_resume_refused",
+          "cause": "previous_probe_failed",
+          "native_launches_unchanged": true
+        },
+        "configured_fresh_manual_only": true,
+        "blocked_message_never_replayed": true,
+        "launches": 5
+      },
+      {
+        "name": "explicit-fresh-direct-CLI",
+        "old_sid": "e1773f0f-a1cb-4d00-8a9a-6e75755c3904",
+        "fresh_sid": "c853ea3a-814c-42c5-806a-2b4ce1a92364",
+        "recording_intent_does_not_launch": true,
+        "consumed_one_shot_intent": true,
+        "history_unchanged": true,
+        "no_implicit_message": true,
+        "launches": 3
+      },
+      {
+        "name": "persistent-pin-explicit-same-only",
+        "sid": "3d256f67-bc4e-41db-9f33-0940a02136af",
+        "pin_stays_Use": true,
+        "blocked_actions": [
+          {
+            "action": "ensure",
+            "http": 409,
+            "error": "managed_resume_refused",
+            "cause": "previous_probe_failed",
+            "native_launches_unchanged": true
+          },
+          {
+            "action": "send",
+            "http": 409,
+            "error": "managed_resume_refused",
+            "cause": "previous_probe_failed",
+            "native_launches_unchanged": true
+          }
+        ],
+        "explicit_manual_retries_same_sid": 2,
+        "no_reassertion_needed_for_persistent_pin": true,
+        "launches": 4,
+        "no_fresh": true,
+        "history_unchanged": true
+      },
+      {
+        "name": "fork-intent-spent-at-dispatch",
+        "parent_sid": "1a9bfb6f-0632-4f83-b911-67ada034c365",
+        "child_sid": "4be8592c-77e1-4d5e-8265-d3bed3f37cc1",
+        "forks": 1,
+        "child_restart_resumes_child": true,
+        "parent_history_unchanged": true
+      },
+      {
+        "name": "automatic-optout-refuses-configured-fresh",
+        "original_sid": "6149e724-1bf3-4a27-abd9-186c2fc34f03",
+        "manual_fresh_sid": "fc94c216-79a4-4b7b-9881-b7ad0a2082c2",
+        "recorded_native_birth_only_signalled": true,
+        "automatic_refusal_causally_observed": true,
+        "no_automatic_native_launch_or_wake": true,
+        "manual_configured_fresh_allowed": true,
+        "history_unchanged": true,
+        "launches": 2
+      }
+    ],
+    "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5040-policy-batch4-a34344f2/target/debug/aoe",
+    "binary_sha256": "d42b65bed5a6c9f97fa1224512700841807ff6c446d52844ef66287c5018765d",
+    "cleanup": {
+      "native_processes_gone": true,
+      "daemon_stopped": true,
+      "owned_tmux_servers_stopped": true,
+      "private_root_removed": true
+    }
+  },
+  "actual_before": {
+    "scope": "real private AoE daemon/CLI/tmux and transcript-reading fake; resumed native exit is intentional, not the original OMP incident",
+    "session": "a1aeae99b68b4744",
+    "original_sid": "1cedd481-9993-48c9-9a56-2d4c1f7e70ed",
+    "replacement_sid": "c6a1f01e-c81a-4f2f-81ee-ff3b0038ede8",
+    "failed_resume_http": 409,
+    "next_send_http": 200,
+    "original_history_read_before_exit": true,
+    "original_history_bytes_unchanged": true,
+    "failure_marker_observed_before_next_action": "1cedd481-9993-48c9-9a56-2d4c1f7e70ed",
+    "next_input_recipient_sid": "c6a1f01e-c81a-4f2f-81ee-ff3b0038ede8",
+    "native_pids": [
+      269779,
+      269863,
+      269936
+    ],
+    "binding_before_probe": {
+      "session_id": "1cedd481-9993-48c9-9a56-2d4c1f7e70ed",
+      "execution": {
+        "agent": "claude",
+        "stores": [
+          "/tmp/aoe-policy-before-swzn0rvh/home/.claude"
+        ],
+        "cwd": "/tmp/aoe-policy-before-swzn0rvh/project",
+        "cwd_filesystem": "host",
+        "filesystem": "host",
+        "exported_default_store": false
+      },
+      "provenance": "preallocated"
+    },
+    "binding_after_probe": {
+      "session_id": "1cedd481-9993-48c9-9a56-2d4c1f7e70ed",
+      "execution": {
+        "agent": "claude",
+        "stores": [
+          "/tmp/aoe-policy-before-swzn0rvh/home/.claude"
+        ],
+        "cwd": "/tmp/aoe-policy-before-swzn0rvh/project",
+        "cwd_filesystem": "host",
+        "filesystem": "host",
+        "exported_default_store": false
+      },
+      "provenance": "observed"
+    },
+    "binding_identity_preserved": true,
+    "cleanup": {
+      "native_processes_gone": true,
+      "daemon_stopped": true,
+      "private_root_removed": true
+    }
+  },
+  "full_default_plan": {
+    "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5040-approved-terminal-recovery",
+    "output": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-full-default-with-node-deps-6dbb4416",
+    "unset": [
+      "AOE_TEST_ACP_RUNNER_EXE",
+      "AOE_WEB_DIST"
+    ],
+    "env": {
+      "PATH": "/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:/nix/store/xgw813vgzl2q0696sq45adpj0xd690jq-git-2.56.0/bin:/home/fraggle/.dvm/versions/v2.9.7:/home/fraggle/.local/share/mise/installs/pnpm/latest:/home/fraggle/.local/share/mise/installs/node/latest/bin:/home/fraggle/.local/share/mise/shims:/home/fraggle/bin:/home/fraggle/.local/bin:/home/fraggle/.volta/bin:/home/fraggle/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/lib64/ccache:/home/fraggle/.cargo/bin:/usr/local/bin:/usr/bin:/nix/store/pda6j5833xwmiqh8w8bpsccs22hxqlk3-ghostty-1.4.0/bin:",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_TARGET_DIR": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target",
+      "TMPDIR": "/tmp/aoe-c77-pfn6pmsu",
+      "RUST_TEST_THREADS": "1",
+      "CI": "1",
+      "RUST_BACKTRACE": "1"
+    },
+    "source_snapshot": "WIP-C440449ce-policy-6dbb4416ba7791cb22c3087e44189f745a3890748a22af94f1c570505385d1f6",
+    "source_manifest": "local://5040-final-source-manifest-6dbb4416.json",
+    "steps": [
+      {
+        "name": "full-default-ci-nextest-isolated-one-at-a-time-no-retry",
+        "argv": [
+          "cargo",
+          "nextest",
+          "run",
+          "--no-fail-fast",
+          "--retries",
+          "0",
+          "--test-threads",
+          "1",
+          "--user-config-file",
+          "none",
+          "--config-file",
+          "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/C58-nextest.toml"
+        ]
+      },
+      {
+        "name": "cargo-default-doctests",
+        "argv": [
+          "cargo",
+          "test",
+          "--doc"
+        ]
+      },
+      {
+        "name": "nix-embedded-assets",
+        "argv": [
+          "python3",
+          "scripts/check-nix-embedded-assets.py"
+        ]
+      }
+    ],
+    "changed_prerequisite": {
+      "command": "npm ci --no-audit --no-fund",
+      "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5040-approved-terminal-recovery/acp-worker/test-shim",
+      "result": "added2 packages; exit0",
+      "lock_sha256": "cf0a29ed34fb87b82d14ac6b387a153f182437ea26b9aff4091d2aa21bd503a6",
+      "prior_failures_all_same_missing_dependency": 199
+    },
+    "already_passed_steps": [
+      {
+        "name": "cargo-fmt-check",
+        "argv": [
+          "cargo",
+          "fmt",
+          "--check"
+        ],
+        "started": 1793885126.865377,
+        "state": "finished",
+        "exit": 0,
+        "finished": 1793885134.133768,
+        "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-full-default-6dbb4416/00-cargo-fmt-check.log"
+      },
+      {
+        "name": "cargo-clippy-default-including-tests",
+        "argv": [
+          "cargo",
+          "clippy",
+          "--tests",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "started": 1793885134.1340523,
+        "state": "finished",
+        "exit": 0,
+        "finished": 1793885344.7702506,
+        "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-full-default-6dbb4416/01-cargo-clippy-default-including-tests.log"
+      }
+    ]
+  },
+  "scope_limits": [
+    "Linux default-feature Rust policy cut; no macOS or vendor-provider compatibility claim",
+    "Controlled Native fixtures read actual private transcripts and report actual process births; no AoE authority/registry/lease synthesis",
+    "No browser rendering changes in this cut; shared web recovery projections belong to subsequent #5055",
+    "No ready transition, reviewer request, merge, issue closure, or claim of integration with advanced main"
+  ],
+  "full_default_status": {
+    "plan": {
+      "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5040-approved-terminal-recovery",
+      "output": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-full-default-with-node-deps-6dbb4416",
+      "unset": [
+        "AOE_TEST_ACP_RUNNER_EXE",
+        "AOE_WEB_DIST"
+      ],
+      "env": {
+        "PATH": "/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:/nix/store/xgw813vgzl2q0696sq45adpj0xd690jq-git-2.56.0/bin:/home/fraggle/.dvm/versions/v2.9.7:/home/fraggle/.local/share/mise/installs/pnpm/latest:/home/fraggle/.local/share/mise/installs/node/latest/bin:/home/fraggle/.local/share/mise/shims:/home/fraggle/bin:/home/fraggle/.local/bin:/home/fraggle/.volta/bin:/home/fraggle/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/lib64/ccache:/home/fraggle/.cargo/bin:/usr/local/bin:/usr/bin:/nix/store/pda6j5833xwmiqh8w8bpsccs22hxqlk3-ghostty-1.4.0/bin:",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_TARGET_DIR": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target",
+        "TMPDIR": "/tmp/aoe-c77-pfn6pmsu",
+        "RUST_TEST_THREADS": "1",
+        "CI": "1",
+        "RUST_BACKTRACE": "1"
+      },
+      "source_snapshot": "WIP-C440449ce-policy-6dbb4416ba7791cb22c3087e44189f745a3890748a22af94f1c570505385d1f6",
+      "source_manifest": "local://5040-final-source-manifest-6dbb4416.json",
+      "steps": [
+        {
+          "name": "full-default-ci-nextest-isolated-one-at-a-time-no-retry",
+          "argv": [
+            "cargo",
+            "nextest",
+            "run",
+            "--no-fail-fast",
+            "--retries",
+            "0",
+            "--test-threads",
+            "1",
+            "--user-config-file",
+            "none",
+            "--config-file",
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/C58-nextest.toml"
+          ]
+        },
+        {
+          "name": "cargo-default-doctests",
+          "argv": [
+            "cargo",
+            "test",
+            "--doc"
+          ]
+        },
+        {
+          "name": "nix-embedded-assets",
+          "argv": [
+            "python3",
+            "scripts/check-nix-embedded-assets.py"
+          ]
+        }
+      ],
+      "changed_prerequisite": {
+        "command": "npm ci --no-audit --no-fund",
+        "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5040-approved-terminal-recovery/acp-worker/test-shim",
+        "result": "added2 packages; exit0",
+        "lock_sha256": "cf0a29ed34fb87b82d14ac6b387a153f182437ea26b9aff4091d2aa21bd503a6",
+        "prior_failures_all_same_missing_dependency": 199
+      },
+      "already_passed_steps": [
+        {
+          "name": "cargo-fmt-check",
+          "argv": [
+            "cargo",
+            "fmt",
+            "--check"
+          ],
+          "started": 1793885126.865377,
+          "state": "finished",
+          "exit": 0,
+          "finished": 1793885134.133768,
+          "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-full-default-6dbb4416/00-cargo-fmt-check.log"
+        },
+        {
+          "name": "cargo-clippy-default-including-tests",
+          "argv": [
+            "cargo",
+            "clippy",
+            "--tests",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "started": 1793885134.1340523,
+          "state": "finished",
+          "exit": 0,
+          "finished": 1793885344.7702506,
+          "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-full-default-6dbb4416/01-cargo-clippy-default-including-tests.log"
+        }
+      ]
+    },
+    "started": 1793886296.8906791,
+    "steps": [
+      {
+        "name": "full-default-ci-nextest-isolated-one-at-a-time-no-retry",
+        "argv": [
+          "cargo",
+          "nextest",
+          "run",
+          "--no-fail-fast",
+          "--retries",
+          "0",
+          "--test-threads",
+          "1",
+          "--user-config-file",
+          "none",
+          "--config-file",
+          "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/C58-nextest.toml"
+        ],
+        "started": 1793886296.8908458,
+        "state": "finished",
+        "exit": 0,
+        "finished": 1793887248.8813279,
+        "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-full-default-with-node-deps-6dbb4416/00-full-default-ci-nextest-isolated-one-at-a-time-no-retry.log"
+      },
+      {
+        "name": "cargo-default-doctests",
+        "argv": [
+          "cargo",
+          "test",
+          "--doc"
+        ],
+        "started": 1793887248.8816686,
+        "state": "finished",
+        "exit": 0,
+        "finished": 1793887256.61176,
+        "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-full-default-with-node-deps-6dbb4416/01-cargo-default-doctests.log"
+      },
+      {
+        "name": "nix-embedded-assets",
+        "argv": [
+          "python3",
+          "scripts/check-nix-embedded-assets.py"
+        ],
+        "started": 1793887256.6123843,
+        "state": "finished",
+        "exit": 0,
+        "finished": 1793887256.681906,
+        "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-full-default-with-node-deps-6dbb4416/02-nix-embedded-assets.log"
+      }
+    ],
+    "finished": 1793887256.6823153
+  },
+  "full_default_counts": {
+    "PASS": 5624
+  },
+  "skipped_tests": 4,
+  "doctests": {
+    "passed": 0,
+    "failed": 0,
+    "ignored": 1
+  },
+  "nix_embedded_assets": 75,
+  "prior_missing_dependency_failure": {
+    "count": 199,
+    "fixed_prerequisite": "npm ci in original test-shim,2 packages installed",
+    "production_or_assertion_changes": false,
+    "failure_details": "local://5040-full-default-missing-node-deps-results.json"
+  },
+  "source_commit": {
+    "oid": "1685e5b31763b31c87b78b1901eafda3b702489e",
+    "tree": {
+      "oid": "5a880cb6b20b9bb7bb4f7ae6d8ec87ebd38326a2"
+    },
+    "parents": {
+      "nodes": [
+        {
+          "oid": "440449ce665889527f1037ff043dd9a9a9f831ec"
+        }
+      ]
+    },
+    "signature": {
+      "isValid": true,
+      "wasSignedByGitHub": true,
+      "state": "VALID",
+      "signer": {
+        "login": "web-flow"
+      }
+    },
+    "author": {
+      "user": {
+        "login": "jerome-benoit"
+      }
+    }
+  },
+  "full_default_passed_steps_before_dependency_install": [
+    {
+      "name": "cargo-fmt-check",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "started": 1793885126.865377,
+      "state": "finished",
+      "exit": 0,
+      "finished": 1793885134.133768,
+      "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-full-default-6dbb4416/00-cargo-fmt-check.log"
+    },
+    {
+      "name": "cargo-clippy-default-including-tests",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--tests",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "started": 1793885134.1340523,
+      "state": "finished",
+      "exit": 0,
+      "finished": 1793885344.7702506,
+      "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-full-default-6dbb4416/01-cargo-clippy-default-including-tests.log"
+    }
+  ],
+  "source_publication": {
+    "method": "GitHub createCommitOnBranch",
+    "signature": "VALID, wasSignedByGitHub=true, authorjerome-benoit",
+    "local_index_scope": "Only11 owned paths reset to imported signed commit; no worktree file reset or Git configuration change"
+  },
+  "artifact_files": {
+    "actual/proof.json": {
+      "sha256": "660a7c6993b694b4fc635dddbb635c153b48026076c88f1dd7b97f8cd8c7988d",
+      "bytes": 4565
+    },
+    "actual/automatic-optout-refusal.log": {
+      "sha256": "c29486d73811e187b7c2b749c16ac9b38841c9c88c38e4924dda0d98854b9087",
+      "bytes": 1580
+    },
+    "actual/cli-attach-result.json": {
+      "sha256": "38e2770d512e0ecf9c82f2239c4ef6a4e8beca46a7ff72ee71730feee6c2268b",
+      "bytes": 491
+    },
+    "actual/cli-attach.ansi": {
+      "sha256": "09f08d945d64af1d90feb09a9ceca83f699bc717684e5d0f17aab1ac0d00d0fb",
+      "bytes": 1660
+    },
+    "actual/tui-refused.txt": {
+      "sha256": "bf4812a3c947c46b6232fc5a56ee334192e414ee6753ca792c085e6dfdbf16ca",
+      "bytes": 6810
+    },
+    "actual/tui-selected.txt": {
+      "sha256": "172a998a34d93974817df384947b206ed1e41727756e5a2149ea915c84042194",
+      "bytes": 6442
+    },
+    "actual/tui-before.txt": {
+      "sha256": "172a998a34d93974817df384947b206ed1e41727756e5a2149ea915c84042194",
+      "bytes": 6442
+    },
+    "drivers/terminal-fixture.py": {
+      "sha256": "57fe0cf377699a7617ab429ec2adbd882d394c075f2136c486dd10ade010d6f0",
+      "bytes": 6866
+    },
+    "drivers/terminal-failed-probe-policy-before.py": {
+      "sha256": "2a0c527410cf60571506a047e13d55a4224535d405fcf8d11956ec32ef72efb3",
+      "bytes": 5152
+    },
+    "drivers/5040-approved-terminal-policy-after.py": {
+      "sha256": "852cbb9873dcabb9dfed5af6feb217a5e352d53d04b5360def66b563fc61fb8b",
+      "bytes": 24566
+    },
+    "drivers/5040-terminal-attach-pty.py": {
+      "sha256": "7afe741efdd06c75411db938cc1417a9fb54fc677154fbbfbb0dfb0d66196b06",
+      "bytes": 2812
+    },
+    "checks/format.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "checks/clippy.log": {
+      "sha256": "29692afc3b50025c8450daeec13563242b10c07b709bfdaae2057b4f64b1e44e",
+      "bytes": 13032
+    },
+    "checks/focused19.log": {
+      "sha256": "9f3d6b333e006783591f865aec670587f1832eaec8e57232b4188ebb54d65633",
+      "bytes": 3281
+    },
+    "checks/full-default.log": {
+      "sha256": "ada429b737d6e0dbcb244a5062c56850eb1ad3dfe8f35f619a1500e9c3a1dac1",
+      "bytes": 770081
+    },
+    "checks/doctests.log": {
+      "sha256": "ea5a4342bde2eab37142cc26ac9d501fdb9f54d63187fabe105985f2f3442432",
+      "bytes": 289
+    },
+    "checks/nix-assets.log": {
+      "sha256": "71cbbe5857534ab140734e183b9685f17ae7f5e8157e76e5747165c2674d829f",
+      "bytes": 311
+    }
+  },
+  "reproduction": {
+    "context": "Python standard-library controlled Native fixtures, not real vendor CLI compatibility",
+    "after": "Load drivers/terminal-fixture.py and drivers/5040-approved-terminal-policy-after.py into one Python namespace providing write(path,text)=Path(path).write_text(text); call run_terminal_approved_probe_policy_after(binary,artifact_dir,absolute_pty_helper_path). Fixtures create and remove their own private HOME/tmux/daemon state.",
+    "before": "Load original fixture and terminal-failed-probe-policy-before.py; use the recorded C baseline binary/source, not the changed candidate."
+  }
+}

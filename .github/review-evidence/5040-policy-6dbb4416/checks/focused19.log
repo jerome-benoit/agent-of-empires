@@ -1,0 +1,26 @@
+   Compiling agent-of-empires v1.21.0 (/home/fraggle/src/agent-of-empires-git-worktrees/5040-approved-terminal-recovery)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6m 27s
+────────────
+ Nextest run ID 7400fbf8-5884-4cd4-bf60-cf645aa2ea20 with nextest profile: default
+    Starting 19 tests across 5 binaries (5609 tests skipped)
+        PASS [   0.012s] ( 1/19) agent-of-empires daemon::error::tests::managed_resume_cause_headers_cannot_expand_or_erase_a_refusal
+        PASS [   0.016s] ( 2/19) agent-of-empires server::api::sessions::ensure::indeterminate_tests::indeterminate_launch_never_returns_a_ready_target
+        PASS [   0.560s] ( 3/19) agent-of-empires server::api::sessions::tests::running_restart_respawns_while_start_remains_idempotent
+        PASS [   0.106s] ( 4/19) agent-of-empires session::instance::resume::tests::cleared_bare_wrapper_launch_does_not_invent_a_managed_identity
+        PASS [   1.239s] ( 5/19) agent-of-empires session::instance::resume::tests::explicit_fresh_after_failed_resume_requires_durable_conversation_publication
+        PASS [   0.833s] ( 6/19) agent-of-empires session::instance::resume::tests::explicit_fresh_configuration_clears_opaque_wrapper_identity
+        PASS [   0.177s] ( 7/19) agent-of-empires session::instance::resume::tests::managed_resume_refusal_preserves_the_live_pane_and_capture_generation
+        PASS [   0.303s] ( 8/19) agent-of-empires session::instance::resume::tests::moved_known_default_restart_probes_sid_without_rebinding_history
+        PASS [   1.989s] ( 9/19) agent-of-empires session::instance::resume::tests::restart_policy_honors_opt_out_and_prior_probe_failure
+        PASS [   0.594s] (10/19) agent-of-empires session::instance::resume::tests::resume_fallback_marks_failed_and_preserves_sid_instead_of_launching_fresh
+        PASS [   0.373s] (11/19) agent-of-empires session::instance::resume::tests::stale_probe_failed_sid_is_not_retried_on_next_attempt
+        PASS [   0.021s] (12/19) agent-of-empires session::instance::session_id::tests::a_store_fork_reuses_the_child_it_already_adopted
+        PASS [   0.038s] (13/19) agent-of-empires session::instance::session_id::tests::fork_intent_emits_resume_fork_session_and_pins_child
+        PASS [   0.014s] (14/19) agent-of-empires session::instance::sid_persist::tests::capture_backed_use_promotes_so_a_later_conversation_can_be_adopted
+        PASS [   0.017s] (15/19) agent-of-empires session::instance::sid_persist::tests::captured_observation_clears_failed_marker_only_for_a_different_sid
+        PASS [   0.015s] (16/19) agent-of-empires session::instance::sid_persist::tests::launch_publication_preserves_a_newer_same_sid_generation
+        PASS [   0.748s] (17/19) agent-of-empires session::instance::start::tests::direct_start_attests_failed_resume_before_retrying_a_dead_pane
+        PASS [   0.108s] (18/19) agent-of-empires session::instance::start::tests::native_start_requires_a_tracked_row_even_for_a_preexisting_live_pane
+        PASS [   3.026s] (19/19) agent-of-empires session::instance::start::tests::store_fork_requires_durable_publication_and_preserves_recovery_and_peer_pins
+────────────
+     Summary [  10.193s] 19 tests run: 19 passed, 5609 skipped

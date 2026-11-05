@@ -1,0 +1,133 @@
+{
+  "scope": "actual isolated AoE CLI/core-daemon/tmux/TUI and transcript-reading controlled Native fixtures; no vendor-provider compatibility claim",
+  "cases": [
+    {
+      "name": "captured-spent-pin-and-approved-recovery",
+      "original_sid": "76efd81e-e624-4118-811a-eb260a570b04",
+      "configured_fresh_sid": "9424742a-d2b7-46a1-9c79-c33fa3992aaf",
+      "initial_probe_preserves_history": true,
+      "spent_pin_is_Default": true,
+      "blocked_actions": [
+        {
+          "action": "start",
+          "http": 409,
+          "error": "managed_resume_refused",
+          "cause": "previous_probe_failed",
+          "native_launches_unchanged": true
+        },
+        {
+          "action": "ensure-attach",
+          "http": 409,
+          "error": "managed_resume_refused",
+          "cause": "previous_probe_failed",
+          "native_launches_unchanged": true
+        },
+        {
+          "action": "send",
+          "http": 409,
+          "error": "managed_resume_refused",
+          "cause": "previous_probe_failed",
+          "native_launches_unchanged": true
+        },
+        {
+          "action": "restart",
+          "http": 409,
+          "error": "managed_resume_refused",
+          "cause": "previous_probe_failed",
+          "native_launches_unchanged": true
+        },
+        {
+          "action": "cli-start",
+          "exit": 1,
+          "native_launches_unchanged": true
+        },
+        {
+          "action": "cli-restart",
+          "exit": 1,
+          "native_launches_unchanged": true
+        }
+      ],
+      "actual_tui": {
+        "actual_home_observed": true,
+        "actual_refusal_observed": true,
+        "frame": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5040-approved-policy-actual-configured-log-a34344f2-ed9jg0mb/tui-refused.txt"
+      },
+      "actual_cli_attach": true,
+      "same_recovery_native_pid": 769344,
+      "same_recovery_input_pid": 769344,
+      "optout_send": {
+        "action": "optout-send",
+        "http": 409,
+        "error": "managed_resume_refused",
+        "cause": "previous_probe_failed",
+        "native_launches_unchanged": true
+      },
+      "configured_fresh_manual_only": true,
+      "blocked_message_never_replayed": true,
+      "launches": 5
+    },
+    {
+      "name": "explicit-fresh-direct-CLI",
+      "old_sid": "e1773f0f-a1cb-4d00-8a9a-6e75755c3904",
+      "fresh_sid": "c853ea3a-814c-42c5-806a-2b4ce1a92364",
+      "recording_intent_does_not_launch": true,
+      "consumed_one_shot_intent": true,
+      "history_unchanged": true,
+      "no_implicit_message": true,
+      "launches": 3
+    },
+    {
+      "name": "persistent-pin-explicit-same-only",
+      "sid": "3d256f67-bc4e-41db-9f33-0940a02136af",
+      "pin_stays_Use": true,
+      "blocked_actions": [
+        {
+          "action": "ensure",
+          "http": 409,
+          "error": "managed_resume_refused",
+          "cause": "previous_probe_failed",
+          "native_launches_unchanged": true
+        },
+        {
+          "action": "send",
+          "http": 409,
+          "error": "managed_resume_refused",
+          "cause": "previous_probe_failed",
+          "native_launches_unchanged": true
+        }
+      ],
+      "explicit_manual_retries_same_sid": 2,
+      "no_reassertion_needed_for_persistent_pin": true,
+      "launches": 4,
+      "no_fresh": true,
+      "history_unchanged": true
+    },
+    {
+      "name": "fork-intent-spent-at-dispatch",
+      "parent_sid": "1a9bfb6f-0632-4f83-b911-67ada034c365",
+      "child_sid": "4be8592c-77e1-4d5e-8265-d3bed3f37cc1",
+      "forks": 1,
+      "child_restart_resumes_child": true,
+      "parent_history_unchanged": true
+    },
+    {
+      "name": "automatic-optout-refuses-configured-fresh",
+      "original_sid": "6149e724-1bf3-4a27-abd9-186c2fc34f03",
+      "manual_fresh_sid": "fc94c216-79a4-4b7b-9881-b7ad0a2082c2",
+      "recorded_native_birth_only_signalled": true,
+      "automatic_refusal_causally_observed": true,
+      "no_automatic_native_launch_or_wake": true,
+      "manual_configured_fresh_allowed": true,
+      "history_unchanged": true,
+      "launches": 2
+    }
+  ],
+  "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5040-policy-batch4-a34344f2/target/debug/aoe",
+  "binary_sha256": "d42b65bed5a6c9f97fa1224512700841807ff6c446d52844ef66287c5018765d",
+  "cleanup": {
+    "native_processes_gone": true,
+    "daemon_stopped": true,
+    "owned_tmux_servers_stopped": true,
+    "private_root_removed": true
+  }
+}

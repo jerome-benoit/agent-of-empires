@@ -1,0 +1,42 @@
+╭ aoe ────────────────────────── « ╭ Preview ──────────────────────────────────────────────────────────────────── hide info with i ╮
+│ ✕ policy-captured-spent-pin      │ Profile: main  Tool: work-claude                                                              │
+│                                  │ Path:    /tmp/aoe-policy-after-qkqb_cp9/project                                               │
+│                                  │ Status:  Error                                                                                │
+│                                  │  Output ───────────────────────────────────────────────────────────────────────────────────── │
+│                                  │                                      No output available                                      │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                 ╭ Attachment failed ───────────────────────────────────────────────────────────────────────────╮                 │
+│                 │                                                                                              │                 │
+│                 │ Managed resume refused: a previous probe failed.                                             │                 │
+│                 │ Pane death does not establish that history was not loaded.                                   │                 │
+│                 │ Conversation preserved. Restore original context, then retry:                                │                 │
+│                 │ aoe session set-session-id <session> <native-id>                                             │                 │
+│                 │ Use --store with the exact store/transcript where required.                                  │                 │
+│                 │ Or choose fresh (abandons this AoE association):                                             │                 │
+│                 │ aoe session set-session-id <session> ""                                                      │                 │
+│                 │ Then start/restart; old history is not deleted or recovered.                                 │                 │
+│                 │                                                                                              │                 │
+│                 │                                             [OK]                                             │                 │
+│                 │                                                                                              │                 │
+│                 │                                                                                              │                 │
+│                 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯                 │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+│                                  │                                                                                               │
+╰──────────────────── sort: Newest ╰───────────────────────────────────────────────────────────────────────────────────────────────╯
+ ↵ Attach · ⇥  Live · t View · g Group · n New · m Msg · d Del · f Fav · / · D Diff · R ● API · ^K Cmds · ?               💡 3 tips

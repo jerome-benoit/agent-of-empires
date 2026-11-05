@@ -1,0 +1,10 @@
+2026-11-05T13:23:17.027827184+00:00 INFO log.runtime [AOE_START_MARKER] version=1.21.0 pid=771299 exe=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5040-policy-batch4-a34344f2/target/debug/aoe
+2026-11-05T13:23:17.027981Z  INFO log.runtime: aoe started version="1.21.0" pid=771299
+2026-11-05T13:23:17.031017Z  INFO serve.daemon: starting foreground serve profile= host=127.0.0.1 port=8081 mode="local" auth=None
+2026-11-05T13:23:17.041306Z  INFO http.access: resolved DNS-rebinding allowlist allowed_hosts=["localhost", "127.0.0.1", "::1"] allowed_origins=["http://localhost:0", "https://localhost:0", "http://127.0.0.1:0", "https://127.0.0.1:0", "http://[::1]:0", "https://[::1]:0"]
+2026-11-05T13:23:17.041367Z  INFO http.access: plaintext HTTP from non-loopback peers is rejected with 426
+2026-11-05T13:23:17.171159Z  INFO session.startup_recovery: starting daemon recovery for missing tmux sessions count=1
+2026-11-05T13:23:17.179800Z  INFO server.file_watch: disk-watch subscriptions initialized profiles_count=1
+2026-11-05T13:23:17.180910Z  INFO plugin.host: plugin registry loaded total=0 active=0 enabled=0 ids=[]
+2026-11-05T13:23:17.181654Z  INFO serve.lifecycle: daemon ready host="127.0.0.1" port=0 socket=/tmp/aoe-policy-after-qkqb_cp9/config/agent-of-empires-dev/daemon/api.sock auth_mode="none" remote=false core_only=true
+2026-11-05T13:23:17.250292Z  WARN session.startup_recovery: canonical recovery restart refused or failed instance_id=b860be3717ea43cd title=policy-automatic-optout status=409 Conflict
