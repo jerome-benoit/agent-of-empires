@@ -1,0 +1,166 @@
+{
+  "scope": "Actual base1685 AoE CLI/daemon/real managed Native; controlled ACP peer, not vendor compatibility",
+  "baseUrl": "http://127.0.0.1:5258",
+  "id": "9127e30a099649ab",
+  "sid": "fake-acp-1793889821567-d4b52d5e",
+  "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-before-base1685e5b3/target/debug/aoe",
+  "originalOwner": {
+    "pid": 1199042,
+    "birth": "9917780",
+    "generation": 1793889821252,
+    "identity": {
+      "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+      "start_id": "proc:9917780"
+    },
+    "nativePid": 1199066,
+    "nativeBirth": "9917783"
+  },
+  "prompt": {
+    "argv": [
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-before-base1685e5b3/target/debug/aoe",
+      "acp",
+      "prompt",
+      "9127e30a099649ab",
+      "5055_EXPLICIT_PROVIDER_FAILURE_INPUT"
+    ],
+    "exit": 0,
+    "stdout": "prompt accepted (36 bytes)\n",
+    "stderr": ""
+  },
+  "show": {
+    "argv": [
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-before-base1685e5b3/target/debug/aoe",
+      "session",
+      "show",
+      "9127e30a099649ab"
+    ],
+    "exit": 0,
+    "stdout": "Session: 5055 live operation diagnostic\n  ID:      9127e30a099649ab\n  Path:    /tmp/aoe-pw-w0-p58-dyxqEG/project\n  Group:   \n  Tool:    claude\n  Command: \n  Status:  Error\n  Profile: main\n",
+    "stderr": ""
+  },
+  "showJson": {
+    "argv": [
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-before-base1685e5b3/target/debug/aoe",
+      "session",
+      "show",
+      "9127e30a099649ab",
+      "--json"
+    ],
+    "exit": 0,
+    "stdout": "{\n  \"id\": \"9127e30a099649ab\",\n  \"title\": \"5055 live operation diagnostic\",\n  \"path\": \"/tmp/aoe-pw-w0-p58-dyxqEG/project\",\n  \"group\": \"\",\n  \"tool\": \"claude\",\n  \"command\": \"\",\n  \"status\": \"error\",\n  \"state\": \"live\",\n  \"agent_session_id\": \"fake-acp-1793889821567-d4b52d5e\",\n  \"profile\": \"main\"\n}\n",
+    "stderr": ""
+  },
+  "api": {
+    "id": "9127e30a099649ab",
+    "title": "5055 live operation diagnostic",
+    "project_path": "/tmp/aoe-pw-w0-p58-dyxqEG/project",
+    "artifact_dir": "/tmp/aoe-pw-w0-p58-dyxqEG/config/agent-of-empires-dev/artifacts/9127e30a099649ab",
+    "group_path": "",
+    "tool": "claude",
+    "command": "",
+    "extra_args": "",
+    "status": "Error",
+    "agent_session_id": "fake-acp-1793889821567-d4b52d5e",
+    "lifecycle_generation": 1,
+    "dormant": false,
+    "pane_dead_observed": false,
+    "agent_pane": {
+      "state": "unknown",
+      "tmux_session": null
+    },
+    "auxiliary": [],
+    "yolo_mode": false,
+    "created_at": "2026-11-05T14:43:41.373663238+00:00",
+    "last_accessed_at": "2026-11-05T14:43:41.672046241+00:00",
+    "idle_entered_at": null,
+    "last_error": null,
+    "branch": null,
+    "main_repo_path": null,
+    "is_sandboxed": false,
+    "scratch": false,
+    "favorited": false,
+    "urgent": false,
+    "has_managed_worktree": false,
+    "has_cleanable_worktree": false,
+    "tie_workdir_to_name": false,
+    "smart_rename": "inactive",
+    "default_name": false,
+    "has_terminal": false,
+    "profile": "main",
+    "cleanup_defaults": {
+      "delete_worktree": true,
+      "delete_branch": false,
+      "delete_sandbox": true,
+      "delete_to_trash": true
+    },
+    "remote_owner": null,
+    "remote_owner_key": null,
+    "notify_on_waiting": null,
+    "notify_on_idle": null,
+    "notify_on_error": null,
+    "view": "structured",
+    "context_resume": {
+      "state": "available"
+    },
+    "acp_worker_state": "running",
+    "rate_limit_known": true,
+    "rate_limit_auto_resume": false,
+    "acp_capable": true,
+    "acp_session_id": "fake-acp-1793889821567-d4b52d5e",
+    "acp_agent": "claude",
+    "acp_can_fork": true,
+    "keeps_context": true,
+    "clear_aliases": [
+      "/clear"
+    ],
+    "compact_aliases": [
+      "/compact"
+    ],
+    "claude_fullscreen": false,
+    "workspace_repos": []
+  },
+  "current_error": {
+    "session_id": "9127e30a099649ab",
+    "seq": 8,
+    "scope": "operation_current",
+    "event": {
+      "PromptRuntimeError": {
+        "message": "SYNTHETIC_PROVIDER_FAILURE: provider temporarily unavailable",
+        "evidence": {
+          "source": "local_prompt_result",
+          "operation": "prompt",
+          "runtime": "unknown",
+          "blocking_scope": "operation",
+          "reported_code": -32603,
+          "observed_at_ms": 1793889821687,
+          "generation": {
+            "acp_worker": 1793889821252
+          }
+        }
+      }
+    },
+    "operation": {
+      "correlation": {
+        "operation_id": "95d8bb9e-e7f0-4480-a7a3-81f87b5756c0",
+        "request_nonce": null
+      },
+      "outcome": "failed"
+    },
+    "prompt_observation": {
+      "state": "written",
+      "window_id": "07abc01a-e962-446f-976d-e5671cd6105b"
+    },
+    "output_uncertainty": "07abc01a-e962-446f-976d-e5671cd6105b"
+  },
+  "requestLog": "req method=initialize id=281474976710656 params={\"protocolVersion\":1,\"clientCapabilities\":{\"fs\":{\"readTextFile\":true,\"writeTextFile\":true},\"terminal\":true,\"session\":{\"compaction\":{},\"notices\":{}},\"auth\":{\"terminal\":false},\"elicitation\":{\"form\":{}}}\nreq method=session/new id=281474976710657 params={\"cwd\":\"/tmp/aoe-pw-w0-p58-dyxqEG/project\",\"mcpServers\":[]}\nreq method=session/prompt id=281474976710658 params={\"sessionId\":\"fake-acp-1793889821567-d4b52d5e\",\"prompt\":[{\"type\":\"text\",\"text\":\"5055_EXPLICIT_PROVIDER_FAILURE_INPUT\"}]}\n",
+  "cli_drops_existing_diagnostic": true,
+  "api_drops_current_operation_diagnostic": true,
+  "api_has_no_shared_recovery_projection": true,
+  "one_native_process": true,
+  "no_fresh_or_replay": true,
+  "opening_preserves_failure": true,
+  "cleanup": {
+    "owned_processes_reaped": true,
+    "private_server_stopped": true
+  }
+}

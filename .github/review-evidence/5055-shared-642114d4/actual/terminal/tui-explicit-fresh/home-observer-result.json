@@ -1,0 +1,153 @@
+{
+  "scope": "actual production Home dashboard; Fresh confirmation requires explicit commit_fresh",
+  "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+  "binary_sha256": "43ef82f44293b634e5d97184d9753e905c2d5ff260ca6634eb8c1c9e94acffe3",
+  "id": "422237fd830d49ab",
+  "title": "5055 terminal confirmed-exit",
+  "expected": [
+    "Terminal pane observed exited"
+  ],
+  "api_recovery_before": {
+    "reason": "runtime_exited",
+    "diagnostic": "Managed resume refused: wrapper contract missing.",
+    "evidence": null,
+    "runtime": {
+      "pane_exited": {
+        "exit_code": null
+      }
+    },
+    "work_in_progress": false,
+    "uncertainty": null,
+    "guidance": "Managed resume refused: wrapper contract missing.\nRestore truthful session.agent_execution_as and\nsession.agent_config_dir in trusted global/profile config.\nBoth must match the original agent and store.\nKeep the Native conversation ID while repairing this configuration.\nFresh abandons pending AoE input without replay and omits AoE restore flags.\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\nConversation preserved. Restore original context, then retry:\naoe session set-session-id <session> <native-id>\nUse --store with the exact store/transcript where required.\nOr choose fresh (abandons this AoE association):\naoe session set-session-id <session> \"\"\nThen start/restart; old history is not deleted or recovered.",
+    "actions": {
+      "attach": true,
+      "retry_operation": false,
+      "restart_same": false,
+      "stop": false,
+      "fresh": true
+    },
+    "expected": "2309a399b9c384d4a3b528a12acd0256edaf0418eb900401e355d3044d831cee"
+  },
+  "ui_socket": "/tmp/5055-terminal-aw26u9x9/tmp/5055-ui-xs8d05dg/ui.sock",
+  "local_daemon_socket": "/tmp/5055-terminal-aw26u9x9/config/agent-of-empires-dev/daemon/api.sock",
+  "remote_list_mode_disabled": true,
+  "actual_home_observed": true,
+  "home_frame": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5055-final-terminal-8844-3vn7fmj1/tui-explicit-fresh/home-selected.txt",
+  "actual_recovery_dialog_observed": true,
+  "no_implicit_recovery_selection": true,
+  "empty_enter_did_not_replace_native": true,
+  "fresh_confirm_key_sent": true,
+  "fresh_api_after": {
+    "id": "422237fd830d49ab",
+    "title": "5055 terminal confirmed-exit",
+    "project_path": "/tmp/5055-terminal-aw26u9x9/project",
+    "artifact_dir": "/tmp/5055-terminal-aw26u9x9/config/agent-of-empires-dev/artifacts/422237fd830d49ab",
+    "group_path": "",
+    "tool": "work-claude",
+    "command": "work-claude",
+    "extra_args": "",
+    "status": "Starting",
+    "agent_session_id": "6c92e2e1-33af-4bae-899d-4d7d8f4bb7e9",
+    "lifecycle_generation": 6,
+    "dormant": false,
+    "pane_dead_observed": false,
+    "agent_pane": {
+      "state": "alive",
+      "tmux_session": "aoe_dev_5055_terminal_confir_422237fd",
+      "physical": {
+        "identity": {
+          "session_id": "$3",
+          "pane_id": "%3",
+          "pane_pid": 3574470
+        },
+        "server": {
+          "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+          "pid": 3561908,
+          "birth": {
+            "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+            "start_id": "proc:12450202"
+          }
+        }
+      }
+    },
+    "auxiliary": [
+      {
+        "target": {
+          "kind": "host",
+          "index": 0
+        },
+        "state": "alive",
+        "tmux_session": "aoe_dev_term_5055_terminal_confir_422237fd",
+        "physical": {
+          "identity": {
+            "session_id": "$1",
+            "pane_id": "%1",
+            "pane_pid": 3565128
+          },
+          "server": {
+            "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+            "pid": 3561908,
+            "birth": {
+              "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+              "start_id": "proc:12450202"
+            }
+          }
+        }
+      }
+    ],
+    "yolo_mode": false,
+    "created_at": "2026-11-05T21:45:45.443180509+00:00",
+    "last_accessed_at": "2026-11-05T21:46:54.929905621+00:00",
+    "idle_entered_at": null,
+    "last_error": null,
+    "branch": null,
+    "main_repo_path": null,
+    "is_sandboxed": false,
+    "outside_repository": true,
+    "scratch": false,
+    "favorited": false,
+    "urgent": false,
+    "has_managed_worktree": false,
+    "has_cleanable_worktree": false,
+    "tie_workdir_to_name": false,
+    "smart_rename": "inactive",
+    "default_name": false,
+    "has_terminal": true,
+    "profile": "main",
+    "cleanup_defaults": {
+      "delete_worktree": true,
+      "delete_branch": false,
+      "delete_sandbox": true,
+      "delete_to_trash": true
+    },
+    "remote_owner": null,
+    "remote_owner_key": null,
+    "notify_on_waiting": null,
+    "notify_on_idle": null,
+    "notify_on_error": null,
+    "context_resume": {
+      "state": "indeterminate",
+      "reason": "runtime_check_required"
+    },
+    "recovery": null,
+    "acp_worker_state": "absent",
+    "acp_capable": true,
+    "acp_agent": "work-claude",
+    "claude_fullscreen": false,
+    "workspace_repos": []
+  },
+  "cleanup": {
+    "ui_actor": {
+      "pid": 3574307,
+      "birth": "12457099"
+    },
+    "ui_app": {
+      "pid": 3574310,
+      "birth": "12457099"
+    },
+    "kill_server_exit": 0,
+    "own_ui_processes_gone": true,
+    "native_lifecycle_commands_sent": true,
+    "error": null
+  }
+}

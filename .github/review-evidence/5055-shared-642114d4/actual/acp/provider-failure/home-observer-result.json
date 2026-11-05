@@ -1,0 +1,58 @@
+{
+  "scope": "actual production Home dashboard; Fresh confirmation requires explicit commit_fresh",
+  "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+  "binary_sha256": "43ef82f44293b634e5d97184d9753e905c2d5ff260ca6634eb8c1c9e94acffe3",
+  "id": "abd5981bb6094b66",
+  "title": "5055 shared recovery actual",
+  "expected": [
+    "SYNTHETIC_PROVIDER_FAILURE"
+  ],
+  "api_recovery_before": {
+    "reason": "operation_failed",
+    "diagnostic": "SYNTHETIC_PROVIDER_FAILURE: provider temporarily unavailable",
+    "evidence": {
+      "source": "local_prompt_result",
+      "operation": "prompt",
+      "runtime": "unknown",
+      "blocking_scope": "operation",
+      "reported_code": -32603,
+      "observed_at_ms": 1793915051004,
+      "generation": {
+        "acp_worker": 1793915049978
+      }
+    },
+    "runtime": "acp_transport_ready",
+    "work_in_progress": false,
+    "uncertainty": "The previous input may have been accepted; its output could not be attributed. Do not resend it automatically.",
+    "guidance": "Repair authentication or provider settings in the agent. Same preserves the qualified selection and sends no previous input. Fresh explicitly abandons pending AoE input, never replays prior input, and retains native and transcript history. Omitting AoE restore flags does not prevent an undeclared wrapper from restoring its own history.",
+    "actions": {
+      "attach": true,
+      "retry_operation": false,
+      "restart_same": true,
+      "stop": true,
+      "fresh": true
+    },
+    "expected": "46bcd06543e4b944724f16e9e7ddc83b465330a4283ca165102ae66b420f2715"
+  },
+  "ui_socket": "/tmp/aoe-pw-w0-p59-EkT1Vw/tmp/5055-ui-r4z1vbrm/ui.sock",
+  "local_daemon_socket": "/tmp/aoe-pw-w0-p59-EkT1Vw/config/agent-of-empires-dev/daemon/api.sock",
+  "remote_list_mode_disabled": true,
+  "actual_home_observed": true,
+  "home_frame": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5055-final-acp-8844-e69l6x24/tui-provider-failure/home-selected.txt",
+  "actual_recovery_dialog_observed": true,
+  "no_implicit_recovery_selection": true,
+  "cleanup": {
+    "ui_actor": {
+      "pid": 3554215,
+      "birth": "12443713"
+    },
+    "ui_app": {
+      "pid": 3554216,
+      "birth": "12443714"
+    },
+    "kill_server_exit": 0,
+    "own_ui_processes_gone": true,
+    "native_lifecycle_commands_sent": false,
+    "error": null
+  }
+}

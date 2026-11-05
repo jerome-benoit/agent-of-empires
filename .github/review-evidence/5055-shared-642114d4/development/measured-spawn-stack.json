@@ -1,0 +1,68 @@
+{
+  "source_fingerprint": "3c5634b842320c0b9203ed2eb5227b4b3f9426b45b284032342ce15b7b7cb457",
+  "compiled_libtest": "/home/fraggle/.cargo/build/a4/d4c6cdccb44c58/debug/deps/agent_of_empires-ef02aab070e8e582",
+  "binary_sha256": "430cea2be13ec46bb8e3712b2478aaab0264e1a499e3e76d08287bd9c9fc3093",
+  "default_stack": true,
+  "no_stack_enlargement": true,
+  "debugger": "GNU gdb18.1 DAP",
+  "stop": "SIGSEGV during spawned-future stack probe",
+  "instruction_pointer": "0x55555f333a51",
+  "observed_frames": [
+    "tokio::task::spawn(supervise(Instrumented(RuntimeWork::run(restart_session_recovery)))) at tokio/task/spawn.rs174",
+    "JoinSet::spawn at tokio/task/join_set.rs148",
+    "enqueue_work at src/server/runtime.rs73",
+    "RuntimeWork::run at src/server/runtime.rs106",
+    "restart_session_recovery at src/server/api/acp/worker.rs401",
+    "restart_session at src/server/api/sessions/lifecycle.rs2337",
+    "same_refuses_unresolved_queue_without_output_uncertainty_and_preserves_all_input at src/server/api/sessions/list.rs1323",
+    "ordinary with_managed/catch_unwind/Tokio current-thread frames, no repeated recursion across24frames"
+  ],
+  "observed_prologue": {
+    "start": "0x55555f333a40",
+    "probe_total_hex": "0x64000",
+    "remaining_hex": "0x8f8",
+    "frame_bytes": 411896,
+    "faulting_instruction": "movq $0x0,(%rsp)",
+    "probe_instruction": "sub $0x1000,%rsp"
+  },
+  "actors_before_cleanup": [
+    {
+      "pid": 2226183,
+      "ppid": 2226076,
+      "pgid": 2226183,
+      "state": "t",
+      "start_id": "11359189",
+      "cmdline": "/home/fraggle/.cargo/build/a4/d4c6cdccb44c58/debug/deps/agent_of_empires-ef02aab070e8e582 server::api::sessions::list::shared_recovery_tests::same_refuses_unresolved_queue_without_output_uncertainty_and_preserves_all_input --exact --nocapture --test-threads=1"
+    },
+    {
+      "pid": 2229827,
+      "ppid": 2226183,
+      "pgid": 2229827,
+      "state": "S",
+      "start_id": "11366489",
+      "cmdline": "/home/fraggle/.cargo/build/a4/d4c6cdccb44c58/debug/deps/agent_of_empires-ef02aab070e8e582 --exact server::api::sessions::list::shared_recovery_tests::same_refuses_unresolved_queue_without_output_uncertainty_and_preserves_all_input --nocapture"
+    },
+    {
+      "pid": 2229833,
+      "ppid": 2229827,
+      "pgid": 2229827,
+      "state": "S",
+      "start_id": "11366490",
+      "cmdline": "/home/fraggle/.local/share/mise/installs/node/26.13.0/bin/node /tmp/.tmpfgqBKi/bridge.mjs /tmp/.tmpfgqBKi/native.sock"
+    }
+  ],
+  "cleanup_complete": true,
+  "cleanup_signals": [
+    {
+      "owned_pgid": 2229827,
+      "signal": "SIGTERM",
+      "guard_pid": 2229827,
+      "guard_start_id": "11366489"
+    }
+  ],
+  "cleanup": {
+    "inferior_terminated": true,
+    "native_and_runner_absent": true,
+    "only_captured_birth_matched_group_touched": true
+  }
+}

@@ -1,0 +1,81 @@
+   Compiling agent-of-empires v1.21.0 (/home/fraggle/src/agent-of-empires-git-worktrees/5055-shared-recovery-diagnostics)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13m 34s
+────────────
+ Nextest run ID 7a31fe8d-377b-4470-acc5-3dc6b381496a with nextest profile: default
+    Starting 74 tests across 5 binaries (5571 tests skipped)
+        PASS [   0.019s] ( 1/74) agent-of-empires acp::client::ws::tests::reduced_recovery_distinguishes_absent_authority_from_an_explicit_current_clear
+        PASS [   0.095s] ( 2/74) agent-of-empires cli::runtime_read::pack_tests::published_snapshot_accepts_recovery_and_unknown_optional_metadata
+        PASS [   0.070s] ( 3/74) agent-of-empires cli::runtime_read::pack_tests::published_snapshot_rejects_invalid_recovery_shapes
+        PASS [   0.026s] ( 4/74) agent-of-empires cli::session::restart_args_tests::conflicting_restart_intents_are_rejected
+        PASS [   0.026s] ( 5/74) agent-of-empires cli::update::tests::hints_name_their_recovery_commands
+        PASS [   0.047s] ( 6/74) agent-of-empires daemon::transport::tests::higher_ancestor_recovery_command_removes_group_and_other_write
+        PASS [   0.029s] ( 7/74) agent-of-empires daemon::transport::tests::recovery_command_omits_unrepresentable_paths
+        PASS [   0.032s] ( 8/74) agent-of-empires daemon::transport::tests::socket_directory_recovery_command_repairs_every_nonprivate_mode
+        PASS [   0.026s] ( 9/74) agent-of-empires migrations::legacy_scope_recovery::tests::a_later_invalid_component_prevents_every_scope_authority_write
+        PASS [   0.020s] (10/74) agent-of-empires migrations::legacy_scope_recovery::tests::recovered_terminal_scope_debt_unlocks_stop_and_purge_without_new_custody
+        PASS [   0.018s] (11/74) agent-of-empires migrations::legacy_scope_recovery::tests::scope_proof_is_strict_and_retains_every_original_owned_unit
+        PASS [   0.018s] (12/74) agent-of-empires migrations::legacy_scope_recovery::tests::worker_scope_recovery_preserves_physical_and_opaque_authority
+        PASS [   0.024s] (13/74) agent-of-empires migrations::tests::explicit_recovery_runs_after_current_and_just_completed_migrations
+        PASS [   0.028s] (14/74) agent-of-empires migrations::tests::ordinary_current_schema_startup_never_runs_scope_authority_recovery
+        PASS [   0.019s] (15/74) agent-of-empires migrations::v017_rewrite_hook_strings_for_per_user_base::tests::rewrite_failure_keeps_legacy_dir_intact_for_manual_recovery
+        PASS [   0.582s] (16/74) agent-of-empires migrations::v033_isolate_sandbox_content::tests::ambiguous_or_deleted_native_conversation_is_retained_only_in_recovery
+        PASS [   0.037s] (17/74) agent-of-empires migrations::v033_isolate_sandbox_content::tests::an_exposed_recovery_namespace_leaves_the_sandbox_pending
+        PASS [   0.588s] (18/74) agent-of-empires migrations::v033_isolate_sandbox_content::tests::recovery_parent_sync_failure_keeps_original_and_retryable_receipt
+        PASS [   0.021s] (19/74) agent-of-empires migrations::v033_isolate_sandbox_content::tests::retention_is_deferred_while_a_mount_reaches_the_recovery_namespace
+        PASS [   0.019s] (20/74) agent-of-empires migrations::v044_reconcile_serve_passphrase_policy::tests::occupied_legacy_lifetime_refuses_malformed_launch_recovery
+        PASS [   0.271s] (21/74) agent-of-empires process::worker_registry::tests::cold_orphan_recovery_requires_external_group_settlement_and_preserves_live_owners
+        PASS [   0.026s] (22/74) agent-of-empires process::worker_registry::tests::confirmed_recovery_preserves_evidence_until_socket_disposal_succeeds
+        PASS [   0.027s] (23/74) agent-of-empires process::worker_registry::tests::malformed_record_remains_an_admission_fence_until_confirmed_recovery
+        PASS [   0.025s] (24/74) agent-of-empires process::worker_registry::tests::prime_recovery_requires_untracked_dead_exact_generation
+        PASS [   0.449s] (25/74) agent-of-empires server::api::acp::view::tests::disable_request_cancellation_preserves_runtime_owned_handoff
+        PASS [   0.509s] (26/74) agent-of-empires server::api::sessions::lifecycle::durable_stop_tests::managed_resume_refusal_publishes_safe_recovery_without_replacing_the_pane
+        PASS [   0.025s] (27/74) agent-of-empires server::api::sessions::lifecycle::shared_recovery_admission_tests::changed_selection_refuses_before_fresh_can_edit_input_or_intent
+        PASS [   1.094s] (28/74) agent-of-empires server::api::sessions::list::shared_recovery_tests::actual_prompt_failure_reaches_canonical_consumers_without_replacing_its_live_native
+        PASS [   0.866s] (29/74) agent-of-empires server::api::sessions::list::shared_recovery_tests::qualified_background_work_refuses_concurrent_same_and_fresh
+        PASS [   3.359s] (30/74) agent-of-empires server::api::sessions::list::shared_recovery_tests::same_and_fresh_use_real_qualified_control_paths_without_replaying_or_erasing_history
+        PASS [   1.524s] (31/74) agent-of-empires server::api::sessions::list::shared_recovery_tests::same_refuses_unresolved_queue_without_output_uncertainty_and_preserves_all_input
+        PASS [   0.874s] (32/74) agent-of-empires server::api::sessions::list::shared_recovery_tests::unreadable_current_owner_revokes_actions_and_preserves_the_real_error_and_identity
+        PASS [   0.111s] (33/74) agent-of-empires server::api::sessions::tests::committed_setting_reports_unconfirmed_until_canonical_recovery
+        PASS [   0.215s] (34/74) agent-of-empires server::pane::tests::obsolete_boot_recovery_consumes_original_without_adopting_legacy_replacement
+        PASS [   0.036s] (35/74) agent-of-empires server::reload::tests::failed_repair_retains_bundle_until_complete_recovery
+        PASS [   0.066s] (36/74) agent-of-empires server::runtime_ws::tests::emitted_nested_rows_satisfy_the_published_wire_schemas
+        PASS [   0.045s] (37/74) agent-of-empires server::startup_recovery::migrated_tui_ownership_tests::interrupted_move_with_journal_repairs_before_canonical_publish
+        PASS [   0.083s] (38/74) agent-of-empires server::startup_recovery::migrated_tui_ownership_tests::startup_retains_fresh_launch_owner_but_releases_expired_owner_before_profile_move
+        PASS [   0.490s] (39/74) agent-of-empires server::startup_recovery::tests::daemon_recovery_ledger_and_scan_exclude_candidates
+        PASS [   0.239s] (40/74) agent-of-empires server::startup_recovery::tests::failed_startup_repair_is_not_consumed_as_a_recovery_attempt
+        PASS [   0.030s] (41/74) agent-of-empires server::startup_recovery::tests::recovery_refuses_a_superseded_candidate_without_publishing
+        PASS [   2.679s] (42/74) agent-of-empires server::startup_recovery::tests::recovery_refuses_shelved_rows_after_the_candidate_snapshot
+        PASS [   0.107s] (43/74) agent-of-empires server::startup_recovery::tests::recovery_refuses_structured_rows_without_mutation_or_launch
+        PASS [   0.031s] (44/74) agent-of-empires server::startup_recovery::tests::startup_recovery_requires_healthy_authority_without_consuming_ledger
+        PASS [   0.016s] (45/74) agent-of-empires session::config::repo_config::tests::repo_cannot_enable_or_disable_startup_recovery_wake
+        PASS [   0.031s] (46/74) agent-of-empires session::deletion::tests::a_failed_owner_is_never_reselected_within_one_recovery_pass
+        PASS [   0.063s] (47/74) agent-of-empires session::deletion::tests::recovery_skips_an_impossible_owner_and_finishes_the_next_one
+        PASS [   0.025s] (48/74) agent-of-empires session::instance::ready::tests::native_input_witness_requires_complete_rows_without_recovery
+        PASS [   3.971s] (49/74) agent-of-empires session::instance::start::tests::store_fork_requires_durable_publication_and_preserves_recovery_and_peer_pins
+        PASS [   0.021s] (50/74) agent-of-empires session::projection::recovery_tests::confirmed_terminal_exit_offers_explicit_fresh_without_inventing_same_or_stop_authority
+        PASS [   0.036s] (51/74) agent-of-empires session::projection::recovery_tests::missing_wrapper_contract_projects_canonical_repair_without_granting_actions
+        PASS [   0.021s] (52/74) agent-of-empires session::projection::recovery_tests::selection_fences_same_id_binding_intent_capture_generation_and_physical_namespace
+        PASS [   0.042s] (53/74) agent-of-empires session::projection::recovery_tests::unknown_observation_never_turns_retry_metadata_or_a_raw_id_into_permission
+        PASS [   0.022s] (54/74) agent-of-empires session::recovery::tests::recovery_attempt_ledger_roundtrips
+        PASS [   0.089s] (55/74) agent-of-empires session::recovery::tests::recovery_candidacy_follows_parked_state_and_resume_identity
+        PASS [   0.025s] (56/74) agent-of-empires session::recovery::tests::recovery_lock_acquires_and_releases
+        PASS [   0.884s] (57/74) agent-of-empires session::storage::tests::profile_move_crash_recovery_target_wins_from_each_crash_point
+        PASS [   0.046s] (58/74) agent-of-empires session::storage::tests::recovery_backups_keep_the_newest_three_and_sync_their_directory
+        PASS [   0.667s] (59/74) agent-of-empires session::storage::tests::recovery_survives_a_panic_mid_repair_and_stays_idempotent
+        PASS [   2.341s] (60/74) agent-of-empires tmux::session::tests::resize_window_if_owner_keeps_timeout_recovery_in_one_deadline
+        PASS [   0.041s] (61/74) agent-of-empires tui::components::preview::tests::operation_diagnostic_does_not_replace_live_agent_output
+        PASS [   0.032s] (62/74) agent-of-empires tui::dialogs::restart::tests::recovery_requires_an_explicit_current_offered_choice
+        PASS [   0.507s] (63/74) agent-of-empires tui::dialogs::serve::render::tests::the_error_footer_offers_recovery_keys_first_and_only_those_error_key_handles
+        PASS [   0.065s] (64/74) agent-of-empires tui::home::tests::keys_and_nav::stop_in_terminal_view_does_not_target_agent_session
+        PASS [   0.156s] (65/74) agent-of-empires tui::home::tests::session_feed_tests::managed_resume_refusal_keeps_recovery_visible_and_restart_available
+        PASS [   0.058s] (66/74) agent-of-empires tui::home::tests::session_feed_tests::recovery_only_stop_never_adopts_current_legacy_replacement
+        PASS [   0.066s] (67/74) agent-of-empires tui::home::tests::session_feed_tests::recovery_retry_is_blank_and_cannot_retarget_or_fall_back_to_ordinary_actions
+        PASS [   0.058s] (68/74) agent-of-empires tui::home::tests::session_feed_tests::stopped_recovery_keeps_confirmed_exit_diagnostic_visible
+        PASS [   0.023s] (69/74) agent-of-empires tui::structured_view::reducer::tests::recovery_diagnostic_survives_missing_observation_but_not_current_clear
+        PASS [   0.468s] (70/74) agent-of-empires::integration cli_read_server::a_failed_host_hook_does_not_poison_runtime_reads
+        PASS [   0.429s] (71/74) agent-of-empires::integration cli_read_server::registered_project_text_and_native_paths_survive_runtime_reads
+        PASS [   0.034s] (72/74) agent-of-empires::integration recovery_hook_timeout::completing_hooks_are_unaffected_by_the_timeout_scope
+        PASS [   1.166s] (73/74) agent-of-empires::integration recovery_hook_timeout::hung_on_launch_hook_times_out_with_typed_error
+        PASS [   0.902s] (74/74) agent-of-empires::integration recovery_hook_timeout::nested_scopes_restore_outer_timeout_on_drop
+────────────
+     Summary [  27.254s] 74 tests run: 74 passed, 5571 skipped

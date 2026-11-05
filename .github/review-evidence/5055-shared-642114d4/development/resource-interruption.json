@@ -1,0 +1,26 @@
+{
+  "source_fingerprint": "9370b9c1aa5b3b8da45c2b0859d889829dfa21a6af286250d185836da8e17cbb",
+  "cancelled_job": "bg_93",
+  "reason": "Observed host memory65.4GB/67.1GB, swap8.59GB/full, load96; staticNodecheckandfree/uptimehitdeadlines underpressure",
+  "completed_before_cancel": [
+    {
+      "name": "cargo-fmt-check",
+      "state": "finished",
+      "exit": 0
+    },
+    {
+      "name": "cargo-web-clippy-tests",
+      "state": "finished",
+      "exit": 0
+    },
+    {
+      "name": "cargo-web-focused-recovery-and-consumers-nextest",
+      "state": "running"
+    }
+  ],
+  "remaining_owned_compilers_before_cleanup": [],
+  "signals": [],
+  "all_captured_owned_compilers_absent": true,
+  "unrelated_worktrees_untouched": true,
+  "interruption_not_repository_failure": true
+}

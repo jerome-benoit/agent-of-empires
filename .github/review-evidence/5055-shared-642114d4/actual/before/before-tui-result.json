@@ -1,0 +1,5 @@
+{
+  "exit": 0,
+  "stdout": "C_TUI_ACTUAL_NATIVE_SURFACE_GREEN {\"argv\": [\"/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-before-base1685e5b3/target/debug/aoe\", \"acp\", \"attach\", \"9127e30a099649ab\"], \"native_marker_observed\": true, \"exit_status\": 0, \"forced_quit\": false, \"ansi_log\": \"/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5055-before-nullish-metadata-9pq7_876/before-tui.ansi\"}\n",
+  "stderr": ""
+}

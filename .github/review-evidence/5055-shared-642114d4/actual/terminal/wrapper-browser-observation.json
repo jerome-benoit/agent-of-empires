@@ -1,0 +1,12 @@
+{
+  "text": "Action did not complete\nManaged resume refused: wrapper contract missing.\n\nReason: identity unattested\n\nOperation: unknown. Blocking scope: unknown.\n\nTerminal pane observed alive.\n\nNo current Agent work is reported.\n\nManaged resume refused: wrapper contract missing. Restore truthful session.agent_execution_as and session.agent_config_dir in trusted global/profile config. Both must match the original agent and store. Keep the Native conversation ID while repairing this configuration. Fresh abandons pending AoE input without replay and omits AoE restore flags. An undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation. Conversation preserved. Restore original context, then retry: aoe session set-session-id <session> <native-id> Use --store with the exact store/transcript where required. Or choose fresh (abandons this AoE association): aoe session set-session-id <session> \"\" Then start/restart; old history is not deleted or recovered.\n\nAttach / observe\nCompose retry\nRestart Same\nStop\nFresh / launch without restore flags",
+  "actions": {
+    "attach": true,
+    "retry-operation": false,
+    "restart-same": false,
+    "stop": true,
+    "fresh": true
+  },
+  "binary_sha256": "43ef82f44293b634e5d97184d9753e905c2d5ff260ca6634eb8c1c9e94acffe3",
+  "source": "8844c52290a5fd812821f756a65d512883e8766d6e11053fbeedaadbd5dbe275"
+}

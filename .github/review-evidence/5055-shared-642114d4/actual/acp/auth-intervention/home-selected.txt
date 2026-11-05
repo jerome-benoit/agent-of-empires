@@ -1,0 +1,56 @@
+╭ aoe ────────────────────────── « ╭ Preview ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────── hide info with i ╮
+│ ✕ 5055 shared rec… [structured]  │ Profile: main  Tool: claude                                                                                                                   │
+│                                  │ Path:    ~/project                                                                                                                            │
+│                                  │ Status:  Error                                                                                                                                │
+│                                  │                                                                                                                                               │
+│                                  │ Sign in required <redacted-secret>Details: Repair authentication in the Native Agent                                                          │
+│                                  │ ACP channel observed ready; not proof of native OS-process liveness                                                                           │
+│                                  │ Operation: Prompt; blocking scope: operation                                                                                                  │
+│                                  │ The previous input may have been accepted; its output could not be attributed. Do not resend it automatically.                                │
+│                                  │ Repair authentication or provider settings in the agent. Same preserves the qualified selection and sends no previous input. Fresh explicitly │
+│                                  │ abandons pending AoE input, never replays prior input, and retains native and transcript history. Omitting AoE restore flags does not prevent │
+│                                  │ an undeclared wrapper from restoring its own history.                                                                                         │
+│                                  │                                                                                                                                               │
+│                                  │ ○ 5055 shared recovery actual · claude                                                                                                        │
+│                                  │                                                                                                                                               │
+│                                  │ › 5055_EXPLICIT_PROVIDER_FAILURE_INPUT                                                                                                        │
+│                                  │                                                                                                                                               │
+│                                  │ • 5055_NATIVE_PROVIDER_ATTEMPT                                                                                                                │
+│                                  │                                                                                                                                               │
+│                                  │ · prompt failed: SYNTHETIC_PROVIDER_FAILURE: provider temporarily unavailable                                                                 │
+│                                  │                                                                                                                                               │
+│                                  │ · Output attribution is uncertain for this prompt.                                                                                            │
+│                                  │                                                                                                                                               │
+│                                  │ › 5055_USER_NEW_COMPOSITION_AFTER_MANUAL_PROVIDER_REPAIR                                                                                      │
+│                                  │                                                                                                                                               │
+│                                  │ • 5055_NATIVE_PROVIDER_REPAIRED_SAME_ACTOR                                                                                                    │
+│                                  │                                                                                                                                               │
+│                                  │ · Output attribution is uncertain for this prompt.                                                                                            │
+│                                  │                                                                                                                                               │
+│                                  │ › 5055_EXPLICIT_AUTH_FAILURE_INPUT                                                                                                            │
+│                                  │                                                                                                                                               │
+│                                  │ • 5055_NATIVE_AUTH_INTERVENTION                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │ · prompt failed: Sign in required <redacted-secret>Details: Repair authentication in the Native Agent                                         │
+│                                  │                                                                                                                                               │
+│                                  │ · Output attribution is uncertain for this prompt.                                                                                            │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │ Press Enter to reply                                                                                                                          │
+│                                  │ ›  Message the agent…  @ files  / commands                                                                                                    │
+│                                  │  abd5981bb6094b66 · /tmp/aoe-pw-w0-p59-EkT1Vw/project · claude · ● Ready                                         Enter reply · wheel history  │
+╰──────────────────── sort: Newest ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ↵ Attach · t View · g Group · n New · m Msg · d Del · f Fav · / · D Diff · R ● Web · ^K Cmds · ?                                                                         💡 3 tips

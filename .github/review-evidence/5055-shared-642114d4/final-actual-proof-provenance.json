@@ -1,0 +1,69 @@
+{
+  "source": "8844c52290a5fd812821f756a65d512883e8766d6e11053fbeedaadbd5dbe275",
+  "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+  "binary_sha256": "43ef82f44293b634e5d97184d9753e905c2d5ff260ca6634eb8c1c9e94acffe3",
+  "controlled_native_scope": "Actual AoE production gateway/SDK with controlled Native programs, not real vendor authentication/provider credentials",
+  "driver_sha256": {
+    "5055-live-diagnostic-after.ts": "1a4111b8a51d18ac5d2c7062cdeade536f0a408190cf7198bc6cf73800c3b94b",
+    "5055-terminal-recovery-after.py": "54c1cde195215c3db53b729bfb2c36329860568309e164548feebbbe5e107919",
+    "5055-tui-home-observer.py": "adfa141076fb7786ff58f4c7751ee110384fcd8477d2db5ef56d82d0f6ddcb61",
+    "terminal-fixture.py": "57fe0cf377699a7617ab429ec2adbd882d394c075f2136c486dd10ade010d6f0"
+  },
+  "ACP": {
+    "path": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5055-final-acp-8844-e69l6x24/after-proof.json",
+    "success": true,
+    "cleanup": {
+      "owned_processes_reaped": true,
+      "private_server_stopped": true
+    }
+  },
+  "terminal": {
+    "path": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5055-final-terminal-8844-3vn7fmj1/terminal-proof.json",
+    "success": true,
+    "cleanup": {
+      "commands": [
+        {
+          "action": "kill-only-own-tmux-server",
+          "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+          "exit": 1,
+          "stderr": "no server running on /tmp/5055-terminal-aw26u9x9/tmux.sock\n"
+        }
+      ],
+      "errors": [],
+      "all_owned_births_gone": true,
+      "observed_actors": [
+        {
+          "pid": 3574473,
+          "birth": "12457148"
+        },
+        {
+          "pid": 3655948,
+          "birth": "12468389"
+        },
+        {
+          "pid": 3566262,
+          "birth": "12454619"
+        },
+        {
+          "pid": 3576418,
+          "birth": "12458768"
+        },
+        {
+          "pid": 3561919,
+          "birth": "12450204"
+        },
+        {
+          "pid": 3561496,
+          "birth": "12450152"
+        },
+        {
+          "pid": 3576413,
+          "birth": "12458767"
+        }
+      ],
+      "private_root_removed": true
+    }
+  },
+  "standalone_before_tui_not_mislabelled_home": true,
+  "generation_classification": "local://5055-wrapper-generation-custody-classification.json"
+}

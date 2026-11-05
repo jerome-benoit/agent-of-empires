@@ -1,0 +1,16 @@
+[liveGlobalSetup] using AOE_E2E_BINARY=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe
+
+Running 7 tests using 1 worker
+
+(node:3933038) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:49:1 › resume re-issues the interrupted prompt so the agent continues
+[2/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:65:1 › a later rejection still reports the reset captured on an earlier turn
+[3/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:95:1 › sidebar row shows a rate-limited indicator after a park
+[4/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:113:1 › plan session update renders in PlanStrip and the sidebar PlanProgressMini
+[5/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:137:1 › startup banner: native-binary branch + agent-log disclosure
+[6/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:187:3 › provider operation failure survives reopen and accepts only a new explicit operation on the same native history
+[7/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:187:3 › auth operation failure survives reopen and accepts only a new explicit operation on the same native history
+  7 passed (27.9s)

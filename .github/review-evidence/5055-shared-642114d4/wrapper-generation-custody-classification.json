@@ -1,0 +1,12 @@
+{
+  "actual_failure": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5055-after-terminal-9370-b396re3u/terminal-proof.json",
+  "product_generation_fix": false,
+  "decision": "Private selected() overconstrained lifecycle attempt generation, which is not Native identity. Keep actor birth, exact SID, binding/intent, active execution, capture floor, history bytes and Native invocation/input counts invariant. Record generation separately and retain all server fences.",
+  "evidence": {
+    "src/server/api/sessions/lifecycle.rs:2537-2544": "check_resume_attempt then try_acquire_lifecycle_reservation(Launch)",
+    "src/session/instance/lifecycle.rs:92-111": "Durable operation ownership increments lifecycle generation by design",
+    "src/session/instance/resume.rs:1163-1174": "Existing NativeStartAdmission selection test explicitly accepts own reservation generation increment while rejecting changed conversation target"
+  },
+  "rejected_agent_output": "RefusalGenerationCustody supplied unsupported paths and unsafe skip-generation suggestion; not used; QA reported",
+  "source_fix": "Only actionable truthful wrapper diagnostic projection, no lifecycle/generation/policy change"
+}

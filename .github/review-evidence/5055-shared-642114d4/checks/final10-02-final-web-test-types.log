@@ -1,0 +1,4 @@
+
+> web@0.0.0 typecheck:tests
+> tsc -p tsconfig.tests.json
+

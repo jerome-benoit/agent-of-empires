@@ -1,0 +1,20 @@
+{
+  "source": "8844c52290a5fd812821f756a65d512883e8766d6e11053fbeedaadbd5dbe275",
+  "binary_sha256": "43ef82f44293b634e5d97184d9753e905c2d5ff260ca6634eb8c1c9e94acffe3",
+  "text": "Action did not complete\nSYNTHETIC_PROVIDER_FAILURE_AFTER_AGENT_RETRY Details: The Native Agent completed its own retry; operator review is required\n\nReason: operation failed\n\nOperation: prompt. Blocking scope: operation.\n\nRuntime liveness is unknown.\n\nNo current Agent work is reported.\n\nThe previous input may have been accepted; its output could not be attributed. Do not resend it automatically.\n\nObserve the existing transcript and repair authentication or provider settings in the agent. Unknown identity grants no retry or Same shortcut. Fresh abandons pending AoE input and omits AoE restore flags; an undeclared wrapper may still restore its own history. Native and transcript history are retained.\n\nAttach / observe\nCompose retry\nRestart Same\nStop\nFresh / launch without restore flags",
+  "actions": {
+    "attach": true,
+    "retry-operation": false,
+    "restart-same": false,
+    "stop": false,
+    "fresh": false
+  },
+  "api_counts_before_parent_observation": {
+    "initialize": 1,
+    "new": 1,
+    "load": 0,
+    "prompt": 5
+  },
+  "tui_exit": 0,
+  "screenshot": "unknown-liveness-browser.png"
+}

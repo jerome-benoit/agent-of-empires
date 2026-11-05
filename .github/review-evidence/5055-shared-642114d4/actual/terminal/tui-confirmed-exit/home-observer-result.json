@@ -1,0 +1,52 @@
+{
+  "scope": "actual production Home dashboard; Fresh confirmation requires explicit commit_fresh",
+  "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+  "binary_sha256": "43ef82f44293b634e5d97184d9753e905c2d5ff260ca6634eb8c1c9e94acffe3",
+  "id": "422237fd830d49ab",
+  "title": "5055 terminal confirmed-exit",
+  "expected": [
+    "Terminal pane observed exited"
+  ],
+  "api_recovery_before": {
+    "reason": "runtime_exited",
+    "diagnostic": "Managed resume refused: wrapper contract missing.",
+    "evidence": null,
+    "runtime": {
+      "pane_exited": {
+        "exit_code": null
+      }
+    },
+    "work_in_progress": false,
+    "uncertainty": null,
+    "guidance": "Managed resume refused: wrapper contract missing.\nRestore truthful session.agent_execution_as and\nsession.agent_config_dir in trusted global/profile config.\nBoth must match the original agent and store.\nKeep the Native conversation ID while repairing this configuration.\nFresh abandons pending AoE input without replay and omits AoE restore flags.\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\nConversation preserved. Restore original context, then retry:\naoe session set-session-id <session> <native-id>\nUse --store with the exact store/transcript where required.\nOr choose fresh (abandons this AoE association):\naoe session set-session-id <session> \"\"\nThen start/restart; old history is not deleted or recovered.",
+    "actions": {
+      "attach": true,
+      "retry_operation": false,
+      "restart_same": false,
+      "stop": false,
+      "fresh": true
+    },
+    "expected": "7e147455b9041323ec22d3b046c5b12cab1916b7522bb34d0f719b803a717988"
+  },
+  "ui_socket": "/tmp/5055-terminal-aw26u9x9/tmp/5055-ui-b9ornks6/ui.sock",
+  "local_daemon_socket": "/tmp/5055-terminal-aw26u9x9/config/agent-of-empires-dev/daemon/api.sock",
+  "remote_list_mode_disabled": true,
+  "actual_home_observed": true,
+  "home_frame": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5055-final-terminal-8844-3vn7fmj1/tui-confirmed-exit/home-selected.txt",
+  "actual_recovery_dialog_observed": true,
+  "no_implicit_recovery_selection": true,
+  "cleanup": {
+    "ui_actor": {
+      "pid": 3564943,
+      "birth": "12453653"
+    },
+    "ui_app": {
+      "pid": 3564945,
+      "birth": "12453654"
+    },
+    "kill_server_exit": 0,
+    "own_ui_processes_gone": true,
+    "native_lifecycle_commands_sent": false,
+    "error": null
+  }
+}

@@ -1,0 +1,482 @@
+{
+  "name": "auth-intervention",
+  "api": {
+    "id": "abd5981bb6094b66",
+    "title": "5055 shared recovery actual",
+    "project_path": "/tmp/aoe-pw-w0-p59-EkT1Vw/project",
+    "artifact_dir": "/tmp/aoe-pw-w0-p59-EkT1Vw/config/agent-of-empires-dev/artifacts/abd5981bb6094b66",
+    "group_path": "",
+    "tool": "claude",
+    "command": "",
+    "extra_args": "",
+    "status": "Error",
+    "agent_session_id": "fake-acp-1793915050269-2fb07360",
+    "lifecycle_generation": 1,
+    "dormant": false,
+    "pane_dead_observed": false,
+    "agent_pane": {
+      "state": "absent",
+      "tmux_session": null
+    },
+    "auxiliary": [
+      {
+        "target": {
+          "kind": "host",
+          "index": 0
+        },
+        "state": "absent",
+        "tmux_session": null
+      }
+    ],
+    "yolo_mode": false,
+    "created_at": "2026-11-05T21:44:10.049558616+00:00",
+    "last_accessed_at": "2026-11-05T21:44:46.275780756+00:00",
+    "idle_entered_at": null,
+    "last_error": "Sign in required <redacted-secret>\nDetails: Repair authentication in the Native Agent",
+    "last_error_evidence": {
+      "source": "local_prompt_result",
+      "operation": "prompt",
+      "runtime": "unknown",
+      "blocking_scope": "operation",
+      "reported_code": -32603,
+      "observed_at_ms": 1793915086805,
+      "generation": {
+        "acp_worker": 1793915049978
+      }
+    },
+    "branch": null,
+    "main_repo_path": null,
+    "is_sandboxed": false,
+    "scratch": false,
+    "favorited": false,
+    "urgent": false,
+    "unread": true,
+    "has_managed_worktree": false,
+    "has_cleanable_worktree": false,
+    "tie_workdir_to_name": false,
+    "smart_rename": "inactive",
+    "default_name": false,
+    "has_terminal": false,
+    "profile": "main",
+    "cleanup_defaults": {
+      "delete_worktree": true,
+      "delete_branch": false,
+      "delete_sandbox": true,
+      "delete_to_trash": true
+    },
+    "remote_owner": null,
+    "remote_owner_key": null,
+    "notify_on_waiting": null,
+    "notify_on_idle": null,
+    "notify_on_error": null,
+    "view": "structured",
+    "context_resume": {
+      "state": "available"
+    },
+    "recovery": {
+      "reason": "operation_failed",
+      "diagnostic": "Sign in required <redacted-secret>\nDetails: Repair authentication in the Native Agent",
+      "evidence": {
+        "source": "local_prompt_result",
+        "operation": "prompt",
+        "runtime": "unknown",
+        "blocking_scope": "operation",
+        "reported_code": -32603,
+        "observed_at_ms": 1793915086805,
+        "generation": {
+          "acp_worker": 1793915049978
+        }
+      },
+      "runtime": "acp_transport_ready",
+      "work_in_progress": false,
+      "uncertainty": "The previous input may have been accepted; its output could not be attributed. Do not resend it automatically.",
+      "guidance": "Repair authentication or provider settings in the agent. Same preserves the qualified selection and sends no previous input. Fresh explicitly abandons pending AoE input, never replays prior input, and retains native and transcript history. Omitting AoE restore flags does not prevent an undeclared wrapper from restoring its own history.",
+      "actions": {
+        "attach": true,
+        "retry_operation": false,
+        "restart_same": true,
+        "stop": true,
+        "fresh": true
+      },
+      "expected": "46bcd06543e4b944724f16e9e7ddc83b465330a4283ca165102ae66b420f2715"
+    },
+    "acp_worker_state": "running",
+    "rate_limit_known": true,
+    "rate_limit_auto_resume": false,
+    "acp_capable": true,
+    "acp_session_id": "fake-acp-1793915050269-2fb07360",
+    "acp_agent": "claude",
+    "acp_can_fork": true,
+    "keeps_context": true,
+    "clear_aliases": [
+      "/clear"
+    ],
+    "compact_aliases": [
+      "/compact"
+    ],
+    "claude_fullscreen": false,
+    "workspace_repos": []
+  },
+  "show": {
+    "argv": [
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+      "session",
+      "show",
+      "abd5981bb6094b66"
+    ],
+    "exit": 0,
+    "stdout": "Session: 5055 shared recovery actual\n  ID:      abd5981bb6094b66\n  Path:    /tmp/aoe-pw-w0-p59-EkT1Vw/project\n  Group:   \n  Tool:    claude\n  Command: \n  Status:  Error\n  Profile: main\n  Diagnostic: Sign in required <redacted-secret>Details: Repair authentication in the Native Agent\n  Observed runtime: ACP channel observed ready; not proof of native OS-process liveness\n  Operation: Prompt\n  Blocking scope: operation\n  Reported code: -32603\n  Uncertainty: The previous input may have been accepted; its output could not be attributed. Do not resend it automatically.\n  Recovery: Repair authentication or provider settings in the agent. Same preserves the qualified selection and sends no previous input. Fresh explicitly abandons pending AoE input, never replays prior input, and retains native and transcript history. Omitting AoE restore flags does not prevent an undeclared wrapper from restoring its own history.\n  Server-authorized actions:\n    Attach existing runtime: available\n    Retry operation with explicit input: unavailable\n    Restart same conversation: available\n    Stop owned runtime: available\n    Launch without AoE restore flags: available\n",
+    "stderr": ""
+  },
+  "showJson": {
+    "argv": [
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+      "session",
+      "show",
+      "abd5981bb6094b66",
+      "--json"
+    ],
+    "exit": 0,
+    "stdout": "{\n  \"id\": \"abd5981bb6094b66\",\n  \"title\": \"5055 shared recovery actual\",\n  \"path\": \"/tmp/aoe-pw-w0-p59-EkT1Vw/project\",\n  \"group\": \"\",\n  \"tool\": \"claude\",\n  \"command\": \"\",\n  \"status\": \"error\",\n  \"state\": \"live\",\n  \"agent_session_id\": \"fake-acp-1793915050269-2fb07360\",\n  \"profile\": \"main\",\n  \"recovery\": {\n    \"reason\": \"operation_failed\",\n    \"diagnostic\": \"Sign in required <redacted-secret>\\nDetails: Repair authentication in the Native Agent\",\n    \"evidence\": {\n      \"source\": \"local_prompt_result\",\n      \"operation\": \"prompt\",\n      \"runtime\": \"unknown\",\n      \"blocking_scope\": \"operation\",\n      \"reported_code\": -32603,\n      \"observed_at_ms\": 1793915086805,\n      \"generation\": {\n        \"acp_worker\": 1793915049978\n      }\n    },\n    \"runtime\": \"acp_transport_ready\",\n    \"work_in_progress\": false,\n    \"uncertainty\": \"The previous input may have been accepted; its output could not be attributed. Do not resend it automatically.\",\n    \"guidance\": \"Repair authentication or provider settings in the agent. Same preserves the qualified selection and sends no previous input. Fresh explicitly abandons pending AoE input, never replays prior input, and retains native and transcript history. Omitting AoE restore flags does not prevent an undeclared wrapper from restoring its own history.\",\n    \"actions\": {\n      \"attach\": true,\n      \"retry_operation\": false,\n      \"restart_same\": true,\n      \"stop\": true,\n      \"fresh\": true\n    },\n    \"expected\": \"46bcd06543e4b944724f16e9e7ddc83b465330a4283ca165102ae66b420f2715\"\n  }\n}\n",
+    "stderr": ""
+  },
+  "counts": {
+    "initialize": 1,
+    "new": 1,
+    "load": 0,
+    "prompt": 3
+  },
+  "owner_record_currently_readable": true,
+  "public_frames": [
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 1,
+      "scope": "session_current",
+      "event": {
+        "AuthStatusUpdated": {
+          "status": null
+        }
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 2,
+      "scope": "session_current",
+      "event": {
+        "ConfigOptionsUpdated": {
+          "options": [
+            {
+              "id": "model",
+              "name": "Model",
+              "category": "model",
+              "current_value": "claude-opus-4-7",
+              "options": [
+                {
+                  "value": "claude-opus-4-7",
+                  "name": "Claude Opus 4.7"
+                },
+                {
+                  "value": "claude-sonnet-4-6",
+                  "name": "Claude Sonnet 4.6"
+                }
+              ]
+            },
+            {
+              "id": "effort",
+              "name": "Reasoning Effort",
+              "category": "thought_level",
+              "current_value": "default",
+              "options": [
+                {
+                  "value": "default",
+                  "name": "Default"
+                },
+                {
+                  "value": "low",
+                  "name": "Low"
+                },
+                {
+                  "value": "medium",
+                  "name": "Medium"
+                },
+                {
+                  "value": "high",
+                  "name": "High"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 3,
+      "scope": "session_current",
+      "event": {
+        "AcpSessionAssigned": {
+          "acp_session_id": "fake-acp-1793915050269-2fb07360",
+          "connection_ready": true
+        }
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 4,
+      "scope": "session_current",
+      "event": {
+        "PromptCapabilities": {
+          "image": false,
+          "audio": false,
+          "embedded_context": false,
+          "load_session": true,
+          "steering": false
+        }
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 5,
+      "scope": "history_only",
+      "event": {
+        "UserPromptSent": {
+          "text": "5055_EXPLICIT_PROVIDER_FAILURE_INPUT",
+          "synthesized": false
+        }
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 6,
+      "scope": "operation_current",
+      "event": "ThinkingStarted",
+      "operation": {
+        "correlation": {
+          "operation_id": "3e939351-6dd6-49c6-a23c-8463e54d2bff",
+          "request_nonce": null
+        }
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 7,
+      "scope": "history_only",
+      "event": {
+        "AgentMessageChunk": {
+          "text": "5055_NATIVE_PROVIDER_ATTEMPT"
+        }
+      },
+      "prompt_observation": {
+        "state": "written",
+        "window_id": "23812b0b-ca75-4dcb-b19f-3e25c03db9b3"
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 8,
+      "scope": "operation_current",
+      "event": {
+        "PromptRuntimeError": {
+          "message": "SYNTHETIC_PROVIDER_FAILURE: provider temporarily unavailable",
+          "evidence": {
+            "source": "local_prompt_result",
+            "operation": "prompt",
+            "runtime": "unknown",
+            "blocking_scope": "operation",
+            "reported_code": -32603,
+            "observed_at_ms": 1793915051004,
+            "generation": {
+              "acp_worker": 1793915049978
+            }
+          }
+        }
+      },
+      "operation": {
+        "correlation": {
+          "operation_id": "3e939351-6dd6-49c6-a23c-8463e54d2bff",
+          "request_nonce": null
+        },
+        "outcome": "failed"
+      },
+      "prompt_observation": {
+        "state": "written",
+        "window_id": "23812b0b-ca75-4dcb-b19f-3e25c03db9b3"
+      },
+      "output_uncertainty": "23812b0b-ca75-4dcb-b19f-3e25c03db9b3"
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 9,
+      "scope": "operation_current",
+      "event": {
+        "Stopped": {
+          "reason": "prompt_failed"
+        }
+      },
+      "operation": {
+        "correlation": {
+          "operation_id": "3e939351-6dd6-49c6-a23c-8463e54d2bff",
+          "request_nonce": null
+        },
+        "outcome": "failed"
+      },
+      "prompt_observation": {
+        "state": "written",
+        "window_id": "23812b0b-ca75-4dcb-b19f-3e25c03db9b3"
+      },
+      "output_uncertainty": "23812b0b-ca75-4dcb-b19f-3e25c03db9b3"
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 10,
+      "scope": "history_only",
+      "event": {
+        "UserPromptSent": {
+          "text": "5055_USER_NEW_COMPOSITION_AFTER_MANUAL_PROVIDER_REPAIR",
+          "synthesized": false
+        }
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 11,
+      "scope": "operation_current",
+      "event": "ThinkingStarted",
+      "operation": {
+        "correlation": {
+          "operation_id": "5b4f9b6a-d94f-4c4c-a35e-56ec800262b9",
+          "request_nonce": null
+        }
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 12,
+      "scope": "history_only",
+      "event": {
+        "AgentMessageChunk": {
+          "text": "5055_NATIVE_PROVIDER_REPAIRED_SAME_ACTOR"
+        }
+      },
+      "prompt_observation": {
+        "state": "written",
+        "window_id": "ba2e34c6-a5b3-4e8c-89df-f18af400f41d"
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 13,
+      "scope": "operation_current",
+      "event": {
+        "Stopped": {
+          "reason": "prompt_complete"
+        }
+      },
+      "operation": {
+        "correlation": {
+          "operation_id": "5b4f9b6a-d94f-4c4c-a35e-56ec800262b9",
+          "request_nonce": null
+        },
+        "outcome": "succeeded"
+      },
+      "prompt_observation": {
+        "state": "written",
+        "window_id": "ba2e34c6-a5b3-4e8c-89df-f18af400f41d"
+      },
+      "output_uncertainty": "ba2e34c6-a5b3-4e8c-89df-f18af400f41d"
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 14,
+      "scope": "history_only",
+      "event": {
+        "UserPromptSent": {
+          "text": "5055_EXPLICIT_AUTH_FAILURE_INPUT",
+          "synthesized": false
+        }
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 15,
+      "scope": "operation_current",
+      "event": "ThinkingStarted",
+      "operation": {
+        "correlation": {
+          "operation_id": "294e1c64-e319-4d9d-935e-e603f3980308",
+          "request_nonce": null
+        }
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 16,
+      "scope": "history_only",
+      "event": {
+        "AgentMessageChunk": {
+          "text": "5055_NATIVE_AUTH_INTERVENTION"
+        }
+      },
+      "prompt_observation": {
+        "state": "written",
+        "window_id": "604c402a-046d-4ac0-93ab-c691cac7e8f2"
+      }
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 17,
+      "scope": "operation_current",
+      "event": {
+        "PromptRuntimeError": {
+          "message": "Sign in required <redacted-secret>\nDetails: Repair authentication in the Native Agent",
+          "evidence": {
+            "source": "local_prompt_result",
+            "operation": "prompt",
+            "runtime": "unknown",
+            "blocking_scope": "operation",
+            "reported_code": -32603,
+            "observed_at_ms": 1793915086805,
+            "generation": {
+              "acp_worker": 1793915049978
+            }
+          }
+        }
+      },
+      "operation": {
+        "correlation": {
+          "operation_id": "294e1c64-e319-4d9d-935e-e603f3980308",
+          "request_nonce": null
+        },
+        "outcome": "failed"
+      },
+      "prompt_observation": {
+        "state": "written",
+        "window_id": "604c402a-046d-4ac0-93ab-c691cac7e8f2"
+      },
+      "output_uncertainty": "604c402a-046d-4ac0-93ab-c691cac7e8f2"
+    },
+    {
+      "session_id": "abd5981bb6094b66",
+      "seq": 18,
+      "scope": "operation_current",
+      "event": {
+        "Stopped": {
+          "reason": "prompt_failed"
+        }
+      },
+      "operation": {
+        "correlation": {
+          "operation_id": "294e1c64-e319-4d9d-935e-e603f3980308",
+          "request_nonce": null
+        },
+        "outcome": "failed"
+      },
+      "prompt_observation": {
+        "state": "written",
+        "window_id": "604c402a-046d-4ac0-93ab-c691cac7e8f2"
+      },
+      "output_uncertainty": "604c402a-046d-4ac0-93ab-c691cac7e8f2"
+    }
+  ],
+  "opening_preserves_identity_failure_and_prompt_count": true
+}

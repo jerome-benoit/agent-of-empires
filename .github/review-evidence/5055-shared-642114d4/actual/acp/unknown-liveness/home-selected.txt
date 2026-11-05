@@ -1,0 +1,56 @@
+╭ aoe ────────────────────────── « ╭ Preview ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────── hide info with i ╮
+│ ✕ 5055 shared rec… [structured]  │ Profile: main  Tool: claude                                                                                                                   │
+│                                  │ Path:    ~/project                                                                                                                            │
+│                                  │ Status:  Error                                                                                                                                │
+│                                  │                                                                                                                                               │
+│                                  │ SYNTHETIC_PROVIDER_FAILURE_AFTER_AGENT_RETRYDetails: The Native Agent completed its own retry; operator review is required                    │
+│                                  │ Runtime observation unknown; no liveness or input permission established                                                                      │
+│                                  │ Operation: Prompt; blocking scope: operation                                                                                                  │
+│                                  │ The previous input may have been accepted; its output could not be attributed. Do not resend it automatically.                                │
+│                                  │ Observe the existing transcript and repair authentication or provider settings in the agent. Unknown identity grants no retry or Same         │
+│                                  │ shortcut. Fresh abandons pending AoE input and omits AoE restore flags; an undeclared wrapper may still restore its own history. Native and   │
+│                                  │ transcript history are retained.                                                                                                              │
+│                                  │                                                                                                                                               │
+│                                  │ ○ 5055 shared recovery actual · claude                                                                                                        │
+│                                  │                                                                                                                                               │
+│                                  │ › 5055_EXPLICIT_PROVIDER_FAILURE_INPUT                                                                                                        │
+│                                  │                                                                                                                                               │
+│                                  │ • 5055_NATIVE_PROVIDER_ATTEMPT                                                                                                                │
+│                                  │                                                                                                                                               │
+│                                  │ · prompt failed: SYNTHETIC_PROVIDER_FAILURE: provider temporarily unavailable                                                                 │
+│                                  │                                                                                                                                               │
+│                                  │ · Output attribution is uncertain for this prompt.                                                                                            │
+│                                  │                                                                                                                                               │
+│                                  │ › 5055_USER_NEW_COMPOSITION_AFTER_MANUAL_PROVIDER_REPAIR                                                                                      │
+│                                  │                                                                                                                                               │
+│                                  │ • 5055_NATIVE_PROVIDER_REPAIRED_SAME_ACTOR                                                                                                    │
+│                                  │                                                                                                                                               │
+│                                  │ · Output attribution is uncertain for this prompt.                                                                                            │
+│                                  │                                                                                                                                               │
+│                                  │ › 5055_EXPLICIT_AUTH_FAILURE_INPUT                                                                                                            │
+│                                  │                                                                                                                                               │
+│                                  │ • 5055_NATIVE_AUTH_INTERVENTION                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │ · prompt failed: Sign in required <redacted-secret>Details: Repair authentication in the Native Agent                                         │
+│                                  │                                                                                                                                               │
+│                                  │ · Output attribution is uncertain for this prompt.                                                                                            │
+│                                  │                                                                                                                                               │
+│                                  │ › 5055_USER_NEW_COMPOSITION_AFTER_MANUAL_NATIVE_AUTH_INTERVENTION                                                                             │
+│                                  │                                                                                                                                               │
+│                                  │ • 5055_NATIVE_AUTH_REPAIRED_SAME_ACTOR                                                                                                        │
+│                                  │                                                                                                                                               │
+│                                  │ · Output attribution is uncertain for this prompt.                                                                                            │
+│                                  │                                                                                                                                               │
+│                                  │ › 5055_EXPLICIT_AGENT_OWNED_RETRY_INPUT                                                                                                       │
+│                                  │                                                                                                                                               │
+│                                  │ • 5055_NATIVE_AGENT_OWNED_RETRY: Retrying (2/3) in 30s…5055_NATIVE_RETRY_COMPLETED_WITH_FAILURE                                               │
+│                                  │                                                                                                                                               │
+│                                  │ · prompt failed: SYNTHETIC_PROVIDER_FAILURE_AFTER_AGENT_RETRYDetails: The Native Agent completed its own retry; operator review is required   │
+│                                  │                                                                                                                                               │
+│                                  │ · Output attribution is uncertain for this prompt.                                                                                            │
+│                                  │                                                                                                                                               │
+│                                  │ Press Enter to reply                                                                                                                          │
+│                                  │ ›  Message the agent…  @ files  / commands                                                                                                    │
+│                                  │  abd5981bb6094b66 · /tmp/aoe-pw-w0-p59-EkT1Vw/project · claude · ○ Native input unavailable                       Enter view · wheel history  │
+╰──────────────────── sort: Newest ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ↵ Attach · t View · g Group · n New · m Msg · d Del · f Fav · / · D Diff · R ● Web · ^K Cmds · ?                                                                         💡 3 tips

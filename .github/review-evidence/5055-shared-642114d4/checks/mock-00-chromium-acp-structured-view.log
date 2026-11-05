@@ -1,0 +1,40 @@
+[WebServer] (node:3199450) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:3199491) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 26 tests using 1 worker
+
+(node:3199675) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/26] [chromium] › tests/acp-structured-view.spec.ts:41:3 › chat bubble overflow › long URL, PW paste, and code line stay inside the chat viewport
+[2/26] [chromium] › tests/acp-structured-view.spec.ts:76:1 › Enter sends a multi-line message that keeps its line breaks and renders the streamed response as one message
+[3/26] [chromium] › tests/acp-structured-view.spec.ts:117:3 › edit card diff scroll › edit card diff scrolls horizontally on a narrow viewport
+[4/26] [chromium] › tests/acp-structured-view.spec.ts:157:1 › mobile composer footer keeps the Send action reachable when config controls are present
+[5/26] [chromium] › tests/acp-structured-view.spec.ts:230:1 › mobile composer shows a compact usage hint inside the viewport
+[6/26] [chromium] › tests/acp-structured-view.spec.ts:282:1 › synthesize memory recall renders cleaned, sanitized markdown
+[7/26] [chromium] › tests/acp-structured-view.spec.ts:359:3 › structured view conversation font size (fine pointer) › uses the desktop size at any width and scales it with the browser root font size
+[8/26] [chromium] › tests/acp-structured-view.spec.ts:385:3 › structured view conversation font size (coarse pointer) › uses the mobile size when narrow and the desktop size once the viewport widens
+[9/26] [chromium] › tests/acp-structured-view.spec.ts:406:3 › trashed structured session is read-only › renders the trashed banner and no composer
+[10/26] [chromium] › tests/acp-structured-view.spec.ts:425:3 › trashed structured session is read-only › renders the archived banner and no composer
+[11/26] [chromium] › tests/acp-structured-view.spec.ts:438:3 › trashed structured session is read-only › an empty archived session offers no starter prompts
+[12/26] [chromium] › tests/acp-structured-view.spec.ts:452:1 › opening a structured view session fires the structured view seen-ping
+[13/26] [chromium] › tests/acp-structured-view.spec.ts:470:1 › a read-only server sends no telemetry seen-ping
+[14/26] [chromium] › tests/acp-structured-view.spec.ts:521:3 › tool run folding › escape scrolling after streamed growth remains unpinned
+[15/26] [chromium] › tests/acp-structured-view.spec.ts:562:3 › tool run folding › an opened card stays open and in place while its run folds
+[16/26] [chromium] › tests/acp-structured-view.spec.ts:599:3 › tool run folding › a fold immediately after a wheel keeps an opened card anchored
+[17/26] [chromium] › tests/acp-structured-view.spec.ts:628:3 › tool run folding › keyboard scrolling before fold correction stays put through later text
+[18/26] [chromium] › tests/acp-structured-view.spec.ts:732:3 › tool run folding › an opened card holds its place when a run spanning two chunks folds
+[19/26] [chromium] › tests/acp-structured-view.spec.ts:781:3 › tool run folding › a fold while pinned leaves no stale anchors behind
+[20/26] [chromium] › tests/acp-structured-view.spec.ts:808:3 › tool run folding › a closed run keeps the bottom pin after one final text update
+[21/26] [chromium] › tests/acp-structured-view.spec.ts:838:5 › tool run folding › explicit pin during a fold › Jump to latest keeps following after a tool run folds
+[22/26] [chromium] › tests/acp-structured-view.spec.ts:871:3 › tool run folding › a run folds when the turn ends, keeping an opened card in place
+[23/26] [chromium] › tests/acp-structured-view.spec.ts:898:3 › tool run folding › a run nothing was opened in folds collapsed once text follows
+[24/26] [chromium] › tests/acp-structured-view.spec.ts:927:3 › current native control authority › socket/history do not grant native controls; current same-seq receipts dominate delayed raw loss
+[25/26] [chromium] › tests/acp-structured-view.spec.ts:978:3 › current native control authority › only an explicit current dormant governor admits a wake intent; it does not enable native config
+[26/26] [chromium] › tests/acp-structured-view.spec.ts:1018:1 › shared recovery opens a blank explicit composition and keeps native controls independent from stale recovery
+  26 passed (35.4s)

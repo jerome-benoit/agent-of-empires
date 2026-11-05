@@ -1,0 +1,25 @@
+{
+  "show": {
+    "argv": [
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+      "session",
+      "show",
+      "abd5981bb6094b66"
+    ],
+    "exit": 0,
+    "stdout": "Session: 5055 shared recovery actual\n  ID:      abd5981bb6094b66\n  Path:    /tmp/aoe-pw-w0-p59-EkT1Vw/project\n  Group:   \n  Tool:    claude\n  Command: \n  Status:  Running\n  Profile: main\n",
+    "stderr": ""
+  },
+  "showJson": {
+    "argv": [
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+      "session",
+      "show",
+      "abd5981bb6094b66",
+      "--json"
+    ],
+    "exit": 0,
+    "stdout": "{\n  \"id\": \"abd5981bb6094b66\",\n  \"title\": \"5055 shared recovery actual\",\n  \"path\": \"/tmp/aoe-pw-w0-p59-EkT1Vw/project\",\n  \"group\": \"\",\n  \"tool\": \"claude\",\n  \"command\": \"\",\n  \"status\": \"running\",\n  \"state\": \"live\",\n  \"agent_session_id\": \"fake-acp-1793915050269-2fb07360\",\n  \"profile\": \"main\"\n}\n",
+    "stderr": ""
+  }
+}

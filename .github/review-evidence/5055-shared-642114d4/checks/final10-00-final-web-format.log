@@ -1,0 +1,8 @@
+
+> web@0.0.0 format:check
+> oxfmt --check .
+
+Checking formatting...
+
+All matched files use the correct format.
+Finished in 424ms on 1040 files using 20 threads.

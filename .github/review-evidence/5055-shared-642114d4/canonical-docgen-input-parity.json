@@ -1,0 +1,26 @@
+{
+  "Cargo.lock": {
+    "Q": "f8e4fe5942b0e4bc8a061d5247a55ba6ed5e6b3d2ca2b6615a2e903f91052295",
+    "generator_snapshot": "f8e4fe5942b0e4bc8a061d5247a55ba6ed5e6b3d2ca2b6615a2e903f91052295"
+  },
+  "Cargo.toml": {
+    "Q": "f8df1f295f7e220ff19008f1bacd4a4688d74ae1e5832890fee8705e721b225b",
+    "generator_snapshot": "f8df1f295f7e220ff19008f1bacd4a4688d74ae1e5832890fee8705e721b225b"
+  },
+  "src/cli/session.rs": {
+    "Q": "8edba5016faad179a224aeddb038ef813401ae22e3d65d4497e465e2e54ab236",
+    "generator_snapshot": "8edba5016faad179a224aeddb038ef813401ae22e3d65d4497e465e2e54ab236"
+  },
+  "src/cli/mod.rs": {
+    "Q": "4023bb5aa53ba4199f5e897f9bd885d1e2a4a7999c99327c8e8a1f76533090d6",
+    "generator_snapshot": "4023bb5aa53ba4199f5e897f9bd885d1e2a4a7999c99327c8e8a1f76533090d6"
+  },
+  "xtask/src/main.rs": {
+    "Q": "780187f7ab0bb412a6eecdb15acc61d4f2f6881f73e753f397ce7f9fec627762",
+    "generator_snapshot": "780187f7ab0bb412a6eecdb15acc61d4f2f6881f73e753f397ce7f9fec627762"
+  },
+  "xtask/Cargo.toml": {
+    "Q": "5de090e28bdd4a798a72fbceea5c107605670a96b223ae50de6b8b37d4704437",
+    "generator_snapshot": "5de090e28bdd4a798a72fbceea5c107605670a96b223ae50de6b8b37d4704437"
+  }
+}

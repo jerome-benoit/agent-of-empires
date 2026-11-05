@@ -1,0 +1,56 @@
+╭ aoe ────────────────────────── « ╭ Preview ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────── hide info with i ╮
+│ ⠤ 5055 terminal confirme…   <1m  │ Profile: main  Tool: work-claude                                                                                                              │
+│                                  │ Path:    /tmp/5055-terminal-aw26u9x9/project                                                                                                  │
+│                                  │ Status:  Unknown                                                                                                                              │
+│                                  │  Output ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── │
+│                                  │ Managed resume refused: wrapper contract missing.                                                                                             │
+│                                  │ Terminal pane observed exited                                                                                                                 │
+│                                  │ Managed resume refused: wrapper contract missing.Restore truthful session.agent_execution_as andsession.agent_config_dir in trusted           │
+│                                  │ global/profile config.Both must match the original agent and store.Keep the Native conversation ID while repairing this configuration.Fresh   │
+│                                  │ abandons pending AoE input without replay and omits AoE restore flags.An undeclared wrapper may still restore its own history; Fresh does not │
+│                                  │ promise a new native conversation.Conversation preserved. Restore original context, then retry:aoe session set-session-id <session>           │
+│                                  │ <native-id>Use --store with the exact store/transcript where required.Or choose fresh (abandons this AoE association):aoe session             │
+│                                  │ set-session-id <session> ""Then start/restart; old history is not deleted or recovered.                                                       │
+│                                  │ PRIVATE CONTROLLED NATIVE INPUT LOOP                                                                                                          │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │ Pane is dead (status 17, Thu Nov  5 22:45:49 2026)                                                                                            │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+│                                  │                                                                                                                                               │
+╰──────────────────── sort: Newest ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ↵ Attach · ⇥  Live · t View · g Group · n New · m Msg · d Del · f Fav · / · D Diff · R ● Web · ^K Cmds · ?                                                               💡 3 tips

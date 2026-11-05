@@ -1,0 +1,60 @@
+[liveGlobalSetup] using AOE_E2E_BINARY=/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe
+
+Running 7 tests using 1 worker
+
+(node:3900198) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:49:1 › resume re-issues the interrupted prompt so the agent continues
+[2/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:65:1 › a later rejection still reports the reset captured on an earlier turn
+[3/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:95:1 › sidebar row shows a rate-limited indicator after a park
+[4/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:113:1 › plan session update renders in PlanStrip and the sidebar PlanProgressMini
+[5/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:137:1 › startup banner: native-binary branch + agent-log disclosure
+[6/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:187:3 › provider operation failure survives reopen and accepts only a new explicit operation on the same native history
+[7/7] [chromium] › tests/live/acp-stories/agent-status.spec.ts:187:3 › auth operation failure survives reopen and accepts only a new explicit operation on the same native history
+  1) [chromium] › tests/live/acp-stories/agent-status.spec.ts:187:3 › auth operation failure survives reopen and accepts only a new explicit operation on the same native history 
+
+    Error: expect(received).toBeTruthy()
+
+    Received: undefined
+
+      200 |     });
+      201 |     const before = (await listSessions(serve.baseUrl)).find((row) => row.id === sessionId)!;
+    > 202 |     expect(before.acp_session_id).toBeTruthy();
+          |                                   ^
+      203 |     const mutations: Array<{ path: string; body: unknown }> = [];
+      204 |     page.on("request", (request) => {
+      205 |       const path = new URL(request.url()).pathname;
+        at /home/fraggle/src/agent-of-empires-git-worktrees/5055-shared-recovery-diagnostics/web/tests/live/acp-stories/agent-status.spec.ts:202:35
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/acp-stories-agent-status-a-47c2c--on-the-same-native-history-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: debug.log (text/plain) ──────────────────────────────────────────────────────────
+    2026-11-05T22:09:10.593463Z  INFO log.runtime: aoe started version="1.21.0" pid=3905935
+    2026-11-05T22:09:10.593534Z  INFO log.runtime: Debug logging at info to /tmp/aoe-pw-w0-p0-9d8TIf/config/agent-of-empires-dev/debug.log
+    2026-11-05T22:09:10.593741Z  INFO migrations: running migration version=1 nam...
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: fake-acp.log (text/plain) ───────────────────────────────────────────────────────
+    [1793916551179] fake-acp starting pid=3906366 argv=["/home/fraggle/.local/share/mise/installs/node/22.23.3/bin/node","/home/fraggle/src/agent-of-empires-git-worktrees/5055-shared-recovery-diagnostics/web/tests/helpers/fakeAcpAgent.mjs","--version"]
+    [1793916551179] main() entry
+    [1793916551181] readli...
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/acp-stories-agent-status-a-47c2c--on-the-same-native-history-chromium/error-context.md
+
+    attachment #5: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/acp-stories-agent-status-a-47c2c--on-the-same-native-history-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/acp-stories-agent-status-a-47c2c--on-the-same-native-history-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  1 failed
+    [chromium] › tests/live/acp-stories/agent-status.spec.ts:187:3 › auth operation failure survives reopen and accepts only a new explicit operation on the same native history 
+  6 passed (25.8s)

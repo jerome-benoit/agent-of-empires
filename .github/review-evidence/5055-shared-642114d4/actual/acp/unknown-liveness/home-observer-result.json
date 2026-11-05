@@ -1,0 +1,58 @@
+{
+  "scope": "actual production Home dashboard; Fresh confirmation requires explicit commit_fresh",
+  "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+  "binary_sha256": "43ef82f44293b634e5d97184d9753e905c2d5ff260ca6634eb8c1c9e94acffe3",
+  "id": "abd5981bb6094b66",
+  "title": "5055 shared recovery actual",
+  "expected": [
+    "SYNTHETIC_PROVIDER_FAILURE_AFTER_AGENT_RETRY"
+  ],
+  "api_recovery_before": {
+    "reason": "operation_failed",
+    "diagnostic": "SYNTHETIC_PROVIDER_FAILURE_AFTER_AGENT_RETRY\nDetails: The Native Agent completed its own retry; operator review is required",
+    "evidence": {
+      "source": "local_prompt_result",
+      "operation": "prompt",
+      "runtime": "unknown",
+      "blocking_scope": "operation",
+      "reported_code": -32603,
+      "observed_at_ms": 1793915112580,
+      "generation": {
+        "acp_worker": 1793915049978
+      }
+    },
+    "runtime": "unknown",
+    "work_in_progress": false,
+    "uncertainty": "The previous input may have been accepted; its output could not be attributed. Do not resend it automatically.",
+    "guidance": "Observe the existing transcript and repair authentication or provider settings in the agent. Unknown identity grants no retry or Same shortcut. Fresh abandons pending AoE input and omits AoE restore flags; an undeclared wrapper may still restore its own history. Native and transcript history are retained.",
+    "actions": {
+      "attach": true,
+      "retry_operation": false,
+      "restart_same": false,
+      "stop": false,
+      "fresh": false
+    },
+    "expected": "46bcd06543e4b944724f16e9e7ddc83b465330a4283ca165102ae66b420f2715"
+  },
+  "ui_socket": "/tmp/aoe-pw-w0-p59-EkT1Vw/tmp/5055-ui-7kejg14n/ui.sock",
+  "local_daemon_socket": "/tmp/aoe-pw-w0-p59-EkT1Vw/config/agent-of-empires-dev/daemon/api.sock",
+  "remote_list_mode_disabled": true,
+  "actual_home_observed": true,
+  "home_frame": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5055-final-acp-8844-e69l6x24/tui-unknown-liveness/home-selected.txt",
+  "actual_recovery_dialog_observed": true,
+  "no_implicit_recovery_selection": true,
+  "cleanup": {
+    "ui_actor": {
+      "pid": 3558582,
+      "birth": "12447699"
+    },
+    "ui_app": {
+      "pid": 3558584,
+      "birth": "12447699"
+    },
+    "kill_server_exit": 0,
+    "own_ui_processes_gone": true,
+    "native_lifecycle_commands_sent": false,
+    "error": null
+  }
+}

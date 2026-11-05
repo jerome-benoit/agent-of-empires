@@ -1,0 +1,20 @@
+{
+  "source": "8844c52290a5fd812821f756a65d512883e8766d6e11053fbeedaadbd5dbe275",
+  "binary_sha256": "43ef82f44293b634e5d97184d9753e905c2d5ff260ca6634eb8c1c9e94acffe3",
+  "text": "Action did not complete\nSYNTHETIC_PROVIDER_FAILURE: provider temporarily unavailable\n\nReason: operation failed\n\nOperation: prompt. Blocking scope: operation.\n\nNative channel ready. Channel readiness does not prove the OS process is alive.\n\nNo current Agent work is reported.\n\nThe previous input may have been accepted; its output could not be attributed. Do not resend it automatically.\n\nRepair authentication or provider settings in the agent. Same preserves the qualified selection and sends no previous input. Fresh explicitly abandons pending AoE input, never replays prior input, and retains native and transcript history. Omitting AoE restore flags does not prevent an undeclared wrapper from restoring its own history.\n\nAttach / observe\nCompose retry\nRestart Same\nStop\nFresh / launch without restore flags",
+  "actions": {
+    "attach": true,
+    "retry-operation": false,
+    "restart-same": true,
+    "stop": true,
+    "fresh": true
+  },
+  "api_counts_before_parent_observation": {
+    "initialize": 1,
+    "new": 1,
+    "load": 0,
+    "prompt": 1
+  },
+  "tui_exit": 0,
+  "screenshot": "provider-failure-browser.png"
+}

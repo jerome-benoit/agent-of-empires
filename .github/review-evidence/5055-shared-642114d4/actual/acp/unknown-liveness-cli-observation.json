@@ -1,0 +1,25 @@
+{
+  "show": {
+    "argv": [
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+      "session",
+      "show",
+      "abd5981bb6094b66"
+    ],
+    "exit": 0,
+    "stdout": "Session: 5055 shared recovery actual\n  ID:      abd5981bb6094b66\n  Path:    /tmp/aoe-pw-w0-p59-EkT1Vw/project\n  Group:   \n  Tool:    claude\n  Command: \n  Status:  Error\n  Profile: main\n  Diagnostic: SYNTHETIC_PROVIDER_FAILURE_AFTER_AGENT_RETRYDetails: The Native Agent completed its own retry; operator review is required\n  Observed runtime: Runtime observation unknown; no liveness or input permission established\n  Operation: Prompt\n  Blocking scope: operation\n  Reported code: -32603\n  Uncertainty: The previous input may have been accepted; its output could not be attributed. Do not resend it automatically.\n  Recovery: Observe the existing transcript and repair authentication or provider settings in the agent. Unknown identity grants no retry or Same shortcut. Fresh abandons pending AoE input and omits AoE restore flags; an undeclared wrapper may still restore its own history. Native and transcript history are retained.\n  Server-authorized actions:\n    Attach existing runtime: available\n    Retry operation with explicit input: unavailable\n    Restart same conversation: unavailable\n    Stop owned runtime: unavailable\n    Launch without AoE restore flags: unavailable\n",
+    "stderr": ""
+  },
+  "showJson": {
+    "argv": [
+      "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+      "session",
+      "show",
+      "abd5981bb6094b66",
+      "--json"
+    ],
+    "exit": 0,
+    "stdout": "{\n  \"id\": \"abd5981bb6094b66\",\n  \"title\": \"5055 shared recovery actual\",\n  \"path\": \"/tmp/aoe-pw-w0-p59-EkT1Vw/project\",\n  \"group\": \"\",\n  \"tool\": \"claude\",\n  \"command\": \"\",\n  \"status\": \"error\",\n  \"state\": \"live\",\n  \"agent_session_id\": \"fake-acp-1793915050269-2fb07360\",\n  \"profile\": \"main\",\n  \"recovery\": {\n    \"reason\": \"operation_failed\",\n    \"diagnostic\": \"SYNTHETIC_PROVIDER_FAILURE_AFTER_AGENT_RETRY\\nDetails: The Native Agent completed its own retry; operator review is required\",\n    \"evidence\": {\n      \"source\": \"local_prompt_result\",\n      \"operation\": \"prompt\",\n      \"runtime\": \"unknown\",\n      \"blocking_scope\": \"operation\",\n      \"reported_code\": -32603,\n      \"observed_at_ms\": 1793915112580,\n      \"generation\": {\n        \"acp_worker\": 1793915049978\n      }\n    },\n    \"runtime\": \"unknown\",\n    \"work_in_progress\": false,\n    \"uncertainty\": \"The previous input may have been accepted; its output could not be attributed. Do not resend it automatically.\",\n    \"guidance\": \"Observe the existing transcript and repair authentication or provider settings in the agent. Unknown identity grants no retry or Same shortcut. Fresh abandons pending AoE input and omits AoE restore flags; an undeclared wrapper may still restore its own history. Native and transcript history are retained.\",\n    \"actions\": {\n      \"attach\": true,\n      \"retry_operation\": false,\n      \"restart_same\": false,\n      \"stop\": false,\n      \"fresh\": false\n    },\n    \"expected\": \"46bcd06543e4b944724f16e9e7ddc83b465330a4283ca165102ae66b420f2715\"\n  }\n}\n",
+    "stderr": ""
+  }
+}

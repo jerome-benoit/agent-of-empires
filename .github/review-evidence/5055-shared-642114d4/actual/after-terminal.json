@@ -1,0 +1,1133 @@
+{
+  "scope": "actual production AoE HTTP gateway/CLI/Home/browser with a controlled real terminal Native; no vendor compatibility claim",
+  "binary": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+  "binary_sha256": "43ef82f44293b634e5d97184d9753e905c2d5ff260ca6634eb8c1c9e94acffe3",
+  "fixture_sha256": "57fe0cf377699a7617ab429ec2adbd882d394c075f2136c486dd10ade010d6f0",
+  "baseUrl": "http://127.0.0.1:39845",
+  "private_root": "/tmp/5055-terminal-aw26u9x9",
+  "cases": [
+    {
+      "name": "confirmed-exit",
+      "original_native": {
+        "action": "created",
+        "instance": "422237fd830d49ab",
+        "pid": 3561919,
+        "birth": "12450204",
+        "pane": "%0",
+        "argv": [],
+        "sid": "804ef03e-feb5-4463-b0ea-47ca537e73e6",
+        "transcript": "/tmp/5055-terminal-aw26u9x9/home/.claude/projects/-tmp-5055-terminal-aw26u9x9-project/804ef03e-feb5-4463-b0ea-47ca537e73e6.jsonl",
+        "content": "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"PRIVATE ORIGINAL 804ef03e-feb5-4463-b0ea-47ca537e73e6\"}}\n"
+      },
+      "pane_death": "1 17",
+      "pane_before_exit": "aoe_dev_5055_terminal_confir_422237fd %0 3561914 0",
+      "hidden_owner_label": "AOE_INSTANCE_ID=422237fd830d49ab",
+      "native_to_pane_ancestry": [
+        {
+          "pid": 3561919,
+          "birth": "12450204",
+          "ppid": 3561914
+        },
+        {
+          "pid": 3561914,
+          "birth": "12450203",
+          "ppid": 3561908
+        }
+      ],
+      "lifecycle_attempt_generation": {
+        "before": 2,
+        "after_refusals": 2
+      },
+      "observed_id_retained_through_refusals": true,
+      "refusals": [],
+      "shared": {
+        "name": "confirmed-exit",
+        "api": {
+          "id": "422237fd830d49ab",
+          "title": "5055 terminal confirmed-exit",
+          "project_path": "/tmp/5055-terminal-aw26u9x9/project",
+          "artifact_dir": "/tmp/5055-terminal-aw26u9x9/config/agent-of-empires-dev/artifacts/422237fd830d49ab",
+          "group_path": "",
+          "tool": "work-claude",
+          "command": "work-claude",
+          "extra_args": "",
+          "status": "Unknown",
+          "agent_session_id": "804ef03e-feb5-4463-b0ea-47ca537e73e6",
+          "lifecycle_generation": 2,
+          "dormant": false,
+          "pane_dead_observed": false,
+          "agent_pane": {
+            "state": "dead",
+            "tmux_session": "aoe_dev_5055_terminal_confir_422237fd",
+            "physical": {
+              "identity": {
+                "session_id": "$0",
+                "pane_id": "%0",
+                "pane_pid": null
+              },
+              "server": {
+                "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+                "pid": 3561908,
+                "birth": {
+                  "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+                  "start_id": "proc:12450202"
+                }
+              }
+            }
+          },
+          "auxiliary": [
+            {
+              "target": {
+                "kind": "host",
+                "index": 0
+              },
+              "state": "absent",
+              "tmux_session": null
+            }
+          ],
+          "yolo_mode": false,
+          "created_at": "2026-11-05T21:45:45.443180509+00:00",
+          "last_accessed_at": "2026-11-05T21:45:45.557960371+00:00",
+          "idle_entered_at": null,
+          "last_error": "Managed resume refused: wrapper contract missing.",
+          "branch": null,
+          "main_repo_path": null,
+          "is_sandboxed": false,
+          "outside_repository": true,
+          "scratch": false,
+          "favorited": false,
+          "urgent": false,
+          "has_managed_worktree": false,
+          "has_cleanable_worktree": false,
+          "tie_workdir_to_name": false,
+          "smart_rename": "inactive",
+          "default_name": false,
+          "has_terminal": false,
+          "profile": "main",
+          "cleanup_defaults": {
+            "delete_worktree": true,
+            "delete_branch": false,
+            "delete_sandbox": true,
+            "delete_to_trash": true
+          },
+          "remote_owner": null,
+          "remote_owner_key": null,
+          "notify_on_waiting": null,
+          "notify_on_idle": null,
+          "notify_on_error": null,
+          "context_resume": {
+            "state": "indeterminate",
+            "reason": "runtime_check_required"
+          },
+          "recovery": {
+            "reason": "runtime_exited",
+            "diagnostic": "Managed resume refused: wrapper contract missing.",
+            "evidence": null,
+            "runtime": {
+              "pane_exited": {
+                "exit_code": null
+              }
+            },
+            "work_in_progress": false,
+            "uncertainty": null,
+            "guidance": "Managed resume refused: wrapper contract missing.\nRestore truthful session.agent_execution_as and\nsession.agent_config_dir in trusted global/profile config.\nBoth must match the original agent and store.\nKeep the Native conversation ID while repairing this configuration.\nFresh abandons pending AoE input without replay and omits AoE restore flags.\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\nConversation preserved. Restore original context, then retry:\naoe session set-session-id <session> <native-id>\nUse --store with the exact store/transcript where required.\nOr choose fresh (abandons this AoE association):\naoe session set-session-id <session> \"\"\nThen start/restart; old history is not deleted or recovered.",
+            "actions": {
+              "attach": true,
+              "retry_operation": false,
+              "restart_same": false,
+              "stop": false,
+              "fresh": true
+            },
+            "expected": "7e147455b9041323ec22d3b046c5b12cab1916b7522bb34d0f719b803a717988"
+          },
+          "acp_worker_state": "absent",
+          "acp_capable": true,
+          "acp_agent": "work-claude",
+          "claude_fullscreen": false,
+          "workspace_repos": []
+        },
+        "cli_human": "Session: 5055 terminal confirmed-exit\n  ID:      422237fd830d49ab\n  Path:    /tmp/5055-terminal-aw26u9x9/project\n  Group:   \n  Tool:    work-claude\n  Command: work-claude\n  Status:  Unknown\n  Profile: main\n  Diagnostic: Managed resume refused: wrapper contract missing.\n  Observed runtime: Terminal pane observed exited\n  Recovery: Managed resume refused: wrapper contract missing.Restore truthful session.agent_execution_as andsession.agent_config_dir in trusted global/profile config.Both must match the original agent and store.Keep the Native conversation ID while repairing this configuration.Fresh abandons pending AoE input without replay and omits AoE restore flags.An undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.Conversation preserved. Restore original context, then retry:aoe session set-session-id <session> <native-id>Use --store with the exact store/transcript where required.Or choose fresh (abandons this AoE association):aoe session set-session-id <session> \"\"Then start/restart; old history is not deleted or recovered.\n  Server-authorized actions:\n    Attach existing runtime: available\n    Retry operation with explicit input: unavailable\n    Restart same conversation: unavailable\n    Stop owned runtime: unavailable\n    Launch without AoE restore flags: available\n",
+        "cli_json": {
+          "id": "422237fd830d49ab",
+          "title": "5055 terminal confirmed-exit",
+          "path": "/tmp/5055-terminal-aw26u9x9/project",
+          "group": "",
+          "tool": "work-claude",
+          "command": "work-claude",
+          "status": "unknown",
+          "state": "live",
+          "agent_session_id": "804ef03e-feb5-4463-b0ea-47ca537e73e6",
+          "profile": "main",
+          "recovery": {
+            "reason": "runtime_exited",
+            "diagnostic": "Managed resume refused: wrapper contract missing.",
+            "evidence": null,
+            "runtime": {
+              "pane_exited": {
+                "exit_code": null
+              }
+            },
+            "work_in_progress": false,
+            "uncertainty": null,
+            "guidance": "Managed resume refused: wrapper contract missing.\nRestore truthful session.agent_execution_as and\nsession.agent_config_dir in trusted global/profile config.\nBoth must match the original agent and store.\nKeep the Native conversation ID while repairing this configuration.\nFresh abandons pending AoE input without replay and omits AoE restore flags.\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\nConversation preserved. Restore original context, then retry:\naoe session set-session-id <session> <native-id>\nUse --store with the exact store/transcript where required.\nOr choose fresh (abandons this AoE association):\naoe session set-session-id <session> \"\"\nThen start/restart; old history is not deleted or recovered.",
+            "actions": {
+              "attach": true,
+              "retry_operation": false,
+              "restart_same": false,
+              "stop": false,
+              "fresh": true
+            },
+            "expected": "7e147455b9041323ec22d3b046c5b12cab1916b7522bb34d0f719b803a717988"
+          }
+        },
+        "cli_stderr": [
+          "",
+          ""
+        ]
+      },
+      "fresh": {
+        "api": {
+          "id": "422237fd830d49ab",
+          "title": "5055 terminal confirmed-exit",
+          "project_path": "/tmp/5055-terminal-aw26u9x9/project",
+          "artifact_dir": "/tmp/5055-terminal-aw26u9x9/config/agent-of-empires-dev/artifacts/422237fd830d49ab",
+          "group_path": "",
+          "tool": "work-claude",
+          "command": "work-claude",
+          "extra_args": "",
+          "status": "Starting",
+          "lifecycle_generation": 3,
+          "dormant": false,
+          "pane_dead_observed": false,
+          "agent_pane": {
+            "state": "alive",
+            "tmux_session": "aoe_dev_5055_terminal_confir_422237fd",
+            "physical": {
+              "identity": {
+                "session_id": "$2",
+                "pane_id": "%2",
+                "pane_pid": 3566259
+              },
+              "server": {
+                "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+                "pid": 3561908,
+                "birth": {
+                  "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+                  "start_id": "proc:12450202"
+                }
+              }
+            }
+          },
+          "auxiliary": [
+            {
+              "target": {
+                "kind": "host",
+                "index": 0
+              },
+              "state": "alive",
+              "tmux_session": "aoe_dev_term_5055_terminal_confir_422237fd",
+              "physical": {
+                "identity": {
+                  "session_id": "$1",
+                  "pane_id": "%1",
+                  "pane_pid": 3565128
+                },
+                "server": {
+                  "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+                  "pid": 3561908,
+                  "birth": {
+                    "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+                    "start_id": "proc:12450202"
+                  }
+                }
+              }
+            }
+          ],
+          "yolo_mode": false,
+          "created_at": "2026-11-05T21:45:45.443180509+00:00",
+          "last_accessed_at": "2026-11-05T21:46:29.693084517+00:00",
+          "idle_entered_at": null,
+          "last_error": null,
+          "branch": null,
+          "main_repo_path": null,
+          "is_sandboxed": false,
+          "outside_repository": true,
+          "scratch": false,
+          "favorited": false,
+          "urgent": false,
+          "has_managed_worktree": false,
+          "has_cleanable_worktree": false,
+          "tie_workdir_to_name": false,
+          "smart_rename": "inactive",
+          "default_name": false,
+          "has_terminal": true,
+          "profile": "main",
+          "cleanup_defaults": {
+            "delete_worktree": true,
+            "delete_branch": false,
+            "delete_sandbox": true,
+            "delete_to_trash": true
+          },
+          "remote_owner": null,
+          "remote_owner_key": null,
+          "notify_on_waiting": null,
+          "notify_on_idle": null,
+          "notify_on_error": null,
+          "context_resume": {
+            "state": "indeterminate",
+            "reason": "runtime_check_required"
+          },
+          "recovery": null,
+          "acp_worker_state": "absent",
+          "acp_capable": true,
+          "acp_agent": "work-claude",
+          "claude_fullscreen": false,
+          "workspace_repos": []
+        },
+        "new_native": {
+          "action": "created",
+          "instance": "422237fd830d49ab",
+          "pid": 3566262,
+          "birth": "12454619",
+          "pane": "%2",
+          "argv": [],
+          "sid": "b2c70dad-bec8-4478-b7da-cf940417b0c2",
+          "transcript": "/tmp/5055-terminal-aw26u9x9/home/.claude/projects/-tmp-5055-terminal-aw26u9x9-project/b2c70dad-bec8-4478-b7da-cf940417b0c2.jsonl",
+          "content": "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"PRIVATE ORIGINAL b2c70dad-bec8-4478-b7da-cf940417b0c2\"}}\n"
+        },
+        "old_history_sha256": "b4aa9d1c71a218567af4ceae439df7a72f52267f195e604bb508c8a037bfa5f4",
+        "old_history_retained": true,
+        "opaque_wrapper_history_guarantee": false,
+        "consent": {
+          "surface": "actual CLI --fresh",
+          "argv": [
+            "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/candidate-5055-after-8844c522/target/debug/aoe",
+            "session",
+            "restart",
+            "422237fd830d49ab",
+            "--fresh"
+          ],
+          "exit": 0,
+          "stdout": "Launch without AoE restore flags committed: 5055 terminal confirmed-exit (generation 3)\n",
+          "stderr": ""
+        }
+      },
+      "tui_fresh": {
+        "surface": "parent-operated actual Home TUI explicit Fresh",
+        "before": {
+          "name": "confirmed-exit-tui-recovery",
+          "api": {
+            "id": "422237fd830d49ab",
+            "title": "5055 terminal confirmed-exit",
+            "project_path": "/tmp/5055-terminal-aw26u9x9/project",
+            "artifact_dir": "/tmp/5055-terminal-aw26u9x9/config/agent-of-empires-dev/artifacts/422237fd830d49ab",
+            "group_path": "",
+            "tool": "work-claude",
+            "command": "work-claude",
+            "extra_args": "",
+            "status": "Unknown",
+            "agent_session_id": "b2c70dad-bec8-4478-b7da-cf940417b0c2",
+            "lifecycle_generation": 4,
+            "dormant": false,
+            "pane_dead_observed": false,
+            "agent_pane": {
+              "state": "dead",
+              "tmux_session": "aoe_dev_5055_terminal_confir_422237fd",
+              "physical": {
+                "identity": {
+                  "session_id": "$2",
+                  "pane_id": "%2",
+                  "pane_pid": null
+                },
+                "server": {
+                  "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+                  "pid": 3561908,
+                  "birth": {
+                    "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+                    "start_id": "proc:12450202"
+                  }
+                }
+              }
+            },
+            "auxiliary": [
+              {
+                "target": {
+                  "kind": "host",
+                  "index": 0
+                },
+                "state": "alive",
+                "tmux_session": "aoe_dev_term_5055_terminal_confir_422237fd",
+                "physical": {
+                  "identity": {
+                    "session_id": "$1",
+                    "pane_id": "%1",
+                    "pane_pid": 3565128
+                  },
+                  "server": {
+                    "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+                    "pid": 3561908,
+                    "birth": {
+                      "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+                      "start_id": "proc:12450202"
+                    }
+                  }
+                }
+              }
+            ],
+            "yolo_mode": false,
+            "created_at": "2026-11-05T21:45:45.443180509+00:00",
+            "last_accessed_at": "2026-11-05T21:46:29.693084517+00:00",
+            "idle_entered_at": null,
+            "last_error": "Managed resume refused: wrapper contract missing.",
+            "branch": null,
+            "main_repo_path": null,
+            "is_sandboxed": false,
+            "outside_repository": true,
+            "scratch": false,
+            "favorited": false,
+            "urgent": false,
+            "has_managed_worktree": false,
+            "has_cleanable_worktree": false,
+            "tie_workdir_to_name": false,
+            "smart_rename": "inactive",
+            "default_name": false,
+            "has_terminal": true,
+            "profile": "main",
+            "cleanup_defaults": {
+              "delete_worktree": true,
+              "delete_branch": false,
+              "delete_sandbox": true,
+              "delete_to_trash": true
+            },
+            "remote_owner": null,
+            "remote_owner_key": null,
+            "notify_on_waiting": null,
+            "notify_on_idle": null,
+            "notify_on_error": null,
+            "context_resume": {
+              "state": "indeterminate",
+              "reason": "runtime_check_required"
+            },
+            "recovery": {
+              "reason": "runtime_exited",
+              "diagnostic": "Managed resume refused: wrapper contract missing.",
+              "evidence": null,
+              "runtime": {
+                "pane_exited": {
+                  "exit_code": null
+                }
+              },
+              "work_in_progress": false,
+              "uncertainty": null,
+              "guidance": "Managed resume refused: wrapper contract missing.\nRestore truthful session.agent_execution_as and\nsession.agent_config_dir in trusted global/profile config.\nBoth must match the original agent and store.\nKeep the Native conversation ID while repairing this configuration.\nFresh abandons pending AoE input without replay and omits AoE restore flags.\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\nConversation preserved. Restore original context, then retry:\naoe session set-session-id <session> <native-id>\nUse --store with the exact store/transcript where required.\nOr choose fresh (abandons this AoE association):\naoe session set-session-id <session> \"\"\nThen start/restart; old history is not deleted or recovered.",
+              "actions": {
+                "attach": true,
+                "retry_operation": false,
+                "restart_same": false,
+                "stop": false,
+                "fresh": true
+              },
+              "expected": "2309a399b9c384d4a3b528a12acd0256edaf0418eb900401e355d3044d831cee"
+            },
+            "acp_worker_state": "absent",
+            "acp_capable": true,
+            "acp_agent": "work-claude",
+            "claude_fullscreen": false,
+            "workspace_repos": []
+          },
+          "cli_human": "Session: 5055 terminal confirmed-exit\n  ID:      422237fd830d49ab\n  Path:    /tmp/5055-terminal-aw26u9x9/project\n  Group:   \n  Tool:    work-claude\n  Command: work-claude\n  Status:  Unknown\n  Profile: main\n  Diagnostic: Managed resume refused: wrapper contract missing.\n  Observed runtime: Terminal pane observed exited\n  Recovery: Managed resume refused: wrapper contract missing.Restore truthful session.agent_execution_as andsession.agent_config_dir in trusted global/profile config.Both must match the original agent and store.Keep the Native conversation ID while repairing this configuration.Fresh abandons pending AoE input without replay and omits AoE restore flags.An undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.Conversation preserved. Restore original context, then retry:aoe session set-session-id <session> <native-id>Use --store with the exact store/transcript where required.Or choose fresh (abandons this AoE association):aoe session set-session-id <session> \"\"Then start/restart; old history is not deleted or recovered.\n  Server-authorized actions:\n    Attach existing runtime: available\n    Retry operation with explicit input: unavailable\n    Restart same conversation: unavailable\n    Stop owned runtime: unavailable\n    Launch without AoE restore flags: available\n",
+          "cli_json": {
+            "id": "422237fd830d49ab",
+            "title": "5055 terminal confirmed-exit",
+            "path": "/tmp/5055-terminal-aw26u9x9/project",
+            "group": "",
+            "tool": "work-claude",
+            "command": "work-claude",
+            "status": "unknown",
+            "state": "live",
+            "agent_session_id": "b2c70dad-bec8-4478-b7da-cf940417b0c2",
+            "profile": "main",
+            "recovery": {
+              "reason": "runtime_exited",
+              "diagnostic": "Managed resume refused: wrapper contract missing.",
+              "evidence": null,
+              "runtime": {
+                "pane_exited": {
+                  "exit_code": null
+                }
+              },
+              "work_in_progress": false,
+              "uncertainty": null,
+              "guidance": "Managed resume refused: wrapper contract missing.\nRestore truthful session.agent_execution_as and\nsession.agent_config_dir in trusted global/profile config.\nBoth must match the original agent and store.\nKeep the Native conversation ID while repairing this configuration.\nFresh abandons pending AoE input without replay and omits AoE restore flags.\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\nConversation preserved. Restore original context, then retry:\naoe session set-session-id <session> <native-id>\nUse --store with the exact store/transcript where required.\nOr choose fresh (abandons this AoE association):\naoe session set-session-id <session> \"\"\nThen start/restart; old history is not deleted or recovered.",
+              "actions": {
+                "attach": true,
+                "retry_operation": false,
+                "restart_same": false,
+                "stop": false,
+                "fresh": true
+              },
+              "expected": "2309a399b9c384d4a3b528a12acd0256edaf0418eb900401e355d3044d831cee"
+            }
+          },
+          "cli_stderr": [
+            "",
+            ""
+          ]
+        },
+        "after": {
+          "id": "422237fd830d49ab",
+          "title": "5055 terminal confirmed-exit",
+          "project_path": "/tmp/5055-terminal-aw26u9x9/project",
+          "artifact_dir": "/tmp/5055-terminal-aw26u9x9/config/agent-of-empires-dev/artifacts/422237fd830d49ab",
+          "group_path": "",
+          "tool": "work-claude",
+          "command": "work-claude",
+          "extra_args": "",
+          "status": "Unknown",
+          "agent_session_id": "6c92e2e1-33af-4bae-899d-4d7d8f4bb7e9",
+          "lifecycle_generation": 6,
+          "dormant": false,
+          "pane_dead_observed": false,
+          "agent_pane": {
+            "state": "alive",
+            "tmux_session": "aoe_dev_5055_terminal_confir_422237fd",
+            "physical": {
+              "identity": {
+                "session_id": "$3",
+                "pane_id": "%3",
+                "pane_pid": 3574470
+              },
+              "server": {
+                "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+                "pid": 3561908,
+                "birth": {
+                  "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+                  "start_id": "proc:12450202"
+                }
+              }
+            }
+          },
+          "auxiliary": [
+            {
+              "target": {
+                "kind": "host",
+                "index": 0
+              },
+              "state": "alive",
+              "tmux_session": "aoe_dev_term_5055_terminal_confir_422237fd",
+              "physical": {
+                "identity": {
+                  "session_id": "$1",
+                  "pane_id": "%1",
+                  "pane_pid": 3565128
+                },
+                "server": {
+                  "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+                  "pid": 3561908,
+                  "birth": {
+                    "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+                    "start_id": "proc:12450202"
+                  }
+                }
+              }
+            }
+          ],
+          "yolo_mode": false,
+          "created_at": "2026-11-05T21:45:45.443180509+00:00",
+          "last_accessed_at": "2026-11-05T21:46:54.929905621+00:00",
+          "idle_entered_at": null,
+          "last_error": "Managed resume refused: wrapper contract missing.",
+          "branch": null,
+          "main_repo_path": null,
+          "is_sandboxed": false,
+          "outside_repository": true,
+          "scratch": false,
+          "favorited": false,
+          "urgent": false,
+          "has_managed_worktree": false,
+          "has_cleanable_worktree": false,
+          "tie_workdir_to_name": false,
+          "smart_rename": "inactive",
+          "default_name": false,
+          "has_terminal": true,
+          "profile": "main",
+          "cleanup_defaults": {
+            "delete_worktree": true,
+            "delete_branch": false,
+            "delete_sandbox": true,
+            "delete_to_trash": true
+          },
+          "remote_owner": null,
+          "remote_owner_key": null,
+          "notify_on_waiting": null,
+          "notify_on_idle": null,
+          "notify_on_error": null,
+          "context_resume": {
+            "state": "indeterminate",
+            "reason": "runtime_check_required"
+          },
+          "recovery": {
+            "reason": "identity_unattested",
+            "diagnostic": "Managed resume refused: wrapper contract missing.",
+            "evidence": null,
+            "runtime": "pane_alive",
+            "work_in_progress": false,
+            "uncertainty": null,
+            "guidance": "Managed resume refused: wrapper contract missing.\nRestore truthful session.agent_execution_as and\nsession.agent_config_dir in trusted global/profile config.\nBoth must match the original agent and store.\nKeep the Native conversation ID while repairing this configuration.\nFresh abandons pending AoE input without replay and omits AoE restore flags.\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\nConversation preserved. Restore original context, then retry:\naoe session set-session-id <session> <native-id>\nUse --store with the exact store/transcript where required.\nOr choose fresh (abandons this AoE association):\naoe session set-session-id <session> \"\"\nThen start/restart; old history is not deleted or recovered.",
+            "actions": {
+              "attach": true,
+              "retry_operation": false,
+              "restart_same": false,
+              "stop": true,
+              "fresh": true
+            },
+            "expected": "d1f4c8a917511cd7cd9a8bdfced1eba6b15624ef71feaa21ea7ea5391179b386"
+          },
+          "acp_worker_state": "absent",
+          "acp_capable": true,
+          "acp_agent": "work-claude",
+          "claude_fullscreen": false,
+          "workspace_repos": []
+        },
+        "new_native": {
+          "action": "created",
+          "instance": "422237fd830d49ab",
+          "pid": 3574473,
+          "birth": "12457148",
+          "pane": "%3",
+          "argv": [],
+          "sid": "6c92e2e1-33af-4bae-899d-4d7d8f4bb7e9",
+          "transcript": "/tmp/5055-terminal-aw26u9x9/home/.claude/projects/-tmp-5055-terminal-aw26u9x9-project/6c92e2e1-33af-4bae-899d-4d7d8f4bb7e9.jsonl",
+          "content": "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"PRIVATE ORIGINAL 6c92e2e1-33af-4bae-899d-4d7d8f4bb7e9\"}}\n"
+        },
+        "both_old_histories_retained": true,
+        "no_input_replay": true
+      },
+      "events": [
+        {
+          "action": "publication",
+          "instance": "422237fd830d49ab",
+          "pid": 3561919,
+          "birth": "12450204",
+          "pane": "%0",
+          "argv": [],
+          "sid": "804ef03e-feb5-4463-b0ea-47ca537e73e6",
+          "returncode": 0,
+          "stderr": ""
+        },
+        {
+          "action": "created",
+          "instance": "422237fd830d49ab",
+          "pid": 3561919,
+          "birth": "12450204",
+          "pane": "%0",
+          "argv": [],
+          "sid": "804ef03e-feb5-4463-b0ea-47ca537e73e6",
+          "transcript": "/tmp/5055-terminal-aw26u9x9/home/.claude/projects/-tmp-5055-terminal-aw26u9x9-project/804ef03e-feb5-4463-b0ea-47ca537e73e6.jsonl",
+          "content": "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"PRIVATE ORIGINAL 804ef03e-feb5-4463-b0ea-47ca537e73e6\"}}\n"
+        },
+        {
+          "action": "exit17",
+          "instance": "422237fd830d49ab",
+          "pid": 3561919,
+          "birth": "12450204",
+          "pane": "%0",
+          "argv": [],
+          "sid": "804ef03e-feb5-4463-b0ea-47ca537e73e6"
+        },
+        {
+          "action": "publication",
+          "instance": "422237fd830d49ab",
+          "pid": 3566262,
+          "birth": "12454619",
+          "pane": "%2",
+          "argv": [],
+          "sid": "b2c70dad-bec8-4478-b7da-cf940417b0c2",
+          "returncode": 0,
+          "stderr": ""
+        },
+        {
+          "action": "created",
+          "instance": "422237fd830d49ab",
+          "pid": 3566262,
+          "birth": "12454619",
+          "pane": "%2",
+          "argv": [],
+          "sid": "b2c70dad-bec8-4478-b7da-cf940417b0c2",
+          "transcript": "/tmp/5055-terminal-aw26u9x9/home/.claude/projects/-tmp-5055-terminal-aw26u9x9-project/b2c70dad-bec8-4478-b7da-cf940417b0c2.jsonl",
+          "content": "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"PRIVATE ORIGINAL b2c70dad-bec8-4478-b7da-cf940417b0c2\"}}\n"
+        },
+        {
+          "action": "exit17",
+          "instance": "422237fd830d49ab",
+          "pid": 3566262,
+          "birth": "12454619",
+          "pane": "%2",
+          "argv": [],
+          "sid": "b2c70dad-bec8-4478-b7da-cf940417b0c2"
+        },
+        {
+          "action": "publication",
+          "instance": "422237fd830d49ab",
+          "pid": 3574473,
+          "birth": "12457148",
+          "pane": "%3",
+          "argv": [],
+          "sid": "6c92e2e1-33af-4bae-899d-4d7d8f4bb7e9",
+          "returncode": 0,
+          "stderr": ""
+        },
+        {
+          "action": "created",
+          "instance": "422237fd830d49ab",
+          "pid": 3574473,
+          "birth": "12457148",
+          "pane": "%3",
+          "argv": [],
+          "sid": "6c92e2e1-33af-4bae-899d-4d7d8f4bb7e9",
+          "transcript": "/tmp/5055-terminal-aw26u9x9/home/.claude/projects/-tmp-5055-terminal-aw26u9x9-project/6c92e2e1-33af-4bae-899d-4d7d8f4bb7e9.jsonl",
+          "content": "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"PRIVATE ORIGINAL 6c92e2e1-33af-4bae-899d-4d7d8f4bb7e9\"}}\n"
+        }
+      ]
+    },
+    {
+      "name": "undeclared-wrapper",
+      "original_native": {
+        "action": "created",
+        "instance": "d3d9b37d1ae24449",
+        "pid": 3576418,
+        "birth": "12458768",
+        "pane": "%0",
+        "argv": [],
+        "sid": "eee7e9eb-f896-4c18-9c80-8146931a8ccd",
+        "transcript": "/tmp/5055-terminal-aw26u9x9/home/.claude/projects/-tmp-5055-terminal-aw26u9x9-project/eee7e9eb-f896-4c18-9c80-8146931a8ccd.jsonl",
+        "content": "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"PRIVATE ORIGINAL eee7e9eb-f896-4c18-9c80-8146931a8ccd\"}}\n"
+      },
+      "pane_death": null,
+      "pane_before_exit": "aoe_dev_5055_terminal_undecl_d3d9b37d %0 3576415 0",
+      "hidden_owner_label": "AOE_INSTANCE_ID=d3d9b37d1ae24449",
+      "native_to_pane_ancestry": [
+        {
+          "pid": 3576418,
+          "birth": "12458768",
+          "ppid": 3576415
+        },
+        {
+          "pid": 3576415,
+          "birth": "12458767",
+          "ppid": 3576413
+        }
+      ],
+      "lifecycle_attempt_generation": {
+        "before": 2,
+        "after_refusals": 4
+      },
+      "observed_id_retained_through_refusals": true,
+      "refusals": [
+        {
+          "action": "api-default",
+          "response": [
+            409,
+            {
+              "content-type": "application/json",
+              "aoe-error-code": "managed_resume_refused",
+              "aoe-managed-resume-cause": "wrapper_contract_required",
+              "aoe-runtime-epoch": "c2faf9dd-a703-4af7-ad49-d435fd134ac8",
+              "aoe-runtime-revision": "43",
+              "x-frame-options": "DENY",
+              "x-content-type-options": "nosniff",
+              "referrer-policy": "no-referrer",
+              "content-security-policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com https://raw.githubusercontent.com; font-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
+              "x-request-id": "8f101983-3094-4bbc-97bb-f2969a3392a0",
+              "content-length": "836",
+              "date": "Thu, 05 Nov 2026 21:47:13 GMT"
+            },
+            "{\"error\":\"managed_resume_refused\",\"message\":\"Managed resume refused: wrapper contract missing.\\nRestore truthful session.agent_execution_as and\\nsession.agent_config_dir in trusted global/profile config.\\nBoth must match the original agent and store.\\nKeep the Native conversation ID while repairing this configuration.\\nFresh abandons pending AoE input without replay and omits AoE restore flags.\\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\\nConversation preserved. Restore original context, then retry:\\naoe session set-session-id <session> <native-id>\\nUse --store with the exact store/transcript where required.\\nOr choose fresh (abandons this AoE association):\\naoe session set-session-id <session> \\\"\\\"\\nThen start/restart; old history is not deleted or recovered.\"}"
+          ]
+        },
+        {
+          "action": "cli-default",
+          "exit": 1,
+          "stdout": "",
+          "stderr": "Error: Managed resume refused: wrapper contract missing.\nRestore truthful session.agent_execution_as and\nsession.agent_config_dir in trusted global/profile config.\nBoth must match the original agent and store.\nKeep the Native conversation ID while repairing this configuration.\nFresh abandons pending AoE input without replay and omits AoE restore flags.\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\nConversation preserved. Restore original context, then retry:\naoe session set-session-id <session> <native-id>\nUse --store with the exact store/transcript where required.\nOr choose fresh (abandons this AoE association):\naoe session set-session-id <session> \"\"\nThen start/restart; old history is not deleted or recovered.: cannot attest execution context for managed conversation eee7e9eb-f896-4c18-9c80-8146931a8ccd; launch refused without replacing it; restore the original agent configuration and store, or rebind with aoe session set-session-id d3d9b37d1ae24449 eee7e9eb-f896-4c18-9c80-8146931a8ccd (use --store with the exact store or transcript where required): wrapper execution contract is missing: wrapper execution identity is unknown: set session.agent_execution_as and session.agent_config_dir; agent_detect_as is only status detection\n"
+        },
+        {
+          "action": "api-same",
+          "response": [
+            409,
+            {
+              "content-type": "application/json",
+              "aoe-error-code": "lifecycle_superseded",
+              "x-frame-options": "DENY",
+              "x-content-type-options": "nosniff",
+              "referrer-policy": "no-referrer",
+              "content-security-policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com https://raw.githubusercontent.com; font-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
+              "x-request-id": "b6cd39cf-1e18-411d-a7fa-a42666922e52",
+              "content-length": "134",
+              "date": "Thu, 05 Nov 2026 21:47:13 GMT"
+            },
+            "{\"error\":\"lifecycle_superseded\",\"operation\":null,\"message\":\"Session changed after it was selected; refresh and check before retrying\"}"
+          ]
+        },
+        {
+          "action": "cli-same",
+          "exit": 1,
+          "stdout": "",
+          "stderr": "Error: Managed resume refused: wrapper contract missing.\nRestore truthful session.agent_execution_as and\nsession.agent_config_dir in trusted global/profile config.\nBoth must match the original agent and store.\nKeep the Native conversation ID while repairing this configuration.\nFresh abandons pending AoE input without replay and omits AoE restore flags.\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\nConversation preserved. Restore original context, then retry:\naoe session set-session-id <session> <native-id>\nUse --store with the exact store/transcript where required.\nOr choose fresh (abandons this AoE association):\naoe session set-session-id <session> \"\"\nThen start/restart; old history is not deleted or recovered.\n"
+        }
+      ],
+      "shared": {
+        "name": "undeclared-wrapper",
+        "api": {
+          "id": "d3d9b37d1ae24449",
+          "title": "5055 terminal undeclared-wrapper",
+          "project_path": "/tmp/5055-terminal-aw26u9x9/project",
+          "artifact_dir": "/tmp/5055-terminal-aw26u9x9/config/agent-of-empires-dev/artifacts/d3d9b37d1ae24449",
+          "group_path": "",
+          "tool": "work-claude",
+          "command": "work-claude",
+          "extra_args": "",
+          "status": "Error",
+          "agent_session_id": "eee7e9eb-f896-4c18-9c80-8146931a8ccd",
+          "lifecycle_generation": 4,
+          "dormant": false,
+          "pane_dead_observed": false,
+          "agent_pane": {
+            "state": "alive",
+            "tmux_session": "aoe_dev_5055_terminal_undecl_d3d9b37d",
+            "physical": {
+              "identity": {
+                "session_id": "$0",
+                "pane_id": "%0",
+                "pane_pid": 3576415
+              },
+              "server": {
+                "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+                "pid": 3576413,
+                "birth": {
+                  "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+                  "start_id": "proc:12458767"
+                }
+              }
+            }
+          },
+          "auxiliary": [
+            {
+              "target": {
+                "kind": "host",
+                "index": 0
+              },
+              "state": "absent",
+              "tmux_session": null
+            }
+          ],
+          "yolo_mode": false,
+          "created_at": "2026-11-05T21:47:11.062971938+00:00",
+          "last_accessed_at": "2026-11-05T21:47:13.511120751+00:00",
+          "idle_entered_at": null,
+          "last_error": "Managed resume refused: wrapper contract missing.",
+          "branch": null,
+          "main_repo_path": null,
+          "is_sandboxed": false,
+          "outside_repository": true,
+          "scratch": false,
+          "favorited": false,
+          "urgent": false,
+          "has_managed_worktree": false,
+          "has_cleanable_worktree": false,
+          "tie_workdir_to_name": false,
+          "smart_rename": "inactive",
+          "default_name": false,
+          "has_terminal": false,
+          "profile": "main",
+          "cleanup_defaults": {
+            "delete_worktree": true,
+            "delete_branch": false,
+            "delete_sandbox": true,
+            "delete_to_trash": true
+          },
+          "remote_owner": null,
+          "remote_owner_key": null,
+          "notify_on_waiting": null,
+          "notify_on_idle": null,
+          "notify_on_error": null,
+          "context_resume": {
+            "state": "indeterminate",
+            "reason": "runtime_check_required"
+          },
+          "recovery": {
+            "reason": "identity_unattested",
+            "diagnostic": "Managed resume refused: wrapper contract missing.",
+            "evidence": null,
+            "runtime": "pane_alive",
+            "work_in_progress": false,
+            "uncertainty": null,
+            "guidance": "Managed resume refused: wrapper contract missing.\nRestore truthful session.agent_execution_as and\nsession.agent_config_dir in trusted global/profile config.\nBoth must match the original agent and store.\nKeep the Native conversation ID while repairing this configuration.\nFresh abandons pending AoE input without replay and omits AoE restore flags.\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\nConversation preserved. Restore original context, then retry:\naoe session set-session-id <session> <native-id>\nUse --store with the exact store/transcript where required.\nOr choose fresh (abandons this AoE association):\naoe session set-session-id <session> \"\"\nThen start/restart; old history is not deleted or recovered.",
+            "actions": {
+              "attach": true,
+              "retry_operation": false,
+              "restart_same": false,
+              "stop": true,
+              "fresh": true
+            },
+            "expected": "d34909285779ceea16f0f21632ac09c158acd8be7cadcaaad9b722d8bd83c298"
+          },
+          "acp_worker_state": "absent",
+          "acp_capable": true,
+          "acp_agent": "work-claude",
+          "claude_fullscreen": false,
+          "workspace_repos": []
+        },
+        "cli_human": "Session: 5055 terminal undeclared-wrapper\n  ID:      d3d9b37d1ae24449\n  Path:    /tmp/5055-terminal-aw26u9x9/project\n  Group:   \n  Tool:    work-claude\n  Command: work-claude\n  Status:  Error\n  Profile: main\n  Diagnostic: Managed resume refused: wrapper contract missing.\n  Observed runtime: Owned terminal pane observed alive\n  Recovery: Managed resume refused: wrapper contract missing.Restore truthful session.agent_execution_as andsession.agent_config_dir in trusted global/profile config.Both must match the original agent and store.Keep the Native conversation ID while repairing this configuration.Fresh abandons pending AoE input without replay and omits AoE restore flags.An undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.Conversation preserved. Restore original context, then retry:aoe session set-session-id <session> <native-id>Use --store with the exact store/transcript where required.Or choose fresh (abandons this AoE association):aoe session set-session-id <session> \"\"Then start/restart; old history is not deleted or recovered.\n  Server-authorized actions:\n    Attach existing runtime: available\n    Retry operation with explicit input: unavailable\n    Restart same conversation: unavailable\n    Stop owned runtime: available\n    Launch without AoE restore flags: available\n",
+        "cli_json": {
+          "id": "d3d9b37d1ae24449",
+          "title": "5055 terminal undeclared-wrapper",
+          "path": "/tmp/5055-terminal-aw26u9x9/project",
+          "group": "",
+          "tool": "work-claude",
+          "command": "work-claude",
+          "status": "error",
+          "state": "live",
+          "agent_session_id": "eee7e9eb-f896-4c18-9c80-8146931a8ccd",
+          "profile": "main",
+          "recovery": {
+            "reason": "identity_unattested",
+            "diagnostic": "Managed resume refused: wrapper contract missing.",
+            "evidence": null,
+            "runtime": "pane_alive",
+            "work_in_progress": false,
+            "uncertainty": null,
+            "guidance": "Managed resume refused: wrapper contract missing.\nRestore truthful session.agent_execution_as and\nsession.agent_config_dir in trusted global/profile config.\nBoth must match the original agent and store.\nKeep the Native conversation ID while repairing this configuration.\nFresh abandons pending AoE input without replay and omits AoE restore flags.\nAn undeclared wrapper may still restore its own history; Fresh does not promise a new native conversation.\nConversation preserved. Restore original context, then retry:\naoe session set-session-id <session> <native-id>\nUse --store with the exact store/transcript where required.\nOr choose fresh (abandons this AoE association):\naoe session set-session-id <session> \"\"\nThen start/restart; old history is not deleted or recovered.",
+            "actions": {
+              "attach": true,
+              "retry_operation": false,
+              "restart_same": false,
+              "stop": true,
+              "fresh": true
+            },
+            "expected": "d34909285779ceea16f0f21632ac09c158acd8be7cadcaaad9b722d8bd83c298"
+          }
+        },
+        "cli_stderr": [
+          "",
+          ""
+        ]
+      },
+      "fresh": {
+        "api": {
+          "id": "d3d9b37d1ae24449",
+          "title": "5055 terminal undeclared-wrapper",
+          "project_path": "/tmp/5055-terminal-aw26u9x9/project",
+          "artifact_dir": "/tmp/5055-terminal-aw26u9x9/config/agent-of-empires-dev/artifacts/d3d9b37d1ae24449",
+          "group_path": "",
+          "tool": "work-claude",
+          "command": "work-claude",
+          "extra_args": "",
+          "status": "Starting",
+          "agent_session_id": "f01034f1-f083-4728-8b65-3d141ae58d00",
+          "lifecycle_generation": 6,
+          "dormant": false,
+          "pane_dead_observed": false,
+          "agent_pane": {
+            "state": "alive",
+            "tmux_session": "aoe_dev_5055_terminal_undecl_d3d9b37d",
+            "physical": {
+              "identity": {
+                "session_id": "$2",
+                "pane_id": "%2",
+                "pane_pid": 3655944
+              },
+              "server": {
+                "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+                "pid": 3576413,
+                "birth": {
+                  "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+                  "start_id": "proc:12458767"
+                }
+              }
+            }
+          },
+          "auxiliary": [
+            {
+              "target": {
+                "kind": "host",
+                "index": 0
+              },
+              "state": "alive",
+              "tmux_session": "aoe_dev_term_5055_terminal_undecl_d3d9b37d",
+              "physical": {
+                "identity": {
+                  "session_id": "$1",
+                  "pane_id": "%1",
+                  "pane_pid": 3578562
+                },
+                "server": {
+                  "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+                  "pid": 3576413,
+                  "birth": {
+                    "boot_id": "22c62448-aa0e-48e3-a0b0-bbcfa685777d",
+                    "start_id": "proc:12458767"
+                  }
+                }
+              }
+            }
+          ],
+          "yolo_mode": false,
+          "created_at": "2026-11-05T21:47:11.062971938+00:00",
+          "last_accessed_at": "2026-11-05T21:48:47.109732610+00:00",
+          "idle_entered_at": null,
+          "last_error": null,
+          "branch": null,
+          "main_repo_path": null,
+          "is_sandboxed": false,
+          "outside_repository": true,
+          "scratch": false,
+          "favorited": false,
+          "urgent": false,
+          "has_managed_worktree": false,
+          "has_cleanable_worktree": false,
+          "tie_workdir_to_name": false,
+          "smart_rename": "inactive",
+          "default_name": false,
+          "has_terminal": true,
+          "profile": "main",
+          "cleanup_defaults": {
+            "delete_worktree": true,
+            "delete_branch": false,
+            "delete_sandbox": true,
+            "delete_to_trash": true
+          },
+          "remote_owner": null,
+          "remote_owner_key": null,
+          "notify_on_waiting": null,
+          "notify_on_idle": null,
+          "notify_on_error": null,
+          "context_resume": {
+            "state": "indeterminate",
+            "reason": "runtime_check_required"
+          },
+          "recovery": null,
+          "acp_worker_state": "absent",
+          "acp_capable": true,
+          "acp_agent": "work-claude",
+          "claude_fullscreen": false,
+          "workspace_repos": []
+        },
+        "new_native": {
+          "action": "created",
+          "instance": "d3d9b37d1ae24449",
+          "pid": 3655948,
+          "birth": "12468389",
+          "pane": "%2",
+          "argv": [],
+          "sid": "f01034f1-f083-4728-8b65-3d141ae58d00",
+          "transcript": "/tmp/5055-terminal-aw26u9x9/home/.claude/projects/-tmp-5055-terminal-aw26u9x9-project/f01034f1-f083-4728-8b65-3d141ae58d00.jsonl",
+          "content": "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"PRIVATE ORIGINAL f01034f1-f083-4728-8b65-3d141ae58d00\"}}\n"
+        },
+        "old_history_sha256": "7e15fc6db3d31a99a776d534003894da1b737affaa4f6c63ba0aa4363e341869",
+        "old_history_retained": true,
+        "opaque_wrapper_history_guarantee": false,
+        "consent": {
+          "surface": "parent-operated actual Chromium Fresh confirmation",
+          "expected_before_external_consent": "d34909285779ceea16f0f21632ac09c158acd8be7cadcaaad9b722d8bd83c298",
+          "driver_did_not_issue_another_mutation": true
+        }
+      },
+      "tui_fresh": null,
+      "events": [
+        {
+          "action": "publication",
+          "instance": "d3d9b37d1ae24449",
+          "pid": 3576418,
+          "birth": "12458768",
+          "pane": "%0",
+          "argv": [],
+          "sid": "eee7e9eb-f896-4c18-9c80-8146931a8ccd",
+          "returncode": 0,
+          "stderr": ""
+        },
+        {
+          "action": "created",
+          "instance": "d3d9b37d1ae24449",
+          "pid": 3576418,
+          "birth": "12458768",
+          "pane": "%0",
+          "argv": [],
+          "sid": "eee7e9eb-f896-4c18-9c80-8146931a8ccd",
+          "transcript": "/tmp/5055-terminal-aw26u9x9/home/.claude/projects/-tmp-5055-terminal-aw26u9x9-project/eee7e9eb-f896-4c18-9c80-8146931a8ccd.jsonl",
+          "content": "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"PRIVATE ORIGINAL eee7e9eb-f896-4c18-9c80-8146931a8ccd\"}}\n"
+        },
+        {
+          "action": "publication",
+          "instance": "d3d9b37d1ae24449",
+          "pid": 3655948,
+          "birth": "12468389",
+          "pane": "%2",
+          "argv": [],
+          "sid": "f01034f1-f083-4728-8b65-3d141ae58d00",
+          "returncode": 0,
+          "stderr": ""
+        },
+        {
+          "action": "created",
+          "instance": "d3d9b37d1ae24449",
+          "pid": 3655948,
+          "birth": "12468389",
+          "pane": "%2",
+          "argv": [],
+          "sid": "f01034f1-f083-4728-8b65-3d141ae58d00",
+          "transcript": "/tmp/5055-terminal-aw26u9x9/home/.claude/projects/-tmp-5055-terminal-aw26u9x9-project/f01034f1-f083-4728-8b65-3d141ae58d00.jsonl",
+          "content": "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"PRIVATE ORIGINAL f01034f1-f083-4728-8b65-3d141ae58d00\"}}\n"
+        }
+      ]
+    }
+  ],
+  "success": true,
+  "web_gateway": {
+    "status": 200,
+    "html_sha256": "b668973b561d0b4b22c4d337e2685ad4a12bfdd79518c65eaa73515009b8c145"
+  },
+  "cleanup": {
+    "commands": [
+      {
+        "action": "kill-only-own-tmux-server",
+        "socket": "/tmp/5055-terminal-aw26u9x9/tmux.sock",
+        "exit": 1,
+        "stderr": "no server running on /tmp/5055-terminal-aw26u9x9/tmux.sock\n"
+      }
+    ],
+    "errors": [],
+    "all_owned_births_gone": true,
+    "observed_actors": [
+      {
+        "pid": 3574473,
+        "birth": "12457148"
+      },
+      {
+        "pid": 3655948,
+        "birth": "12468389"
+      },
+      {
+        "pid": 3566262,
+        "birth": "12454619"
+      },
+      {
+        "pid": 3576418,
+        "birth": "12458768"
+      },
+      {
+        "pid": 3561919,
+        "birth": "12450204"
+      },
+      {
+        "pid": 3561496,
+        "birth": "12450152"
+      },
+      {
+        "pid": 3576413,
+        "birth": "12458767"
+      }
+    ],
+    "private_root_removed": true
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "MemTotal": 67135111168,
+  "MemAvailable": 25535123456,
+  "SwapTotal": 8589930496,
+  "SwapFree": 13877248,
+  "loadavg": "7.22 50.02 64.82 5/9940 2776392",
+  "our_cargo_tree_stopped": true
+}
