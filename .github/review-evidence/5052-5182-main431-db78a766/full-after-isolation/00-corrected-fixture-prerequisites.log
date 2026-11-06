@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s
+────────────
+ Nextest run ID d12882ca-4290-40e7-89c3-0c17ea3970d0 with nextest profile: default
+    Starting 2 tests across 5 binaries (5595 tests skipped)
+        PASS [   0.226s] (1/2) agent-of-empires cli::worktree::tests::cleanup_removes_an_abandoned_purge_only_while_still_marked
+        PASS [   0.585s] (2/2) agent-of-empires process::linux::tests::prime_quiescence_never_declares_an_uninspectable_owned_process_absent
+────────────
+     Summary [   0.817s] 2 tests run: 2 passed, 5595 skipped

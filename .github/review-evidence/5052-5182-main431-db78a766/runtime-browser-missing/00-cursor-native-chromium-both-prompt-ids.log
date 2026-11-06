@@ -1,0 +1,21 @@
+59162 |   else if (error.error.name === "TargetClosedError")
+59163 |     e = new TargetClosedError2(error.error.message);
+59164 |   else if (error.error.name === "AbortError")
+59165 |     e = new AbortError2(error.error.message);
+59166 |   else
+59167 |     e = Object.assign(new PlaywrightError(error.error.message), { name: error.error.name });
+                                  ^
+error: launch: Executable doesn't exist at /home/fraggle/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+║                                                            ║
+║     npx playwright install                                 ║
+║                                                            ║
+║ <3 Playwright Team                                         ║
+╚════════════════════════════════════════════════════════════╝
+  log: [],
+
+      at /home/fraggle/src/agent-of-empires-git-worktrees/5052-5182-cursor-prefix-main431387c-20261105/web/node_modules/playwright-core/lib/coreBundle.js:59167:27
+
+Bun v1.4.4 (Linux x64)

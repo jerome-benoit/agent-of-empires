@@ -1,0 +1,32 @@
+   Compiling tokio v1.53.3
+   Compiling serde_json v1.0.154
+   Compiling hyper v1.12.0
+   Compiling regex-automata v0.4.18
+   Compiling hyper-util v0.1.21
+   Compiling tower v0.5.3
+   Compiling tokio-rustls v0.26.6
+   Compiling tokio-util v0.7.20
+   Compiling serde_with v3.24.0
+   Compiling webauthn-rs-proto v0.5.5
+   Compiling schemars v1.2.3
+   Compiling webauthn-rs-core v0.5.5
+   Compiling tokio-tungstenite v0.29.0
+   Compiling agent-client-protocol-schema v1.15.1
+   Compiling async-compression v0.4.51
+   Compiling hyper-rustls v0.27.10
+   Compiling tower-http v0.6.11
+   Compiling matchers v0.2.0
+   Compiling tokio-stream v0.1.19
+   Compiling axum v0.8.9
+   Compiling jsonwebtoken v11.1.0
+   Compiling tower-http v0.7.1
+   Compiling aoe-plugin-api v0.1.0 (/home/fraggle/src/agent-of-empires-git-worktrees/5052-5182-cursor-prefix-main431387c-20261105/aoe-plugin-api)
+   Compiling tracing-subscriber v0.3.23
+   Compiling rmcp v3.6.0
+   Compiling agent-client-protocol v5.0.0
+   Compiling reqwest v0.13.5
+   Compiling tokio-tungstenite v0.30.0
+   Compiling webauthn-rs v0.5.5
+   Compiling regex v1.13.1
+   Compiling agent-of-empires v1.22.0 (/home/fraggle/src/agent-of-empires-git-worktrees/5052-5182-cursor-prefix-main431387c-20261105)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 16s

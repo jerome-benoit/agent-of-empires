@@ -1,0 +1,51 @@
+{
+  "plan": {
+    "cwd": "/home/fraggle/src/agent-of-empires-git-worktrees/5052-5182-cursor-prefix-main431387c-20261105",
+    "output": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5052-5182-main431-runtime-browser1248",
+    "unset": [
+      "AOE_TEST_ACP_RUNNER_EXE",
+      "AOE_WEB_DIST",
+      "PLAYWRIGHT_PORT"
+    ],
+    "env": {
+      "PATH": "/home/fraggle/.local/share/mise/installs/node/22.23.3/bin:/nix/store/xgw813vgzl2q0696sq45adpj0xd690jq-git-2.56.0/bin:/home/fraggle/.dvm/versions/v2.9.7:/home/fraggle/.local/share/mise/installs/pnpm/latest:/home/fraggle/.local/share/mise/installs/node/latest/bin:/home/fraggle/.local/share/mise/shims:/home/fraggle/bin:/home/fraggle/.local/bin:/home/fraggle/.volta/bin:/home/fraggle/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/lib64/ccache:/home/fraggle/.cargo/bin:/usr/local/bin:/usr/bin:/nix/store/pda6j5833xwmiqh8w8bpsccs22hxqlk3-ghostty-1.4.0/bin:",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_TARGET_DIR": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target",
+      "TMPDIR": "/tmp/aoe-c77-pfn6pmsu",
+      "RUST_TEST_THREADS": "1",
+      "CI": "1",
+      "RUST_BACKTRACE": "1"
+    },
+    "steps": [
+      {
+        "name": "cursor-native-chromium-both-prompt-ids",
+        "argv": [
+          "bun",
+          "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5052-5182-current-cursor-smoke.ts",
+          "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5052-5182-main431-binary/aoe",
+          "after",
+          "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5052-5182-main431-runtime-browser1248/images"
+        ]
+      }
+    ]
+  },
+  "started": 1793921099.2496219,
+  "steps": [
+    {
+      "name": "cursor-native-chromium-both-prompt-ids",
+      "argv": [
+        "bun",
+        "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5052-5182-current-cursor-smoke.ts",
+        "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5052-5182-main431-binary/aoe",
+        "after",
+        "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5052-5182-main431-runtime-browser1248/images"
+      ],
+      "started": 1793921099.2497876,
+      "state": "finished",
+      "exit": 1,
+      "finished": 1793921106.3117688,
+      "log": "/home/fraggle/src/agent-of-empires-git-worktrees/4941-attested-managed-resume/target/epic-smokes/5052-5182-main431-runtime-browser1248/00-cursor-native-chromium-both-prompt-ids.log"
+    }
+  ],
+  "finished": 1793921106.3121672
+}
