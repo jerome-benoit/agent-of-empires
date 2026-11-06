@@ -1,0 +1,723 @@
+{
+  "head": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+  "tree": "5f94dd016c1884a2fe0c3fa3cf39889d1bfdfee6",
+  "source_signature": "VALID/web-flow",
+  "required_contexts": [
+    "Cargo Test (linux, bare-core)",
+    "Cargo Test (linux, core-rest)",
+    "Cargo Test (linux, web-e2e)",
+    "Cargo Test (macos)",
+    "Clippy",
+    "Docs",
+    "Format",
+    "Nix Eval",
+    "Playwright (live)",
+    "Playwright (mocked)",
+    "Supply Chain",
+    "Vitest",
+    "Website Build"
+  ],
+  "checks": {
+    "checks": [
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/runs/127663094474",
+        "name": "codecov/patch",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/runs/127663088213",
+        "name": "codecov/project",
+        "status": "completed"
+      },
+      {
+        "conclusion": "skipped",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42147048914/job/127660944720",
+        "name": "close-stale",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42147048914/job/127660943716",
+        "name": "check-template",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42147048912/job/127660943652",
+        "name": "Lint PR title",
+        "status": "completed"
+      },
+      {
+        "conclusion": "skipped",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42146176684/job/127658084324",
+        "name": "close-stale",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42146176809/job/127658083607",
+        "name": "Lint PR title",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42146176684/job/127658082774",
+        "name": "check-template",
+        "status": "completed"
+      },
+      {
+        "conclusion": "skipped",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42146175768/job/127658082491",
+        "name": "close-stale",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42146175768/job/127658080604",
+        "name": "check-template",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42146175814/job/127658080478",
+        "name": "Lint PR title",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/runs/127657319058",
+        "name": "CodeRabbit",
+        "status": "completed"
+      },
+      {
+        "conclusion": "skipped",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873556/job/127657142202",
+        "name": "Cargo Test (macos)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "skipped",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145870853/job/127657123163",
+        "name": "Check and queue auto-merge",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873556/job/127657091408",
+        "name": "Playwright (live)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873514/job/127657091343",
+        "name": "Nix Build Web",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873556/job/127657091302",
+        "name": "Cargo Test (linux, web-e2e)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873556/job/127657091285",
+        "name": "Cargo Test (linux, core-rest)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873514/job/127657091283",
+        "name": "Docs",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873514/job/127657091279",
+        "name": "Website Build",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873514/job/127657091278",
+        "name": "Nix Build",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873514/job/127657091245",
+        "name": "Script Self-Tests",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873514/job/127657091197",
+        "name": "Lint (web)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873556/job/127657091187",
+        "name": "Playwright (mocked)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873556/job/127657091176",
+        "name": "Vitest",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873514/job/127657091153",
+        "name": "Format",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873514/job/127657091149",
+        "name": "MSRV",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873556/job/127657091139",
+        "name": "macOS gate",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873514/job/127657091136",
+        "name": "Nix Eval",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873556/job/127657091135",
+        "name": "Bundle Analysis",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873514/job/127657091097",
+        "name": "Supply Chain",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873556/job/127657090903",
+        "name": "Cargo Test (linux, bare-core)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145873514/job/127657090840",
+        "name": "Clippy",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "head_sha": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+        "html_url": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42145870858/job/127657083555",
+        "name": "Lint PR title",
+        "status": "completed"
+      }
+    ],
+    "total_count": 34
+  },
+  "required_result": "12SUCCESS + policy-valid CargoTest(macos)SKIPPED with successful macOSgate; no executed macOScoverage claimed",
+  "codecov": "patch/project check-runs SUCCESS; legacy status array empty and not used as gate",
+  "effective_rules": [
+    {
+      "type": "non_fast_forward",
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "agent-of-empires/agent-of-empires",
+      "ruleset_id": 11713688
+    },
+    {
+      "type": "deletion",
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "agent-of-empires/agent-of-empires",
+      "ruleset_id": 11713688
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "Playwright (live)"
+          },
+          {
+            "context": "Playwright (mocked)",
+            "integration_id": 15368
+          },
+          {
+            "context": "Format"
+          },
+          {
+            "context": "Clippy"
+          },
+          {
+            "context": "Supply Chain"
+          },
+          {
+            "context": "Docs"
+          },
+          {
+            "context": "Nix Eval",
+            "integration_id": 15368
+          },
+          {
+            "context": "Website Build"
+          },
+          {
+            "context": "Vitest",
+            "integration_id": 15368
+          },
+          {
+            "context": "Cargo Test (macos)"
+          },
+          {
+            "context": "Cargo Test (linux, web-e2e)",
+            "integration_id": 15368
+          },
+          {
+            "context": "Cargo Test (linux, core-rest)",
+            "integration_id": 15368
+          },
+          {
+            "context": "Cargo Test (linux, bare-core)",
+            "integration_id": 15368
+          }
+        ]
+      },
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "agent-of-empires/agent-of-empires",
+      "ruleset_id": 11713688
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
+        "require_code_owner_review": true,
+        "dismissal_restriction": {
+          "enabled": false,
+          "allowed_actors": []
+        },
+        "require_last_push_approval": true,
+        "required_review_thread_resolution": false,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": [
+          "squash"
+        ]
+      },
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "agent-of-empires/agent-of-empires",
+      "ruleset_id": 11713688
+    },
+    {
+      "type": "merge_queue",
+      "parameters": {
+        "merge_method": "SQUASH",
+        "max_entries_to_build": 5,
+        "min_entries_to_merge": 1,
+        "max_entries_to_merge": 5,
+        "min_entries_to_merge_wait_minutes": 5,
+        "grouping_strategy": "ALLGREEN",
+        "check_response_timeout_minutes": 120
+      },
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "agent-of-empires/agent-of-empires",
+      "ruleset_id": 11713688
+    }
+  ],
+  "train": {
+    "5182": {
+      "number": 5182,
+      "state": "open",
+      "draft": false,
+      "head": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "base": "431387c0318e1421a3e5dd49449fc9c9c192da5a",
+      "mergeable": true,
+      "mergeable_state": "blocked",
+      "merged": false,
+      "merged_at": null,
+      "merge_commit_sha": "5118200511a2e09a1ee9bb8374537f2ecfb417c3",
+      "requested_reviewers": [
+        "cwrau"
+      ],
+      "requested_teams": [
+        "acp"
+      ]
+    },
+    "5058": {
+      "number": 5058,
+      "state": "open",
+      "draft": true,
+      "head": "7ba8ab387d20685ddd56dc8317babf85b4bc820a",
+      "base": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+      "mergeable": false,
+      "mergeable_state": "dirty",
+      "merged": false,
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "requested_reviewers": [],
+      "requested_teams": []
+    },
+    "5059": {
+      "number": 5059,
+      "state": "open",
+      "draft": true,
+      "head": "42ef2d94ca342470afc49d6dddb2d07340458f19",
+      "base": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+      "mergeable": false,
+      "mergeable_state": "dirty",
+      "merged": false,
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "requested_reviewers": [],
+      "requested_teams": []
+    },
+    "5083": {
+      "number": 5083,
+      "state": "open",
+      "draft": true,
+      "head": "fa5040711b62f9638b2d45aa8c7769cee2983972",
+      "base": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+      "mergeable": false,
+      "mergeable_state": "dirty",
+      "merged": false,
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "requested_reviewers": [],
+      "requested_teams": []
+    },
+    "5142": {
+      "number": 5142,
+      "state": "open",
+      "draft": true,
+      "head": "997ad12bec06f96b8a4aa74a050c9ad8cd70aba5",
+      "base": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+      "mergeable": false,
+      "mergeable_state": "dirty",
+      "merged": false,
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "requested_reviewers": [],
+      "requested_teams": []
+    },
+    "5177": {
+      "number": 5177,
+      "state": "open",
+      "draft": true,
+      "head": "0a0dd8ac88186be0eef898d95f6ea0d2f2a55ecb",
+      "base": "ee916d9640b6cf51aadf7f766b3b285fd9a461ff",
+      "mergeable": false,
+      "mergeable_state": "dirty",
+      "merged": false,
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "requested_reviewers": [],
+      "requested_teams": []
+    },
+    "5368": {
+      "number": 5368,
+      "state": "open",
+      "draft": true,
+      "head": "440449ce665889527f1037ff043dd9a9a9f831ec",
+      "base": "954467c69199d9ecbebe35f5dfd6826f3414858c",
+      "mergeable": false,
+      "mergeable_state": "dirty",
+      "merged": false,
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "requested_reviewers": [],
+      "requested_teams": []
+    },
+    "5373": {
+      "number": 5373,
+      "state": "open",
+      "draft": true,
+      "head": "1685e5b31763b31c87b78b1901eafda3b702489e",
+      "base": "1f674d07e305ee42dbac0d09898126ec4bd58536",
+      "mergeable": false,
+      "mergeable_state": "dirty",
+      "merged": false,
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "requested_reviewers": [],
+      "requested_teams": []
+    },
+    "5383": {
+      "number": 5383,
+      "state": "open",
+      "draft": true,
+      "head": "a90797ba4aab371137e1b388f121c44018ae5383",
+      "base": "402e3459b2e9e3dc54bf0880b15d08b93c51c8c3",
+      "mergeable": false,
+      "mergeable_state": "dirty",
+      "merged": false,
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "requested_reviewers": [],
+      "requested_teams": []
+    }
+  },
+  "reviews": [
+    {
+      "commit_id": "db78a7663e17a1b285e0e1119d15166b55c768ac",
+      "id": 5794151534,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T00:37:53Z",
+      "user": "coderabbitai[bot]"
+    },
+    {
+      "commit_id": "db78a7663e17a1b285e0e1119d15166b55c768ac",
+      "id": 5794202837,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T00:44:50Z",
+      "user": "jerome-benoit"
+    },
+    {
+      "commit_id": "db78a7663e17a1b285e0e1119d15166b55c768ac",
+      "id": 5794205358,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T00:45:11Z",
+      "user": "coderabbitai[bot]"
+    },
+    {
+      "commit_id": "db78a7663e17a1b285e0e1119d15166b55c768ac",
+      "id": 5794243690,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T00:50:16Z",
+      "user": "jerome-benoit"
+    },
+    {
+      "commit_id": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "id": 5794685513,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T01:47:28Z",
+      "user": "jerome-benoit"
+    },
+    {
+      "commit_id": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "id": 5794685765,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T01:47:31Z",
+      "user": "jerome-benoit"
+    },
+    {
+      "commit_id": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "id": 5794685968,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T01:47:33Z",
+      "user": "jerome-benoit"
+    },
+    {
+      "commit_id": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "id": 5794686166,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T01:47:35Z",
+      "user": "jerome-benoit"
+    },
+    {
+      "commit_id": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "id": 5794719439,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T01:52:28Z",
+      "user": "coderabbitai[bot]"
+    },
+    {
+      "commit_id": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "id": 5794734430,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T01:54:45Z",
+      "user": "coderabbitai[bot]"
+    },
+    {
+      "commit_id": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "id": 5794747414,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T01:56:48Z",
+      "user": "coderabbitai[bot]"
+    },
+    {
+      "commit_id": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "id": 5794750238,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T01:57:15Z",
+      "user": "coderabbitai[bot]"
+    },
+    {
+      "commit_id": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "id": 5794769200,
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T01:59:55Z",
+      "user": "coderabbitai[bot]"
+    }
+  ],
+  "threads": {
+    "head": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+    "reviewDecision": "REVIEW_REQUIRED",
+    "threads": [
+      {
+        "id": "PRRT_kwDOQ21TtM60VPhZ",
+        "isResolved": true,
+        "isOutdated": true
+      },
+      {
+        "id": "PRRT_kwDOQ21TtM60VPhg",
+        "isResolved": false,
+        "isOutdated": false
+      },
+      {
+        "id": "PRRT_kwDOQ21TtM60VPht",
+        "isResolved": true,
+        "isOutdated": false
+      },
+      {
+        "id": "PRRT_kwDOQ21TtM60VPh4",
+        "isResolved": true,
+        "isOutdated": false
+      },
+      {
+        "id": "PRRT_kwDOQ21TtM60VPh9",
+        "isResolved": true,
+        "isOutdated": false
+      }
+    ],
+    "observed_by": "Successful minimal GraphQL read after larger query rate failures; no assistant resolve mutations performed."
+  },
+  "technical_replies": [
+    {
+      "comment": 4487747400,
+      "thread": "PRRT_kwDOQ21TtM60VPhZ",
+      "priority": "P2",
+      "reply_id": 4488168020,
+      "reply_url": "https://github.com/agent-of-empires/agent-of-empires/pull/5182#discussion_r4488168020",
+      "source": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "regressions": [
+        "observed_prefix_rejects_stale_stop_before_later_tool",
+        "observed_prefix_advances_watermark_for_every_event"
+      ],
+      "status": "Correctionpublished, targetedproofpassed; fullsuite/CIpending; threadnotresolved"
+    },
+    {
+      "comment": 4487747429,
+      "thread": "PRRT_kwDOQ21TtM60VPht",
+      "priority": "P2",
+      "reply_id": 4488168224,
+      "reply_url": "https://github.com/agent-of-empires/agent-of-empires/pull/5182#discussion_r4488168224",
+      "source": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "regressions": [
+        "orphan_output_clears_at_observed_turn_endings_without_stopped_rows",
+        "orphan_output_clears_at_live_turn_endings_without_stopped_rows"
+      ],
+      "status": "Correctionpublished, targetedproofpassed; fullsuite/CIpending; threadnotresolved"
+    },
+    {
+      "comment": 4487747443,
+      "thread": "PRRT_kwDOQ21TtM60VPh4",
+      "priority": "P2",
+      "reply_id": 4488168401,
+      "reply_url": "https://github.com/agent-of-empires/agent-of-empires/pull/5182#discussion_r4488168401",
+      "source": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "regressions": [
+        "metadata_after_prefix_completion_does_not_create_unpaired_start"
+      ],
+      "status": "Correctionpublished, targetedproofpassed; fullsuite/CIpending; threadnotresolved"
+    },
+    {
+      "comment": 4487747449,
+      "thread": "PRRT_kwDOQ21TtM60VPh9",
+      "priority": "P2",
+      "reply_id": 4488168563,
+      "reply_url": "https://github.com/agent-of-empires/agent-of-empires/pull/5182#discussion_r4488168563",
+      "source": "2cd3c861bff944b138aff6f5a19a03b2ca922d13",
+      "regressions": [
+        "lagged_broadcast_repairs_prefix_tool_lifecycle_without_replaying_starts_or_terminals"
+      ],
+      "status": "Correctionpublished, targetedproofpassed; fullsuite/CIpending; threadnotresolved"
+    }
+  ],
+  "review_bot_followups": [
+    {
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n@jerome-benoit Thanks for documenting the pre-existing retention limitation in `#5385`. The cursor fix can rebuild tool state only from events available for replay.\n\nThe thread remains open for maintainer disposition.\n\n<sub><i>You are interacting with an AI system.</i></sub>\n\n<!-- This is an auto-generated reply by CodeRabbit -->",
+      "html_url": "https://github.com/agent-of-empires/agent-of-empires/pull/5182#discussion_r4487791793",
+      "id": 4487791793,
+      "in_reply_to_id": 4487747411,
+      "user": "coderabbitai[bot]"
+    },
+    {
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n<details>\n<summary>Analysis chain</summary>\n<dl>\n<dd>\n<br>\n\nScript executed:\n\n```shell\n#!/bin/bash\nset -u\n\necho '--- Current revision ---'\ngit rev-parse HEAD\ngit log -1 --format='%h %s'\nif git cat-file -e 2cd3c861bff944b138aff6f5a19a03b2ca922d13^{commit} 2>/dev/null; then\n  if git merge-base --is-ancestor 2cd3c861bff944b138aff6f5a19a03b2ca922d13 HEAD; then\n    echo 'Reported fix commit is an ancestor of HEAD.'\n  else\n    echo 'Reported fix commit is not an ancestor of HEAD.'\n  fi\nelse\n  echo 'Reported fix commit is not available locally.'\nfi\n\necho '--- Applicable repository instructions ---'\nfd -H -t f -g 'AGENTS.md' -g 'CLAUDE.md' . | while IFS= read -r f; do\n  case \"${f#./}\" in\n    AGENTS.md|CLAUDE.md|src/AGENTS.md|src/CLAUDE.md|src/acp/AGENTS.md|src/acp/CLAUDE.md|src/server/AGENTS.md|src/server/CLAUDE.md|src/server/api/AGENTS.md|src/server/api/CLAUDE.md|src/server/api/acp/AGENTS.md|src/server/api/acp/CLAUDE.md)\n      printf '\\n--- %s ---\\n' \"$f\"\n      cat \"$f\"\n      ;;\n  esac\ndone\n\necho '--- Candidate source maps ---'\nast-grep outline src/acp/transcript.rs --items all --match 'observe_prior|apply_event|observed_prefix' 2>/dev/null || true\nast-grep outline src/server/acp_ws.rs --items all --match 'fold_connect_history' 2>/dev/null || true\nast-grep outline src/server/api/acp/history.rs --items all --match 'marker|rows|prior' 2>/dev/null || true\n\necho '--- Transcript watermark and regression checks ---'\nrg -n -A18 -B4 'pub fn observe_prior|pub fn apply_event|fn observed_prefix_advances_watermark_for_every_event|fn observed_prefix_rejects_stale_stop_before_later_tool' src/acp/transcript.rs\n\necho '--- History replay and callers ---'\nrg -n -A18 -B8 'fn fold_connect_history|\\.observe_prior\\(|fn .*marker|last_seq\\(' src/server/acp_ws.rs src/server/api/acp/history.rs\n```\n\nLength of output: 22759\n\n---\n\nScript executed:\n\n```shell\n#!/bin/bash\nset -u\n\necho '--- Applicable instruction files ---'\n{\n  fd -H -g 'AGENTS.md' .\n  fd -H -g 'CLAUDE.md' .\n} | sort -u | while IFS= read -r f; do\n  case \"${f#./}\" in\n    AGENTS.md|CLAUDE.md|src/AGENTS.md|src/CLAUDE.md|src/acp/AGENTS.md|src/acp/CLAUDE.md|src/server/AGENTS.md|src/server/CLAUDE.md|src/server/api/AGENTS.md|src/server/api/CLAUDE.md|src/server/api/acp/AGENTS.md|src/server/api/acp/CLAUDE.md)\n      printf '\\n--- %s ---\\n' \"$f\"\n      cat \"$f\"\n      ;;\n  esac\ndone\n\necho '--- Repository review and merge rules ---'\nrg -n -i -C 4 'resolv|review|human|agent' MAINTAINERS.md CONTRIBUTING.md\n```\n\nLength of output: 20918\n\n---\n\n</dd>\n</dl>\n</details>\n\n`@jerome-benoit` Thanks for the correction. I inspected commit `2cd3c861`: `observe_prior` advances the watermark for accepted prefix events, and `apply_event` rejects sequences at or below it. The two regression tests cover the reported stale-stop case and watermark behavior.\n\nI did not run the tests. Before merge, please confirm the current-head CI results and the required code-owner approval.\n\n---\n\n<!-- This is an auto-generated comment: tweet message by coderabbit.ai -->\n\nIf you found this review helpful, would you consider giving us a shout-out on [X](https://twitter.com/intent/tweet?related=CodeRabbitAI&text=A%20subtle%20transcript%20watermark%20fix%20prevents%20stale%20stop%20events%20from%20marking%20newer%20tools%20as%20stopped%20during%20bootstrap.%20%40coderabbitai%20caught%20it%E2%80%94try%20it%20on%20your%20next%20PR%20%F0%9F%94%8D&url=https%3A%2F%2Fgithub.com%2Fagent-of-empires%2Fagent-of-empires%2Fpull%2F5182%23discussion_r4487747400)?\n\nThank you for using CodeRabbit!\n\n<!-- end of auto-generated comment: tweet message by coderabbit.ai -->\n\n\n\nReview thread resolved.\n\n<sub><i>You are interacting with an AI system.</i></sub>\n\n<!-- This is an auto-generated reply by CodeRabbit -->",
+      "html_url": "https://github.com/agent-of-empires/agent-of-empires/pull/5182#discussion_r4488208065",
+      "id": 4488208065,
+      "in_reply_to_id": 4487747400,
+      "user": "coderabbitai[bot]"
+    },
+    {
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n<details>\n<summary>Analysis chain</summary>\n<dl>\n<dd>\n<br>\n\nScript executed:\n\n```shell\n#!/bin/bash\nset -u\nprintf '%s\\n' '--- revision ---'\ngit rev-parse HEAD\nprintf '%s\\n' '--- applicable instruction files ---'\nfor f in AGENTS.md src/AGENTS.md src/server/AGENTS.md src/acp/AGENTS.md; do\n  if [ -f \"$f\" ]; then printf '\\n--- %s ---\\n' \"$f\"; cat \"$f\"; fi\ndone\nprintf '%s\\n' '--- WebSocket outline ---'\nast-grep outline src/server/acp_ws.rs --items all --match 'fold_connect_history|lagged_broadcast|handle'\nprintf '%s\\n' '--- recovery references ---'\nrg -n -C 4 'fold_connect_history|RecvError::Lagged|transcript_snapshot|lagged_broadcast_repairs_prefix_tool_lifecycle_without_replaying_starts_or_terminals' src/server/acp_ws.rs\nprintf '%s\\n' '--- WebSocket recovery source ---'\nnl -ba src/server/acp_ws.rs | sed -n '190,430p'\nprintf '%s\\n' '--- regression test source ---'\nline=$(rg -n 'fn lagged_broadcast_repairs_prefix_tool_lifecycle_without_replaying_starts_or_terminals' src/server/acp_ws.rs | head -n1 | cut -d: -f1)\nif [ -n \"$line\" ]; then start=$((line > 6 ? line - 6 : 1)); end=$((line + 150)); nl -ba src/server/acp_ws.rs | sed -n \"${start},${end}p\"; fi\nprintf '%s\\n' '--- transcript lifecycle details ---'\nrg -n -C 4 'pub fn observe_prior|pub fn apply_event|Event::ToolCallCompleted|fn sweep_open_tools|last_seq' src/acp/transcript.rs | head -n 180\n```\n\nLength of output: 40917\n\n---\n\nScript executed:\n\n```shell\n#!/bin/bash\nprintf '%s\\n' '--- maintainer review and merge rules ---'\nif [ -f MAINTAINERS.md ]; then cat MAINTAINERS.md; else echo 'MAINTAINERS.md not found'; fi\nprintf '%s\\n' '--- contribution review and thread-resolution rules ---'\nif [ -f CONTRIBUTING.md ]; then rg -n -i -C 5 'review|resolv|thread|human|agent|merge' CONTRIBUTING.md; else echo 'CONTRIBUTING.md not found'; fi\n```\n\nLength of output: 5424\n\n---\n\n</dd>\n</dl>\n</details>\n\n`@jerome-benoit` I inspected commit `2cd3c861`. The lag handler rebuilds both projections from retained history before processing more frames. The regression test checks missed and queued completions, followed by `Stopped`.\n\nI did not run the tests. Please confirm the current CI results and obtain the required code-owner approval before merge. A human reviewer should decide this thread\u2019s disposition under `CONTRIBUTING.md`.\n\n---\n\n<!-- This is an auto-generated comment: tweet message by coderabbit.ai -->\n\nIf you found this review helpful, would you consider giving us a shout-out on [X](https://twitter.com/intent/tweet?related=CodeRabbitAI&text=Broadcast%20lag%20can%20leave%20tool%20states%20stale.%20%40coderabbitai%20caught%20the%20lifecycle%20gap%3A%20rebuild%20from%20history%2C%20send%20a%20fresh%20transcript%20snapshot%2C%20preserve%20completed%20results.%20Try%20it%20for%20sharper%20code%20reviews%20%F0%9F%90%87&url=https%3A%2F%2Fgithub.com%2Fagent-of-empires%2Fagent-of-empires%2Fpull%2F5182%23discussion_r4487747449)?\n\nThank you for using CodeRabbit!\n\n<!-- end of auto-generated comment: tweet message by coderabbit.ai -->\n\n<sub><i>You are interacting with an AI system.</i></sub>\n\n<!-- This is an auto-generated reply by CodeRabbit -->",
+      "html_url": "https://github.com/agent-of-empires/agent-of-empires/pull/5182#discussion_r4488218626",
+      "id": 4488218626,
+      "in_reply_to_id": 4487747449,
+      "user": "coderabbitai[bot]"
+    },
+    {
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n<details>\n<summary>Analysis chain</summary>\n<dl>\n<dd>\n<br>\n\nScript executed:\n\n```shell\n#!/bin/bash\nset -eu\nprintf '%s\\n' '--- Current revision ---'\ngit rev-parse HEAD\nprintf '%s\\n' '--- Applicable repository instructions ---'\nfor f in AGENTS.md src/AGENTS.md src/acp/AGENTS.md; do\n  if [ -f \"$f\" ]; then\n    printf '\\n--- %s ---\\n' \"$f\"\n    cat \"$f\"\n  fi\ndone\nprintf '\\n%s\\n' '--- Transcript symbol map ---'\nast-grep outline src/acp/transcript.rs --items all --match 'observe_prior|on_tool_updated|track_tool_start|metadata_after_prefix_completion_does_not_create_unpaired_start' || true\nprintf '\\n%s\\n' '--- Terminal state handling and regression ---'\nrg -n -C 8 'fn on_tool_updated|fn track_tool_start|fn metadata_after_prefix_completion_does_not_create_unpaired_start|Event::ToolCallCompleted \\{ tool_call_id, \\.\\. \\}' src/acp/transcript.rs\nprintf '\\n%s\\n' '--- Regression test body ---'\nline=$(rg -n 'fn metadata_after_prefix_completion_does_not_create_unpaired_start' src/acp/transcript.rs | cut -d: -f1 | head -n 1)\nif [ -n \"$line\" ]; then\n  end=$((line + 40))\n  sed -n \"${line},${end}p\" src/acp/transcript.rs\nfi\n```\n\nLength of output: 13339\n\n---\n\nScript executed:\n\n```shell\n#!/bin/bash\nset -eu\nfor f in MAINTAINERS.md CONTRIBUTING.md; do\n  if [ -f \"$f\" ]; then\n    printf '\\n--- %s: review and thread rules ---\\n' \"$f\"\n    rg -n -i -C 3 'review|thread|resolv|approval|agent|bot' \"$f\" || true\n  fi\ndone\nprintf '\\n%s\\n' '--- Current metadata guard ---'\nsed -n '622,657p' src/acp/transcript.rs\n```\n\nLength of output: 6141\n\n---\n\n</dd>\n</dl>\n</details>\n\n`@jerome-benoit` Thanks for the fix. I inspected `2cd3c861`. The terminal-state guard prevents a metadata update from creating an unpaired start. The regression test also covers a later explicit start that reuses the ID.\n\nI did not run the tests or verify current-head CI. Before merge, please confirm the required checks and code-owner approval. `CONTRIBUTING.md` reserves issue disposition to humans, so please have the assigned reviewer decide this thread.\n\n---\n\n<!-- This is an auto-generated comment: tweet message by coderabbit.ai -->\n\nIf you found this review helpful, would you consider giving us a shout-out on [X](https://twitter.com/intent/tweet?related=CodeRabbitAI&text=A%20metadata%20update%20could%20recreate%20a%20completed%20tool%20as%20%E2%80%9Crunning%E2%80%9D%20when%20history%20omitted%20it.%20%40coderabbitai%20caught%20the%20edge%20case%3B%20the%20fix%20preserves%20terminal%20state.%20Try%20CodeRabbit%20for%20sharper%20reviews%20%F0%9F%90%87&url=https%3A%2F%2Fgithub.com%2Fagent-of-empires%2Fagent-of-empires%2Fpull%2F5182%23discussion_r4487747443)?\n\nThank you for using CodeRabbit!\n\n<!-- end of auto-generated comment: tweet message by coderabbit.ai -->\n\n<sub><i>You are interacting with an AI system.</i></sub>\n\n<!-- This is an auto-generated reply by CodeRabbit -->",
+      "html_url": "https://github.com/agent-of-empires/agent-of-empires/pull/5182#discussion_r4488221065",
+      "id": 4488221065,
+      "in_reply_to_id": 4487747443,
+      "user": "coderabbitai[bot]"
+    },
+    {
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n<details>\n<summary>Analysis chain</summary>\n<dl>\n<dd>\n<br>\n\nScript executed:\n\n```shell\n#!/bin/bash\nset -eu\nprintf '%s\\n' '--- Current revision ---'\ngit rev-parse HEAD\nprintf '%s\\n' '--- Transcript outline ---'\nast-grep outline src/acp/transcript.rs --items all --match 'observe_prior|sweep_open_tools|orphan_output_clears_at_.*turn_endings' || true\nprintf '%s\\n' '--- Observed turn endings ---'\nrg -n -A13 -B3 'Event::Stopped \\{ \\.\\. \\}' src/acp/transcript.rs | head -n 45\nprintf '%s\\n' '--- Live turn-ending cleanup ---'\nrg -n -A32 -B3 'fn sweep_open_tools\\(' src/acp/transcript.rs\nprintf '%s\\n' '--- Regression tests ---'\nrg -n -A100 'fn orphan_output_clears_at_observed_turn_endings_without_stopped_rows\\(' src/acp/transcript.rs\nprintf '%s\\n' '--- Repository instructions about resolving review threads ---'\nfd -HI -t f '^AGENTS\\.md$' . | while IFS= read -r file; do\n  printf '\\n%s\\n' \"$file\"\n  rg -n -i -C2 'resolv(e|ing|ed).{0,80}(thread|comment)|human.{0,80}(resolv|thread)|thread.{0,80}(resolv|human)' \"$file\" || true\ndone\n```\n\nLength of output: 8882\n\n---\n\n</dd>\n</dl>\n</details>\n\n`@jerome-benoit` Thanks for the fix. I checked commit `2cd3c861`.\n\n`observe_prior` now clears orphaned buffered output at turn endings. `sweep_open_tools` clears it without emitting a stopped row, while preserving stopped rows for open tools. The regression tests cover both paths and ID reuse.\n\nI did not run the tests or verify CI independently.\n\n---\n\n<!-- This is an auto-generated comment: tweet message by coderabbit.ai -->\n\nIf you found this review helpful, would you consider giving us a shout-out on [X](https://twitter.com/intent/tweet?related=CodeRabbitAI&text=Orphaned%20tool%20output%20could%20leak%20into%20reused%20IDs.%20%40coderabbitai%20caught%20the%20edge%20case%3A%20clear%20buffers%20at%20turn%20end%20without%20emitting%20fake%20stopped%20rows.%20Try%20CodeRabbit%20for%20sharper%20reviews%20%F0%9F%90%87&url=https%3A%2F%2Fgithub.com%2Fagent-of-empires%2Fagent-of-empires%2Fpull%2F5182%23discussion_r4487747429)?\n\nThank you for using CodeRabbit!\n\n<!-- end of auto-generated comment: tweet message by coderabbit.ai -->\n\n\n\nReview thread resolved.\n\n<sub><i>You are interacting with an AI system.</i></sub>\n\n<!-- This is an auto-generated reply by CodeRabbit -->",
+      "html_url": "https://github.com/agent-of-empires/agent-of-empires/pull/5182#discussion_r4488236554",
+      "id": 4488236554,
+      "in_reply_to_id": 4487747429,
+      "user": "coderabbitai[bot]"
+    }
+  ],
+  "phase": "READY / AWAITING HUMAN CODEOWNER APPROVAL",
+  "queue": null,
+  "squash": null,
+  "next": "Human current-head/codeowner/last-push approval and merge decision, then guarded SQUASH/ALLGREEN queue. No successor promotion before actual merge and postmerge checks."
+}
