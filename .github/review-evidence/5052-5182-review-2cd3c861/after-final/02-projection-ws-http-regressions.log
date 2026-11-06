@@ -1,0 +1,45 @@
+   Compiling agent-of-empires v1.22.0 (/home/fraggle/src/agent-of-empires-git-worktrees/5052-5182-cursor-prefix-main431387c-20261105)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22m 33s
+────────────
+ Nextest run ID 459f4a51-1783-4cd9-9082-85786e5c8a75 with nextest profile: default
+    Starting 38 tests across 5 binaries (5565 tests skipped)
+        PASS [   0.014s] ( 1/38) agent-of-empires acp::transcript::tests::agent_message_chunks_split_on_a_new_message_id
+        PASS [   0.013s] ( 2/38) agent-of-empires acp::transcript::tests::agent_thought_chunks_fold_into_thinking_rows
+        PASS [   0.013s] ( 3/38) agent-of-empires acp::transcript::tests::ask_user_question_cards_are_suppressed_in_either_order
+        PASS [   0.015s] ( 4/38) agent-of-empires acp::transcript::tests::compaction_summary_row_is_keyed_by_compaction
+        PASS [   0.015s] ( 5/38) agent-of-empires acp::transcript::tests::empty_output_notice_needs_an_output_less_unsteered_turn
+        PASS [   0.015s] ( 6/38) agent-of-empires acp::transcript::tests::keyed_session_notice_is_replaced_in_place
+        PASS [   0.015s] ( 7/38) agent-of-empires acp::transcript::tests::metadata_after_prefix_completion_does_not_create_unpaired_start
+        PASS [   0.017s] ( 8/38) agent-of-empires acp::transcript::tests::notice_divider_and_control_events_render_per_event
+        PASS [   0.017s] ( 9/38) agent-of-empires acp::transcript::tests::observed_prefix_advances_watermark_for_every_event
+        PASS [   0.014s] (10/38) agent-of-empires acp::transcript::tests::observed_prefix_rejects_stale_stop_before_later_tool
+        PASS [   0.014s] (11/38) agent-of-empires acp::transcript::tests::observed_prior_chunks_carry_the_message_id_into_a_partial_fold
+        PASS [   0.017s] (12/38) agent-of-empires acp::transcript::tests::orphan_output_clears_at_live_turn_endings_without_stopped_rows
+        PASS [   0.016s] (13/38) agent-of-empires acp::transcript::tests::orphan_output_clears_at_observed_turn_endings_without_stopped_rows
+        PASS [   0.011s] (14/38) agent-of-empires acp::transcript::tests::partial_fold_keeps_elicitation_suppression
+        PASS [   0.012s] (15/38) agent-of-empires acp::transcript::tests::prefix_start_completion_emits_only_its_correlated_terminal
+        PASS [   0.013s] (16/38) agent-of-empires acp::transcript::tests::prefix_tool_lifecycle_retains_output_and_order_without_rendering_old_rows
+        PASS [   0.013s] (17/38) agent-of-empires acp::transcript::tests::prompts_append_keyed_rows_and_replays_are_dropped
+        PASS [   0.015s] (18/38) agent-of-empires acp::transcript::tests::repeated_starts_and_updates_merge_without_losing_richer_fields
+        PASS [   0.013s] (19/38) agent-of-empires acp::transcript::tests::tool_rows_pick_their_text_stay_unique_and_synthesize_late_starts
+        PASS [   0.012s] (20/38) agent-of-empires acp::transcript::tests::turn_endings_sweep_open_tools_once
+        PASS [   0.014s] (21/38) agent-of-empires server::acp_ws::tests::attention_payloads_are_session_scoped_and_kind_distinct
+        PASS [   0.014s] (22/38) agent-of-empires server::acp_ws::tests::connect_fold_covers_all_history_while_frames_stay_scoped_to_since
+        PASS [   0.021s] (23/38) agent-of-empires server::acp_ws::tests::control_fold_skips_events_the_drain_already_applied
+        PASS [   0.015s] (24/38) agent-of-empires server::acp_ws::tests::cursor_bootstrap_keeps_prefix_tools_for_stored_and_live_terminals
+        PASS [   0.021s] (25/38) agent-of-empires server::acp_ws::tests::fold_control_state_tracks_the_turn_flags_dispatch_reads
+        PASS [   0.027s] (26/38) agent-of-empires server::acp_ws::tests::lagged_broadcast_repairs_prefix_tool_lifecycle_without_replaying_starts_or_terminals
+        PASS [   0.024s] (27/38) agent-of-empires server::acp_ws::tests::lagged_broadcast_reports_gap_and_rebuilds_control_state
+        PASS [   0.014s] (28/38) agent-of-empires server::acp_ws::tests::reconnect_fold_marks_a_message_that_follows_the_cursor
+        PASS [   0.017s] (29/38) agent-of-empires server::acp_ws::tests::retained_notice_keeps_its_dismissal_identity_after_reconnect
+        PASS [   0.037s] (30/38) agent-of-empires server::api::acp::history::tests::acp_replay_view_rows_marks_a_message_that_continues_the_previous_page
+        PASS [   0.021s] (31/38) agent-of-empires server::api::acp::history::tests::acp_replay_view_rows_matches_frames_pagination
+        PASS [   0.020s] (32/38) agent-of-empires server::api::acp::history::tests::import_discovery_refuses_cityhall_and_read_only_before_listing
+        PASS [   0.093s] (33/38) agent-of-empires server::api::acp::history::tests::importable_sessions_lists_the_selected_profile_and_never_launches_a_denied_agent
+        PASS [   0.021s] (34/38) agent-of-empires server::api::acp::history::tests::importable_sessions_maps_list_errors
+        PASS [   0.013s] (35/38) agent-of-empires server::api::acp::history::tests::list_files_sorts_skips_and_caps
+        PASS [   0.028s] (36/38) agent-of-empires server::api::acp::history::tests::prior_message_marker_walks_back_through_batches
+        PASS [   0.031s] (37/38) agent-of-empires server::api::acp::history::tests::read_log_tail_windows_and_partial_lines
+        PASS [   0.017s] (38/38) agent-of-empires server::api::acp::history::tests::rows_page_reads_prior_history_only_before_an_identified_chunk
+────────────
+     Summary [   0.741s] 38 tests run: 38 passed, 5565 skipped
