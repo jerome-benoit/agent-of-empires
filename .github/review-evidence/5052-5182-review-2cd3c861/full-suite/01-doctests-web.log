@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+   Doc-tests agent_of_empires
+
+running 1 test
+test src/task_util.rs - task_util::spawn_supervised (line 24) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
