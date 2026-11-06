@@ -1,0 +1,693 @@
+{
+  "phase": "READY / AWAITING HUMAN REVIEW",
+  "active_pr": 5182,
+  "head": "db78a7663e17a1b285e0e1119d15166b55c768ac",
+  "base_main": "431387c0318e1421a3e5dd49449fc9c9c192da5a",
+  "proof_oid": "c911a0ac4eef4f9e452d44e6d67f82f05dcd35c9",
+  "source_signature": {
+    "isValid": true,
+    "wasSignedByGitHub": true,
+    "state": "VALID",
+    "signer": {
+      "login": "web-flow"
+    }
+  },
+  "current_head_checks": [
+    {
+      "bucket": "pass",
+      "link": "https://app.codecov.io/gh/agent-of-empires/agent-of-empires/pull/5182",
+      "name": "codecov/patch",
+      "state": "SUCCESS",
+      "workflow": ""
+    },
+    {
+      "bucket": "pass",
+      "link": "https://app.codecov.io/gh/agent-of-empires/agent-of-empires/pull/5182",
+      "name": "codecov/project",
+      "state": "SUCCESS",
+      "workflow": ""
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42134101532/job/127617743473",
+      "name": "Lint PR title",
+      "state": "SUCCESS",
+      "workflow": "PR Title Check"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42134101620/job/127617743348",
+      "name": "check-template",
+      "state": "SUCCESS",
+      "workflow": "PR Template Check"
+    },
+    {
+      "bucket": "skipping",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42134101620/job/127617745881",
+      "name": "close-stale",
+      "state": "SKIPPED",
+      "workflow": "PR Template Check"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829909/job/127616816027",
+      "name": "Docs",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829909/job/127616815552",
+      "name": "Nix Build Web",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829909/job/127616815541",
+      "name": "Lint (web)",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "skipping",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829875/job/127616866178",
+      "name": "Cargo Test (macos)",
+      "state": "SKIPPED",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "skipping",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133825792/job/127616846735",
+      "name": "Check and queue auto-merge",
+      "state": "SKIPPED",
+      "workflow": "Dependabot Auto-Merge"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829875/job/127616815502",
+      "name": "Cargo Test (linux, web-e2e)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829909/job/127616815431",
+      "name": "Format",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829875/job/127616815555",
+      "name": "Cargo Test (linux, bare-core)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829909/job/127616815489",
+      "name": "Clippy",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829909/job/127616815472",
+      "name": "Nix Build",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829909/job/127616815477",
+      "name": "Script Self-Tests",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829875/job/127616815599",
+      "name": "Playwright (live)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829875/job/127616815592",
+      "name": "Bundle Analysis",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829875/job/127616815612",
+      "name": "Playwright (mocked)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829909/job/127616815528",
+      "name": "Supply Chain",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829875/job/127616815490",
+      "name": "Vitest",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829909/job/127616815315",
+      "name": "Nix Eval",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829909/job/127616815108",
+      "name": "MSRV",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829875/job/127616815143",
+      "name": "macOS gate",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829909/job/127616815430",
+      "name": "Website Build",
+      "state": "SUCCESS",
+      "workflow": "CI"
+    },
+    {
+      "bucket": "skipping",
+      "link": "https://coderabbit.ai?utm_source=cr_app&utm_medium=github",
+      "name": "CodeRabbit",
+      "state": "SKIPPED",
+      "workflow": ""
+    },
+    {
+      "bucket": "pass",
+      "link": "https://github.com/agent-of-empires/agent-of-empires/actions/runs/42133829875/job/127616815445",
+      "name": "Cargo Test (linux, core-rest)",
+      "state": "SUCCESS",
+      "workflow": "Tests"
+    }
+  ],
+  "required_names": [
+    "Cargo Test (linux, bare-core)",
+    "Cargo Test (linux, core-rest)",
+    "Cargo Test (linux, web-e2e)",
+    "Cargo Test (macos)",
+    "Clippy",
+    "Docs",
+    "Format",
+    "Nix Eval",
+    "Playwright (live)",
+    "Playwright (mocked)",
+    "Supply Chain",
+    "Vitest",
+    "Website Build"
+  ],
+  "mandatory_success": 12,
+  "mandatory_policy_valid_skip": "Cargo Test (macos), successful macOS gate under unchanged path policy; not executed platform coverage",
+  "policy": [
+    {
+      "type": "non_fast_forward",
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "agent-of-empires/agent-of-empires",
+      "ruleset_id": 11713688
+    },
+    {
+      "type": "deletion",
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "agent-of-empires/agent-of-empires",
+      "ruleset_id": 11713688
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "Playwright (live)"
+          },
+          {
+            "context": "Playwright (mocked)",
+            "integration_id": 15368
+          },
+          {
+            "context": "Format"
+          },
+          {
+            "context": "Clippy"
+          },
+          {
+            "context": "Supply Chain"
+          },
+          {
+            "context": "Docs"
+          },
+          {
+            "context": "Nix Eval",
+            "integration_id": 15368
+          },
+          {
+            "context": "Website Build"
+          },
+          {
+            "context": "Vitest",
+            "integration_id": 15368
+          },
+          {
+            "context": "Cargo Test (macos)"
+          },
+          {
+            "context": "Cargo Test (linux, web-e2e)",
+            "integration_id": 15368
+          },
+          {
+            "context": "Cargo Test (linux, core-rest)",
+            "integration_id": 15368
+          },
+          {
+            "context": "Cargo Test (linux, bare-core)",
+            "integration_id": 15368
+          }
+        ]
+      },
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "agent-of-empires/agent-of-empires",
+      "ruleset_id": 11713688
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
+        "require_code_owner_review": true,
+        "dismissal_restriction": {
+          "enabled": false,
+          "allowed_actors": []
+        },
+        "require_last_push_approval": true,
+        "required_review_thread_resolution": false,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": [
+          "squash"
+        ]
+      },
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "agent-of-empires/agent-of-empires",
+      "ruleset_id": 11713688
+    },
+    {
+      "type": "merge_queue",
+      "parameters": {
+        "merge_method": "SQUASH",
+        "max_entries_to_build": 5,
+        "min_entries_to_merge": 1,
+        "max_entries_to_merge": 5,
+        "min_entries_to_merge_wait_minutes": 5,
+        "grouping_strategy": "ALLGREEN",
+        "check_response_timeout_minutes": 120
+      },
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "agent-of-empires/agent-of-empires",
+      "ruleset_id": 11713688
+    }
+  ],
+  "before_ready": {
+    "data": {
+      "repository": {
+        "defaultBranchRef": {
+          "target": {
+            "oid": "431387c0318e1421a3e5dd49449fc9c9c192da5a"
+          }
+        },
+        "p5182": {
+          "number": 5182,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "db78a7663e17a1b285e0e1119d15166b55c768ac",
+          "mergeable": "MERGEABLE",
+          "mergeStateStatus": "BLOCKED",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5058": {
+          "number": 5058,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "7ba8ab387d20685ddd56dc8317babf85b4bc820a",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5059": {
+          "number": 5059,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "42ef2d94ca342470afc49d6dddb2d07340458f19",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5083": {
+          "number": 5083,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "fa5040711b62f9638b2d45aa8c7769cee2983972",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5142": {
+          "number": 5142,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "997ad12bec06f96b8a4aa74a050c9ad8cd70aba5",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5177": {
+          "number": 5177,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "0a0dd8ac88186be0eef898d95f6ea0d2f2a55ecb",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5368": {
+          "number": 5368,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "440449ce665889527f1037ff043dd9a9a9f831ec",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5373": {
+          "number": 5373,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "1685e5b31763b31c87b78b1901eafda3b702489e",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5383": {
+          "number": 5383,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "a90797ba4aab371137e1b388f121c44018ae5383",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        }
+      }
+    }
+  },
+  "after_ready": {
+    "data": {
+      "repository": {
+        "defaultBranchRef": {
+          "target": {
+            "oid": "431387c0318e1421a3e5dd49449fc9c9c192da5a"
+          }
+        },
+        "p5182": {
+          "number": 5182,
+          "state": "OPEN",
+          "isDraft": false,
+          "headRefOid": "db78a7663e17a1b285e0e1119d15166b55c768ac",
+          "mergeable": "MERGEABLE",
+          "mergeStateStatus": "BLOCKED",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 2
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5058": {
+          "number": 5058,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "7ba8ab387d20685ddd56dc8317babf85b4bc820a",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5059": {
+          "number": 5059,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "42ef2d94ca342470afc49d6dddb2d07340458f19",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5083": {
+          "number": 5083,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "fa5040711b62f9638b2d45aa8c7769cee2983972",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5142": {
+          "number": 5142,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "997ad12bec06f96b8a4aa74a050c9ad8cd70aba5",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5177": {
+          "number": 5177,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "0a0dd8ac88186be0eef898d95f6ea0d2f2a55ecb",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5368": {
+          "number": 5368,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "440449ce665889527f1037ff043dd9a9a9f831ec",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5373": {
+          "number": 5373,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "1685e5b31763b31c87b78b1901eafda3b702489e",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        },
+        "p5383": {
+          "number": 5383,
+          "state": "OPEN",
+          "isDraft": true,
+          "headRefOid": "a90797ba4aab371137e1b388f121c44018ae5383",
+          "mergeable": "CONFLICTING",
+          "mergeStateStatus": "DIRTY",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "reviewRequests": {
+            "totalCount": 0
+          },
+          "reviews": {
+            "totalCount": 0
+          },
+          "reviewThreads": {
+            "totalCount": 0
+          }
+        }
+      }
+    }
+  },
+  "routed_by_codeowners": {
+    "teams": [
+      "acp"
+    ],
+    "users": [
+      "cwrau"
+    ],
+    "manual_review_requests": false
+  },
+  "human_reviews": [],
+  "blocking_threads": [],
+  "queue_sha": null,
+  "squash_sha": null,
+  "successor_ready_allowed": false,
+  "next": "Wait for human/codeowner review. Author answers questions; assistant prepares evidenced corrections. Same slot through revisions, current-head approval, guarded SQUASH/ALLGREEN queue and confirmed squash/post-merge checks. No auto-merge enabled.",
+  "watching": "Event-driven resumable checkpoint, no unattended/background watcher promised."
+}
