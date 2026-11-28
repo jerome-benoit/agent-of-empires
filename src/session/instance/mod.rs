@@ -45,7 +45,9 @@ pub(crate) use container::{
 };
 mod execution;
 pub(crate) use capture_slot::{Held, Unserved};
-pub(crate) use execution::{ActiveExecution, CaptureContext, ConversationKey, ConversationState};
+pub(crate) use execution::{
+    ActiveExecution, CaptureContext, ConversationKey, ConversationState, SandboxLaunch,
+};
 pub use execution::{
     ConversationBinding, ConversationProvenance, ExecutionBinding, ExecutionLocation,
 };
@@ -86,6 +88,7 @@ mod types;
 
 pub(crate) use accessors::{resolved_agent_for, UNBOUND_STORE_HINT};
 pub use flags::{SandboxLoginRequired, SandboxLoginUnsupported, SessionBucket, StartBlocked};
+pub(crate) use lifecycle::{lifecycle_busy_reason, lifecycle_in_progress_reason};
 pub use lifecycle::{LifecycleOperation, LifecycleReservation, LifecycleReservationError};
 
 #[cfg(test)]
@@ -834,6 +837,10 @@ pub struct Instance {
     pub(crate) resume_binding: Option<ConversationBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) active_execution: Option<ActiveExecution>,
+    /// Set in place of `active_execution` by a sandboxed launch that resolved no execution. A row
+    /// without it is unmarked: a restart stops nothing in its container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) sandbox_launch: Option<SandboxLaunch>,
     /// Poller observations must carry this through the storage CAS to update the sid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) omp_capture_generation: Option<String>,
@@ -923,8 +930,10 @@ pub struct Instance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch_override: Option<String>,
 
-    /// Position within its group under `SortOrder::Custom`. `None` sorts first.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Place in the shared Custom order, derived by the Daemon from its workspace's
+    /// position in `workspace-ordering.json` and carried by the runtime snapshot. Never
+    /// stored on the row. `None` sorts first, newest first.
+    #[serde(skip)]
     pub sort_index: Option<u32>,
     /// How this session is rendered: `Structured` (ACP native rendering) or
     /// `Terminal` (raw tmux pane). When `Structured`, aoe spawns an ACP agent

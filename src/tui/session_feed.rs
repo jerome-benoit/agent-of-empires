@@ -265,6 +265,46 @@ enum CommandRequest {
     Session { id: String, request: SessionRequest },
     Create(Box<CreateSessionBody>),
     Namespace(crate::daemon::NamespaceMutation),
+    SidebarView(crate::daemon::SidebarViewPatch),
+    WorkspaceOrdering(crate::daemon::WorkspaceOrderingPatch),
+}
+
+/// A pick queued behind the write in flight, bound to the lease it was admitted under.
+struct QueuedSidebarView {
+    patch: crate::daemon::SidebarViewPatch,
+    grant: Arc<AtomicU64>,
+    lease: u64,
+}
+
+enum PendingWrite {
+    Sent(tokio::sync::oneshot::Receiver<Result<CommandReply, CommandFailure>>),
+    Committed(RuntimeCursor),
+}
+
+/// Why a shared-order or sidebar-view write did not settle.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ViewWriteFailure {
+    /// The Daemon refused it.
+    Refused(String),
+    /// The reply was lost, so it may have committed.
+    Unconfirmed(String),
+}
+
+impl std::fmt::Display for ViewWriteFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Refused(message) | Self::Unconfirmed(message) => f.write_str(message),
+        }
+    }
+}
+
+/// How a shared-order or sidebar-view write the Daemon accepted settled.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ViewWriteSettled {
+    /// A snapshot at or after this receipt is applied.
+    Applied(RuntimeCursor),
+    /// A replacement Daemon's snapshot arrived first, so the receipt is unconfirmed.
+    Superseded,
 }
 
 struct SessionCommand {
@@ -297,6 +337,43 @@ impl CapturedRequest {
                 }
             })
             .map_err(CommandFailure::Rejected);
+        assert!(self.reply.send(reply).is_ok());
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) enum ViewWrite {
+    Ordering(crate::daemon::WorkspaceOrderingPatch),
+    SidebarView(crate::daemon::SidebarViewPatch),
+}
+#[cfg(test)]
+pub(crate) struct HeldReply(tokio::sync::oneshot::Sender<Result<CommandReply, CommandFailure>>);
+#[cfg(test)]
+impl HeldReply {
+    /// Ends the request as if its reply were lost.
+    pub fn lose(self) {
+        drop(self.0);
+    }
+}
+#[cfg(test)]
+pub(crate) struct CapturedViewWrite {
+    pub write: ViewWrite,
+    reply: tokio::sync::oneshot::Sender<Result<CommandReply, CommandFailure>>,
+}
+#[cfg(test)]
+impl CapturedViewWrite {
+    pub fn finish(self, result: Result<RuntimeCursor, String>) -> ViewWrite {
+        let reply = result
+            .map(CommandReply::Mutation)
+            .map_err(CommandFailure::Rejected);
+        assert!(self.reply.send(reply).is_ok());
+        self.write
+    }
+
+    /// Ends the write as if its reply were lost after the Daemon admitted it.
+    pub fn finish_unconfirmed(self, message: &str) {
+        let reply = Err(CommandFailure::Unknown(message.into()));
         assert!(self.reply.send(reply).is_ok());
     }
 }
@@ -583,6 +660,14 @@ async fn run_queued_command(
             CommandRequest::Namespace(mutation) => run_namespace(client, mutation, epoch)
                 .await
                 .map(CommandReply::Namespace),
+            CommandRequest::SidebarView(patch) => client
+                .set_sidebar_view(&patch, epoch)
+                .await
+                .map(CommandReply::Mutation),
+            CommandRequest::WorkspaceOrdering(patch) => client
+                .set_workspace_ordering(&patch, epoch)
+                .await
+                .map(CommandReply::Mutation),
             CommandRequest::Session { id, request } => match request {
                 SessionRequest::SmartRename => {
                     client
@@ -784,6 +869,11 @@ pub struct SessionFeed {
     pending: HashMap<String, PendingCommand>,
     pending_creations: HashMap<String, PendingCreation>,
     pending_namespace: Option<PendingNamespace>,
+    pending_sidebar_view: Option<PendingWrite>,
+    /// Picks made while a sidebar view write is in flight, sent once it settles so its
+    /// outcome is still reported.
+    queued_sidebar_view: Option<QueuedSidebarView>,
+    pending_ordering: Option<PendingWrite>,
     namespace_quarantined: bool,
     row_outcomes: Vec<(String, SessionCommandOutcome)>,
     bulk_queue: VecDeque<(String, SessionRequest)>,
@@ -820,6 +910,9 @@ impl SessionFeed {
             pending: HashMap::new(),
             pending_creations: HashMap::new(),
             pending_namespace: None,
+            pending_sidebar_view: None,
+            queued_sidebar_view: None,
+            pending_ordering: None,
             namespace_quarantined: false,
             row_outcomes: Vec::new(),
             applied: None,
@@ -1144,6 +1237,159 @@ impl SessionFeed {
         );
         self.namespace_quarantined = false;
         Ok(())
+    }
+
+    /// The current lease, when the Daemon admits writes under it.
+    fn admitted_lease(&self) -> anyhow::Result<u64> {
+        anyhow::ensure!(self.commands.is_some(), "the Daemon is not connected");
+        let lease = self.grant.load(Ordering::SeqCst);
+        anyhow::ensure!(lease & 1 == 1, "the Daemon is read-only or unhealthy");
+        Ok(lease)
+    }
+
+    fn send_view_write(&self, request: CommandRequest, lease: u64) -> anyhow::Result<PendingWrite> {
+        let commands = self
+            .commands
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("the Daemon is not connected"))?;
+        let (result, receiver) = tokio::sync::oneshot::channel();
+        commands
+            .try_send(SessionCommand {
+                request,
+                lease,
+                native: None,
+                result,
+            })
+            .map_err(|_| anyhow::anyhow!("the runtime command queue is unavailable"))?;
+        Ok(PendingWrite::Sent(receiver))
+    }
+
+    /// Send a sidebar grouping or sort change, or queue it behind the one in flight. Until
+    /// they resolve, snapshots keep the local choice rather than reverting it to the value
+    /// from before the write.
+    pub(crate) fn submit_sidebar_view(
+        &mut self,
+        patch: crate::daemon::SidebarViewPatch,
+    ) -> anyhow::Result<()> {
+        let lease = self.admitted_lease()?;
+        if self.pending_sidebar_view.is_none() {
+            self.pending_sidebar_view =
+                Some(self.send_view_write(CommandRequest::SidebarView(patch), lease)?);
+            return Ok(());
+        }
+        // A pick admitted under an earlier lease is stale; this one replaces it.
+        let queued = self
+            .queued_sidebar_view
+            .take()
+            .filter(|queued| Arc::ptr_eq(&queued.grant, &self.grant) && queued.lease == lease)
+            .map_or_else(Default::default, |queued| queued.patch);
+        self.queued_sidebar_view = Some(QueuedSidebarView {
+            patch: crate::daemon::SidebarViewPatch {
+                group_by: patch.group_by.or(queued.group_by),
+                sort: patch.sort.or(queued.sort),
+            },
+            grant: self.grant.clone(),
+            lease,
+        });
+        Ok(())
+    }
+
+    /// Replace the shared Custom order of rows, of Repository headers, or both.
+    pub(crate) fn submit_workspace_ordering(
+        &mut self,
+        patch: crate::daemon::WorkspaceOrderingPatch,
+    ) -> anyhow::Result<()> {
+        let lease = self.admitted_lease()?;
+        self.pending_ordering =
+            Some(self.send_view_write(CommandRequest::WorkspaceOrdering(patch), lease)?);
+        Ok(())
+    }
+
+    pub(crate) fn ordering_pending(&self) -> bool {
+        self.pending_ordering.is_some()
+    }
+
+    pub(crate) fn sidebar_view_pending(&self) -> bool {
+        self.pending_sidebar_view.is_some()
+    }
+
+    /// The outcome of the oldest sidebar view write once its snapshot, or one from a
+    /// replacement Daemon, is applied, or its failure. `None` while it is in flight or when
+    /// none was sent. A settled write sends the queued picks, if any.
+    pub(crate) fn drain_sidebar_view_result(&mut self) -> Option<Result<ViewWriteSettled, String>> {
+        let mut slot = self.pending_sidebar_view.take();
+        let result = self.poll_write(&mut slot);
+        self.pending_sidebar_view = slot;
+        let result = result?.map_err(|failure| failure.to_string());
+        let Some(queued) = self.queued_sidebar_view.take() else {
+            return Some(result);
+        };
+        let sent = if Arc::ptr_eq(&queued.grant, &self.grant)
+            && self.grant.load(Ordering::SeqCst) == queued.lease
+        {
+            self.send_view_write(CommandRequest::SidebarView(queued.patch), queued.lease)
+                .map(|write| self.pending_sidebar_view = Some(write))
+        } else {
+            Err(anyhow::anyhow!(
+                "the Daemon connection changed before the pick was sent"
+            ))
+        };
+        match (result, sent) {
+            (result, Ok(())) => Some(result),
+            (Ok(_), Err(error)) => Some(Err(error.to_string())),
+            (Err(failure), Err(error)) => Some(Err(format!("{failure}; {error}"))),
+        }
+    }
+
+    /// [`Self::drain_sidebar_view_result`] for the shared Custom order, which tells a
+    /// superseded receipt apart so the move it confirms does not continue.
+    pub(crate) fn drain_workspace_ordering_result(
+        &mut self,
+    ) -> Option<Result<ViewWriteSettled, ViewWriteFailure>> {
+        let mut slot = self.pending_ordering.take();
+        let result = self.poll_write(&mut slot);
+        self.pending_ordering = slot;
+        result
+    }
+
+    fn poll_write(
+        &self,
+        slot: &mut Option<PendingWrite>,
+    ) -> Option<Result<ViewWriteSettled, ViewWriteFailure>> {
+        let failure = match slot.as_mut()? {
+            PendingWrite::Sent(receiver) => match receiver.try_recv() {
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => return None,
+                Ok(Ok(reply)) => {
+                    *slot = Some(PendingWrite::Committed(reply.cursor().clone()));
+                    return self.poll_write(slot);
+                }
+                Ok(Err(
+                    CommandFailure::Rejected(message) | CommandFailure::CreateHookFailed(message),
+                )) => ViewWriteFailure::Refused(message),
+                Ok(Err(CommandFailure::Unknown(message))) => ViewWriteFailure::Unconfirmed(message),
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    ViewWriteFailure::Unconfirmed("the runtime connection closed".to_string())
+                }
+            },
+            PendingWrite::Committed(cursor) => {
+                // A replacement Daemon's snapshot can never confirm the old epoch's receipt.
+                let replaced = self
+                    .applied
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.cursor.epoch != cursor.epoch);
+                let settled = if replaced {
+                    ViewWriteSettled::Superseded
+                } else if self.receipt_applied(cursor) {
+                    ViewWriteSettled::Applied(cursor.clone())
+                } else {
+                    return None;
+                };
+                *slot = None;
+                return Some(Ok(settled));
+            }
+        };
+        *slot = None;
+        Some(Err(failure))
     }
 
     pub(crate) fn submit_request(
@@ -2314,6 +2560,28 @@ impl SessionFeed {
         }
     }
 
+    /// Captures shared-order and sidebar-view writes; any other command panics.
+    #[cfg(test)]
+    pub(crate) fn view_write_driver_for_test(
+        &mut self,
+    ) -> impl FnMut() -> Option<CapturedViewWrite> {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<SessionCommand>(COMMAND_CAPACITY);
+        self.commands = Some(sender);
+        set_grant(&self.grant, true);
+        move || {
+            let command = receiver.try_recv().ok()?;
+            let write = match command.request {
+                CommandRequest::WorkspaceOrdering(patch) => ViewWrite::Ordering(patch),
+                CommandRequest::SidebarView(patch) => ViewWrite::SidebarView(patch),
+                _ => panic!("expected a shared-order or sidebar-view write"),
+            };
+            Some(CapturedViewWrite {
+                write,
+                reply: command.result,
+            })
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn namespace_driver_for_test(
         &mut self,
@@ -2341,6 +2609,44 @@ impl SessionFeed {
         }
     }
 
+    /// Takes each namespace request without replying; dropping its reply loses the outcome.
+    #[cfg(test)]
+    pub(crate) fn namespace_capture_for_test(
+        &mut self,
+    ) -> impl FnMut() -> Option<(crate::daemon::NamespaceMutation, HeldReply)> {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<SessionCommand>(COMMAND_CAPACITY);
+        self.commands = Some(sender);
+        set_grant(&self.grant, true);
+        set_grant(&self.native_grant, true);
+        move || {
+            let command = receiver.try_recv().ok()?;
+            let CommandRequest::Namespace(request) = command.request else {
+                panic!("expected a namespace command");
+            };
+            Some((request, HeldReply(command.result)))
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn sidebar_view_driver_for_test(
+        &mut self,
+    ) -> impl FnMut(Result<RuntimeCursor, String>) -> Option<crate::daemon::SidebarViewPatch> {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<SessionCommand>(COMMAND_CAPACITY);
+        self.commands = Some(sender);
+        set_grant(&self.grant, true);
+        move |reply| {
+            let command = receiver.try_recv().ok()?;
+            let CommandRequest::SidebarView(patch) = command.request else {
+                panic!("expected a sidebar view command");
+            };
+            let reply = reply
+                .map(CommandReply::Mutation)
+                .map_err(CommandFailure::Rejected);
+            assert!(command.result.send(reply).is_ok());
+            Some(patch)
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn publish_for_test(&self, result: SessionFeedResult) {
         self.sender.send_replace(Some(result));
@@ -2357,6 +2663,13 @@ impl SessionFeed {
         self.applied
             .as_ref()
             .map_or(2, |snapshot| snapshot.cursor.revision + 1)
+    }
+
+    /// What a reconnect leaves behind: no applied snapshot until the new connection's first.
+    #[cfg(test)]
+    pub(crate) fn forget_applied_for_test(&mut self) {
+        (self.sender, self.receiver) = tokio::sync::watch::channel(None);
+        self.applied = None;
     }
 
     #[cfg(test)]
@@ -2397,7 +2710,10 @@ impl SessionFeed {
                 sessions: vec![row],
                 profiles: vec![],
                 workspace_ordering: vec![],
+                placed_workspaces: vec![],
+                repository_order: vec![],
                 global_projects: vec![],
+                sidebar_view: Default::default(),
             },
         }));
         let (commands, requests) = tokio::sync::mpsc::channel(COMMAND_CAPACITY);
@@ -3283,7 +3599,10 @@ mod tests {
                 sessions: vec![],
                 profiles: vec![],
                 workspace_ordering: vec![],
+                placed_workspaces: vec![],
+                repository_order: vec![],
                 global_projects: vec![],
+                sidebar_view: Default::default(),
             },
         })
     }

@@ -217,7 +217,13 @@ impl Instance {
                 return Err(cause.into());
             }
         };
-        self.finish_removed_runtime_cleanup(processes, removed_pane)
+        self.finish_removed_runtime_cleanup(processes, removed_pane)?;
+        if self.is_sandboxed() {
+            if let Err(error) = self.stop_container_launch() {
+                tracing::warn!(target: "session.lifecycle", session = %self.id, error = %format_args!("{error:#}"), "container stop failed before restart");
+            }
+        }
+        Ok(())
     }
 
     fn remove_captured_runtime_locked(
@@ -287,6 +293,31 @@ impl Instance {
         let processes = self.remove_captured_runtime_locked(&probe.tmux_session, pane, None)?;
         self.finish_removed_runtime_cleanup(processes, true)?;
         self.release_scope()
+    }
+
+    /// Stops what the Session's current launch runs in its container, found by the launch id
+    /// its execution carries, else the record a launch with no execution left.
+    fn stop_container_launch(&self) -> Result<()> {
+        let (launch_id, container) = match (&self.active_execution, &self.sandbox_launch) {
+            (Some(active), _) => match active.container.as_ref() {
+                Some(container) => (active.launch_id.as_str(), container),
+                None => return Ok(()),
+            },
+            (None, Some(launch)) => (launch.launch_id.as_str(), &launch.container),
+            (None, None) => return Ok(()),
+        };
+        crate::containers::launch_stop::stop(container, launch_id).with_context(|| {
+            let runtime = container
+                .runtime
+                .program
+                .file_name()
+                .map_or("docker".into(), |name| name.to_string_lossy());
+            let name = &container.name;
+            format!(
+                "the Agent's old processes may still be running in container {name}; restart the \
+                 Session to stop them, or stop the container with `{runtime} stop {name}`"
+            )
+        })
     }
 
     pub(crate) fn kill_clean_in(&self, storage: &dyn crate::session::SessionStore) -> Result<u64> {
@@ -760,6 +791,128 @@ mod tests {
         assert!(crate::process::process_birth_is_live(pid, &birth).unwrap());
         assert_eq!(releases.get(), 0);
     }
+    /// Every sandboxed restart stops its launch in the container, found by its execution or by
+    /// the record a launch with no execution left, also when its pane already died (the relaunch
+    /// of a remain-on-exit pane); a failed stop doesn't block the restart, and an unmarked launch
+    /// execs nothing.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[serial_test::serial]
+    fn a_sandboxed_restart_stops_its_launch_in_the_container() {
+        use crate::tmux::test_helpers::{
+            only_pane_id, pane_field, tmux_available, TmuxTestSession,
+        };
+
+        let bin = tempfile::tempdir().unwrap();
+        let _home = crate::session::test_support::isolate_home(bin.path());
+        let mut inst = Instance::new("sandboxed restart", "/tmp/aoe-sandboxed-restart");
+        inst.tool = "claude".into();
+        inst.sandbox_info = Some(crate::session::SandboxInfo {
+            provider: None,
+            enabled: true,
+            container_id: None,
+            image: "test:latest".to_string(),
+            container_name: "aoe-test".to_string(),
+            extra_env: None,
+            custom_instruction: None,
+            before_start_env: Vec::new(),
+            before_start_hook_env: Vec::new(),
+            container_workdir: None,
+        });
+        let tmux = tmux_available();
+        let session = inst.tmux_session().unwrap().name().to_owned();
+        let _pane = TmuxTestSession::from_name(&session);
+        for (record, name, tail, dead_pane) in [
+            ("execution", "stops", "echo 'survived 0'", false),
+            ("sandbox_launch", "recorded", "echo 'survived 0'", false),
+            ("execution", "fails", "exit 1", false),
+            ("execution", "dead-pane", "echo 'survived 0'", true),
+        ] {
+            if dead_pane {
+                if !tmux {
+                    continue;
+                }
+                let tmux_ok = |args: &[&str]| {
+                    assert!(crate::tmux::tmux_command()
+                        .args(args)
+                        .output()
+                        .unwrap()
+                        .status
+                        .success());
+                };
+                tmux_ok(&[
+                    "-f",
+                    "/dev/null",
+                    "new-session",
+                    "-d",
+                    "-s",
+                    &session,
+                    "exec /bin/sleep 60",
+                ]);
+                let pane = only_pane_id(&session);
+                tmux_ok(&["set-option", "-t", &session, "remain-on-exit", "on"]);
+                tmux_ok(&["respawn-pane", "-k", "-t", &pane, "exit 17"]);
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                while pane_field(&pane, "#{pane_dead}") != "1" {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "fixture pane did not exit"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+            }
+            let _ = std::fs::remove_file(bin.path().join("argv"));
+            let container = crate::containers::launch_stop::fake_container(bin.path(), name, tail);
+            (inst.active_execution, inst.sandbox_launch) = match record {
+                "execution" => (
+                    Some(ActiveExecution {
+                        launch_id: "launch-2".into(),
+                        binding: crate::session::ExecutionBinding {
+                            agent: "claude".into(),
+                            stores: Vec::new(),
+                            configuration: Vec::new(),
+                            cwd: "/workspace".into(),
+                            cwd_filesystem: "container".into(),
+                            filesystem: "container".into(),
+                            exported_default_store: None,
+                        },
+                        capture: None,
+                        container: Some(container),
+                    }),
+                    None,
+                ),
+                _ => (
+                    None,
+                    Some(super::super::SandboxLaunch {
+                        launch_id: "launch-2".into(),
+                        container,
+                    }),
+                ),
+            };
+            let target = inst.capture_revival_target().unwrap();
+            inst.kill_for_revival_locked(target.as_ref()).unwrap();
+            let argv = crate::containers::launch_stop::recorded_argv(bin.path());
+            assert_eq!(
+                argv[4..],
+                [
+                    crate::containers::launch_stop::STOP_SCRIPT,
+                    "sh",
+                    "launch-2",
+                    "/proc"
+                ],
+                "{name}"
+            );
+            if dead_pane {
+                assert!(!inst.tmux_session().unwrap().exists_live(), "{name}");
+            }
+        }
+
+        std::fs::remove_file(bin.path().join("argv")).unwrap();
+        (inst.active_execution, inst.sandbox_launch) = (None, None);
+        inst.kill_for_revival_locked(None).unwrap();
+        assert!(!bin.path().join("argv").exists());
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     #[serial_test::serial]

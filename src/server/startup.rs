@@ -804,7 +804,7 @@ pub(crate) async fn start_server(
         .map(|listener| listener.local_addr().map(|addr| addr.port()))
         .transpose()?
         .unwrap_or(0);
-    let socket_path = crate::daemon::transport::local_socket_path()?;
+    let socket_path = crate::daemon::host_transport::local_socket_path()?;
     let (unix_listener, _socket_lease) = super::peer::bind_private(&socket_path).await?;
 
     {
@@ -1085,6 +1085,7 @@ pub(crate) async fn start_server(
         profile_namespace: Arc::new(RwLock::new(())),
         publication: Arc::new(RwLock::new(())),
         reload_lane: tokio::sync::Mutex::new(()),
+        sidebar_view_lane: Arc::new(tokio::sync::Mutex::new(())),
         canonical_metadata: RwLock::new(canonical_metadata),
         canonical_health: RwLock::new(canonical_health),
         canonical_diagnostics: std::sync::RwLock::new(canonical_diagnostics),

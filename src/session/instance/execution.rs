@@ -376,6 +376,14 @@ pub(crate) struct ActiveExecution {
     pub(crate) container: Option<crate::containers::ContainerExecutionSnapshot>,
 }
 
+/// A sandboxed launch that resolved no native execution: the launch id its exec exported as
+/// its marker, and the container it ran in, so a restart can stop what it left there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct SandboxLaunch {
+    pub(crate) launch_id: String,
+    pub(crate) container: crate::containers::ContainerExecutionSnapshot,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum CaptureContext {
     Hooks(PathBuf),
@@ -5391,7 +5399,7 @@ sandbox = "unsupported"
                 .err()
                 .expect("invalid Pi target must refuse");
             assert_eq!(
-                ManagedResumeCause::from_error(&error),
+                super::super::resume::managed_resume_cause(&error),
                 expected,
                 "{error:#}"
             );
@@ -5417,7 +5425,7 @@ sandbox = "unsupported"
             .err()
             .expect("explicit Pi target must refuse");
         assert_eq!(
-            ManagedResumeCause::from_error(&error),
+            super::super::resume::managed_resume_cause(&error),
             ManagedResumeCause::PiTranscriptBindingRequired
         );
         assert!(!error.is::<super::super::ManagedResumeRefused>());

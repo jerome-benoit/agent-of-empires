@@ -400,7 +400,9 @@ pub(crate) struct CanonicalMetadata {
     pub default_profile: String,
     pub profiles: Vec<crate::daemon::ProfileSnapshot>,
     pub workspace_ordering: Vec<String>,
+    pub repository_order: Vec<String>,
     pub global_projects: Vec<crate::daemon::ProjectResponse>,
+    pub sidebar_view: crate::session::config::SidebarView,
     pub status_hooks: std::collections::HashMap<String, crate::status_hooks::StatusHookConfig>,
     pub auxiliary_tools: std::collections::HashMap<String, Vec<String>>,
     pub raw_tool_names: std::collections::HashMap<String, Vec<String>>,
@@ -473,36 +475,40 @@ fn load_profiles(
         },
         source,
     })?;
-    let (default_profile, workspace_ordering, global_projects) = (|| {
-        let mut default_profile = crate::session::config::Config::load()?.default_profile;
-        if require_default {
-            anyhow::ensure!(!profiles.is_empty(), "Profile catalogue is empty");
-            if !default_profile.is_empty() {
-                anyhow::ensure!(
-                    profiles.contains(&default_profile),
-                    "Configured default profile is unavailable"
-                );
+    let (default_profile, (workspace_ordering, repository_order), global_projects, sidebar_view) =
+        (|| {
+            let config = crate::session::config::Config::load()?;
+            let sidebar_view = config.app_state.sidebar_view();
+            let mut default_profile = config.default_profile;
+            if require_default {
+                anyhow::ensure!(!profiles.is_empty(), "Profile catalogue is empty");
+                if !default_profile.is_empty() {
+                    anyhow::ensure!(
+                        profiles.contains(&default_profile),
+                        "Configured default profile is unavailable"
+                    );
+                }
             }
-        }
-        if default_profile.is_empty() {
-            if let Some(first) = profiles.first() {
-                first.clone_into(&mut default_profile);
+            if default_profile.is_empty() {
+                if let Some(first) = profiles.first() {
+                    first.clone_into(&mut default_profile);
+                }
             }
-        }
-        let ordering = crate::session::load_workspace_ordering()?.order;
-        let projects = crate::session::projects::load_global()?
-            .into_iter()
-            .map(ProjectResponse::from)
-            .collect();
-        Ok::<_, anyhow::Error>((default_profile, ordering, projects))
-    })()
-    .map_err(|source| ReloadFailure {
-        health: RuntimeHealth::Degraded {
-            code: ReloadFailureCode::Metadata,
-            profiles: Vec::new(),
-        },
-        source,
-    })?;
+            let ordering = crate::session::load_workspace_ordering()?;
+            let ordering = (ordering.order, ordering.repositories);
+            let projects = crate::session::projects::load_global()?
+                .into_iter()
+                .map(ProjectResponse::from)
+                .collect();
+            Ok::<_, anyhow::Error>((default_profile, ordering, projects, sidebar_view))
+        })()
+        .map_err(|source| ReloadFailure {
+            health: RuntimeHealth::Degraded {
+                code: ReloadFailureCode::Metadata,
+                profiles: Vec::new(),
+            },
+            source,
+        })?;
     if let Some(cache) = cache.as_deref_mut() {
         cache.sessions.retain(|name, _| profiles.contains(name));
     }
@@ -569,7 +575,9 @@ fn load_profiles(
             default_profile,
             profiles: profile_metadata,
             workspace_ordering,
+            repository_order,
             global_projects,
+            sidebar_view,
             status_hooks,
             auxiliary_tools,
             raw_tool_names,
@@ -1763,6 +1771,8 @@ mod tests {
                     })
                     .collect(),
                 workspace_ordering: vec!["unrelated ordering".into()],
+                repository_order: vec!["/unrelated".into()],
+                sidebar_view: Default::default(),
                 global_projects: Vec::new(),
                 status_hooks: Default::default(),
                 auxiliary_tools: Default::default(),
@@ -1822,6 +1832,10 @@ mod tests {
             assert_eq!(
                 metadata.workspace_ordering,
                 original_metadata.workspace_ordering
+            );
+            assert_eq!(
+                metadata.repository_order,
+                original_metadata.repository_order
             );
         }
     }

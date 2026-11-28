@@ -798,64 +798,7 @@ fn default_replay_events() -> u32 {
     0
 }
 
-/// Session list sort order. No order reacts to session state, so rows hold still.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SortOrder {
-    /// The order the user arranged. Rows never moved sit on top, newest first.
-    #[default]
-    Custom,
-    /// Creation time, newest on top.
-    Newest,
-    Name,
-}
-
-impl SortOrder {
-    pub fn label(self) -> &'static str {
-        match self {
-            SortOrder::Custom => "Custom",
-            SortOrder::Newest => "Newest first",
-            SortOrder::Name => "Name",
-        }
-    }
-
-    /// Letter that selects this order in the sort picker.
-    pub fn mnemonic(self) -> char {
-        match self {
-            SortOrder::Custom => 'c',
-            SortOrder::Newest => 'n',
-            SortOrder::Name => 'a',
-        }
-    }
-}
-
-/// Session list grouping mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GroupByMode {
-    /// Repository headers, with the user's Groups nested inside each.
-    #[default]
-    Project,
-    /// The user's own Groups, across repositories.
-    Group,
-}
-
-impl GroupByMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            GroupByMode::Project => "Repository",
-            GroupByMode::Group => "Groups",
-        }
-    }
-
-    /// Letter that selects this mode in the group-by picker.
-    pub fn mnemonic(self) -> char {
-        match self {
-            GroupByMode::Project => 'p',
-            GroupByMode::Group => 'g',
-        }
-    }
-}
+pub use aoe_daemon_client::{GroupByMode, SidebarView, SortOrder};
 
 /// Decodes an optional value, reading one this build cannot decode (such as a removed enum
 /// variant) as `None`.
@@ -866,6 +809,15 @@ where
 {
     let value = Option::<toml::Value>::deserialize(deserializer)?;
     Ok(value.and_then(|value| value.try_into().ok()))
+}
+
+impl AppStateConfig {
+    pub fn sidebar_view(&self) -> SidebarView {
+        SidebarView {
+            group_by: self.group_by.unwrap_or_default(),
+            sort: self.sort_order.unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

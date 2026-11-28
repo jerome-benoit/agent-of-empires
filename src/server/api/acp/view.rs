@@ -2433,7 +2433,7 @@ mod tests {
         let pid = child.id().unwrap();
         let original_birth = crate::process::process_birth_identity(pid)?
             .expect("owned child has a live process birth identity");
-        let fingerprint = original_birth.fingerprint();
+        let fingerprint = crate::process::process_birth_fingerprint(&original_birth);
         let control = Arc::new(FakeProcessControl::default());
         control.immortal(pid);
         let project = tempfile::tempdir()?;
@@ -2724,7 +2724,7 @@ mod tests {
         let pid = child.id().expect("owned original runner");
         let birth =
             crate::process::process_birth_identity(pid)?.expect("owned original runner birth");
-        let fingerprint = birth.fingerprint();
+        let fingerprint = crate::process::process_birth_fingerprint(&birth);
         let mut control_child = tokio::process::Command::new("sleep")
             .arg("60")
             .process_group(0)
@@ -3050,7 +3050,7 @@ mod tests {
         let pid = child.id().expect("owned original producer");
         let birth = crate::process::process_birth_identity(pid)?
             .expect("the original producer is physically alive");
-        let fingerprint = birth.fingerprint();
+        let fingerprint = crate::process::process_birth_fingerprint(&birth);
         let control = Arc::new(FakeProcessControl::default());
         control.immortal(pid);
         let (mut client, producer_events, commands) =
@@ -3288,7 +3288,10 @@ mod tests {
             crate::tmux::test_helpers::pane_field(&pane, "#{pane_pid}").parse::<u32>()?;
         let terminal_birth = crate::process::process_birth_identity(terminal_pid)?
             .expect("the resumed native terminal has a real live process birth");
-        assert_ne!(terminal_birth.fingerprint(), fingerprint);
+        assert_ne!(
+            crate::process::process_birth_fingerprint(&terminal_birth),
+            fingerprint
+        );
         assert!(
             !crate::session::capture::claude_host_transcript_confirmed_absent(
                 &selected_execution.cwd.to_string_lossy(),
@@ -3338,7 +3341,7 @@ mod tests {
             .spawn()?;
         let pid = child.id().expect("owned original producer");
         let birth = crate::process::process_birth_identity(pid)?.expect("original producer birth");
-        let fingerprint = birth.fingerprint();
+        let fingerprint = crate::process::process_birth_fingerprint(&birth);
         let control = Arc::new(FakeProcessControl::default());
         control.immortal(pid);
         let (state, gate, spawner, lease, deleted) = pending_handoff_with_event_store(
@@ -4322,7 +4325,7 @@ mod tests {
             crate::process::process_birth_identity(pid)?.expect("owned original runner birth");
         let control = Arc::new(FakeProcessControl::default());
         control.immortal(pid);
-        let fingerprint = birth.fingerprint();
+        let fingerprint = crate::process::process_birth_fingerprint(&birth);
         let (state, gate, spawner, lease, _) =
             pending_handoff(&row, pid, control.clone(), Some(birth)).await;
         let original = lease
