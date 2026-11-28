@@ -2,18 +2,18 @@
 /**
  * Fake plugin proxy for tests: `fake-proxy [flags] -- <adapter argv...>`.
  * Spawns the adapter with piped stdio, forwards both directions, and adds
- * `_meta.aoe.proxy` to the initialize result. Inherited fds and env pass through.
+ * `_meta.aoe.proxy` to the initialize result. Environment passes through.
  * FAKE_PROXY_RECORD_DIR: writes argv.json (own argv), pid, adapter_pid, and
  * env.json (AOE_PROXY_LAUNCH_CONFIG as received) there.
  * FAKE_PROXY_MODE: "bad-hello" (wrong plugin_id), "no-hello" (no hello), "die"
  * (exit 1 before spawning the adapter), "orphan-on-term" (SIGTERM exits without
  * stopping the adapter); default is a valid hello.
+ * FAKE_PROXY_INHERIT_FD: pass this inherited descriptor at its original number.
  * FAKE_PROXY_EMIT_FILE: each time that file appears, its lines are written to
  * the client as the proxy's own frames and the file is removed.
  */
 import { spawn } from "node:child_process";
 import {
-  fstatSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -50,20 +50,15 @@ if (sep < 0) {
   process.exit(2);
 }
 const [command, ...args] = argv.slice(sep + 1);
-// Pass every open fd above 2 through at its own number (the sandbox env fd
-// rides one); closed slots stay "ignore" so array index equals fd number.
-const extraFds = [];
-for (let fd = 3; fd < 16; fd++) {
-  try {
-    fstatSync(fd);
-    extraFds.push(fd);
-  } catch {
-    extraFds.push("ignore");
-  }
+// Only forward descriptors supplied by the test. An open descriptor can
+// belong to Node itself; macOS cannot pass libuv's kqueue to the adapter.
+const stdio = ["pipe", "pipe", "inherit"];
+if (process.env.FAKE_PROXY_INHERIT_FD !== undefined) {
+  const fd = Number(process.env.FAKE_PROXY_INHERIT_FD);
+  stdio[fd] = fd;
+  stdio.fill("ignore", 3, fd);
 }
-const child = spawn(command, args, {
-  stdio: ["pipe", "pipe", "inherit", ...extraFds],
-});
+const child = spawn(command, args, { stdio });
 
 if (dir) publish("adapter_pid", String(child.pid));
 
