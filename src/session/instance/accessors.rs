@@ -76,6 +76,7 @@ impl Instance {
             agent_session_binding: None,
             resume_binding: None,
             active_execution: None,
+            sandbox_launch: None,
             omp_capture_generation: None,
             lifecycle_generation: 0,
             resume_probe_failed_sid: None,
@@ -829,6 +830,17 @@ impl Instance {
             .as_ref()
             .map(|w| w.main_repo_path.as_str())
             .unwrap_or(&self.project_path)
+    }
+
+    /// The sidebar workspace this session belongs to, which the shared Custom order stores:
+    /// `repoPath::branch`, or `repoPath::__session__::id` without a worktree. Mirrors the
+    /// Daemon's `workspace_id_for_session` and the dashboard's `useWorkspaces`.
+    pub fn workspace_id(&self) -> String {
+        let repo = self.repo_path().trim_end_matches('/');
+        match &self.worktree_info {
+            Some(worktree) => format!("{repo}::{}", worktree.branch),
+            None => format!("{repo}::__session__::{}", self.id),
+        }
     }
 
     pub fn is_yolo_mode(&self) -> bool {

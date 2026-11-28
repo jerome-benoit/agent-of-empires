@@ -76,6 +76,12 @@ impl HomeView {
             storages,
             active_profile,
             instances: Self::build_instances_map(all_instances),
+            observed_sidebar_view: None,
+            pending_order_change: None,
+            order_undo: None,
+            sort_restore: None,
+            sort_changes: 0,
+            repository_order: Vec::new(),
             observed_workspace_ordering: crate::session::load_workspace_ordering()
                 .map(|ordering| ordering.order)
                 .unwrap_or_default(),
@@ -358,6 +364,8 @@ impl HomeView {
             start_after_trash: None,
             suggestions_feed: crate::tui::suggestions::SuggestionsFeed::new(),
             hide_stopped_in_groups: false,
+            needs_you_only: false,
+            needs_you_kept: None,
             group_totals: HashMap::new(),
             opener_exits: Vec::new(),
             restart_cooldown_at: std::collections::HashMap::new(),

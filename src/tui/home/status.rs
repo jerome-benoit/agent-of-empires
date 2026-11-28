@@ -150,6 +150,7 @@ impl HomeView {
         self.session_feed_failed_cursor = None;
         self.canonical_metadata_lag = None;
         self.pending_created_attach = None;
+        self.observed_sidebar_view = None;
         self.set_sidebar_source(crate::tui::session_feed::SidebarSource::Connecting, None);
         self.session_feed
             .connect_prepared(self.active_profile.clone().unwrap_or_default(), prepared);
@@ -354,7 +355,6 @@ impl HomeView {
                 || instance.notify_on_idle != row.notify_on_idle
                 || instance.notify_on_error != row.notify_on_error
                 || instance.project_path != row.project_path
-                || instance.sort_index != row.sort_index
                 || instance.agent_session_id != row.agent_session_id
                 || instance.parent_session_id != row.parent_session_id
                 || instance.lifecycle_generation != row.lifecycle_generation
@@ -856,12 +856,15 @@ impl HomeView {
                                     self.instances.keys().map(String::as_str).collect();
                                 self.structured_pending_approvals
                                     .retain(|id, _| ids.contains(id.as_str()));
+                                self.repository_order
+                                    .clone_from(&snapshot.contents.repository_order);
                                 self.refresh_projection_presentation();
                                 self.session_feed_reload_retry_at = None;
                                 self.session_feed_failed_cursor = None;
                                 self.canonical_metadata_lag = None;
                                 self.reload_failure_state.record_canonical(&Ok(()));
                                 self.observed_workspace_ordering = persisted_ordering;
+                                self.adopt_sidebar_view(snapshot.contents.sidebar_view);
                                 metadata_changed |=
                                     self.session_feed.mark_snapshot_applied(snapshot);
                                 snapshot_applied = true;
@@ -1160,6 +1163,40 @@ impl HomeView {
         let row_outcomes = self.session_feed.drain_session_outcomes();
         let namespace = self.session_feed.drain_namespace_result();
         let mut changed = !row_outcomes.is_empty() || namespace.is_some();
+        match self.session_feed.drain_workspace_ordering_result() {
+            Some(Err(failure)) => {
+                self.pending_order_change = None;
+                self.flash_status(match failure {
+                    crate::tui::session_feed::ViewWriteFailure::Refused(error) => {
+                        format!("Order not saved: {error}")
+                    }
+                    crate::tui::session_feed::ViewWriteFailure::Unconfirmed(error) => format!(
+                        "Order change unconfirmed ({error}); check the list before moving again"
+                    ),
+                });
+                changed = true;
+            }
+            Some(Ok(crate::tui::session_feed::ViewWriteSettled::Applied(receipt))) => {
+                if let Some(change) = self.pending_order_change.take() {
+                    self.order_change_committed(change, &receipt);
+                    changed = true;
+                }
+            }
+            Some(Ok(crate::tui::session_feed::ViewWriteSettled::Superseded))
+                if self.pending_order_change.take().is_some() =>
+            {
+                self.flash_status("The Daemon restarted before the order change showed");
+                changed = true;
+            }
+            _ => {}
+        }
+        if let Some(result) = self.session_feed.drain_sidebar_view_result() {
+            changed |= result.is_err();
+            self.sidebar_view_settled(&result);
+            // Snapshots applied while the write was pending were not shown or recorded, so
+            // converge on the Daemon's value, which may carry another Client's change.
+            changed |= self.converge_sidebar_view();
+        }
         let mut purge_notes: Vec<(String, String)> = Vec::new();
         for (id, outcome) in row_outcomes {
             match outcome {
@@ -1310,56 +1347,27 @@ impl HomeView {
                     }
                     NamespaceOutcome::Reordered(outcome) => match outcome {
                         ReorderOutcome::Moved { destination } => {
-                            if let Some(NamespaceIntent::ReorderSession { id, .. }) = intent {
-                                self.follow_committed_reorder(&id, destination.as_ref());
-                            } else {
-                                self.rebuild_flat_items_keeping_cursor();
-                                self.update_selected();
-                            }
-                        }
-                        ReorderOutcome::AtEdge => {
-                            if let Some(NamespaceIntent::ReorderSession {
-                                id,
-                                profile,
-                                source_group,
-                                delta,
-                                crossing: false,
-                                continuation_destination,
-                            }) = intent
-                            {
-                                // A keystroke owns both steps, but each receipt has its
-                                // own applied fence. Never retarget to the new cursor.
-                                if self.instances.get(&id).is_some_and(|row| {
-                                    row.source_profile == profile
-                                        && row.group_path == source_group
-                                        && !row.is_archived()
-                                        && !row.is_trashed()
-                                }) {
-                                    if let Some(destination) = continuation_destination {
-                                        if destination.is_empty()
-                                            || self
-                                                .group_trees
-                                                .get(&profile)
-                                                .is_some_and(|tree| tree.group_exists(&destination))
-                                        {
-                                            if let Err(error) = self.submit_session_reorder(
-                                                &id,
-                                                delta,
-                                                Some(destination),
-                                            ) {
-                                                self.record_runtime_message(format!(
-                                                    "Could not cross the group boundary: {error}"
-                                                ));
-                                            }
-                                        } else {
-                                            let _ = self.refresh_after_stale_move();
-                                        }
-                                    }
-                                } else {
-                                    let _ = self.refresh_after_stale_move();
+                            let switch = match intent {
+                                Some(NamespaceIntent::ReorderSession { id, switch }) => {
+                                    self.follow_committed_reorder(&id, destination.as_ref());
+                                    switch
                                 }
+                                Some(NamespaceIntent::ReorderGroup { switch }) => {
+                                    self.rebuild_flat_items_keeping_cursor();
+                                    self.update_selected();
+                                    switch
+                                }
+                                _ => {
+                                    self.rebuild_flat_items_keeping_cursor();
+                                    self.update_selected();
+                                    None
+                                }
+                            };
+                            if let Some(change) = switch {
+                                self.order_change_committed(change, &receipt.cursor);
                             }
                         }
+                        ReorderOutcome::AtEdge => {}
                         ReorderOutcome::Stale => {
                             let _ = self.refresh_after_stale_move();
                         }
