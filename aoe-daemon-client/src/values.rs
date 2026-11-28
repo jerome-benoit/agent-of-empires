@@ -387,6 +387,79 @@ impl HooksConfig {
     }
 }
 
+/// Session list sort order. No order reacts to session state, so rows hold still.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum SortOrder {
+    /// The order the user arranged. Rows never moved sit on top, newest first.
+    #[default]
+    Custom,
+    /// Creation time, newest on top.
+    Newest,
+    Name,
+}
+
+impl SortOrder {
+    pub fn label(self) -> &'static str {
+        match self {
+            SortOrder::Custom => "Custom",
+            SortOrder::Newest => "Newest first",
+            SortOrder::Name => "Name",
+        }
+    }
+
+    /// Letter that selects this order in the sort picker.
+    pub fn mnemonic(self) -> char {
+        match self {
+            SortOrder::Custom => 'c',
+            SortOrder::Newest => 'n',
+            SortOrder::Name => 'a',
+        }
+    }
+}
+
+/// Session list grouping mode
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupByMode {
+    /// Repository headers, with the user's Groups nested inside each.
+    #[default]
+    Project,
+    /// The user's own Groups, across repositories.
+    Group,
+}
+
+impl GroupByMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            GroupByMode::Project => "Repository",
+            GroupByMode::Group => "Groups",
+        }
+    }
+
+    /// Letter that selects this mode in the group-by picker.
+    pub fn mnemonic(self) -> char {
+        match self {
+            GroupByMode::Project => 'p',
+            GroupByMode::Group => 'g',
+        }
+    }
+}
+
+/// The one grouping and sort the Daemon owns. Clients read it from the runtime snapshot
+/// and change it through `PATCH /api/sidebar-view`.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
+pub struct SidebarView {
+    pub group_by: GroupByMode,
+    pub sort: SortOrder,
+}
+
 /// Deserialize a field as either a single string or a Vec of strings.
 /// Allows `key = "value"` as shorthand for `key = ["value"]` in TOML.
 pub fn string_or_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>

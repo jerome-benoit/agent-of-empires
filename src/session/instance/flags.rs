@@ -266,8 +266,8 @@ impl Instance {
         self.archived_at.is_some()
     }
 
-    /// Rank among siblings under `SortOrder::Custom`: rows never moved first, newest first,
-    /// then by `sort_index`. The display and the Daemon's reorder must share it.
+    /// Rank among siblings under `SortOrder::Custom`: by the Daemon-derived `sort_index`,
+    /// rows without one (not yet ranked by a snapshot) first, newest first.
     pub fn custom_order_key(&self) -> (bool, Option<u32>, std::cmp::Reverse<Timestamp>) {
         (
             self.sort_index.is_some(),
@@ -484,6 +484,18 @@ impl Instance {
     /// `snoozed_until` only while the snooze is active; a persisted past date is not one.
     pub fn active_snoozed_until(&self) -> Option<Timestamp> {
         self.snoozed_until.filter(|t| *t > Timestamp::now())
+    }
+
+    /// Waiting on a person, in Error, flagged urgent, or finished and not yet seen (with the
+    /// unread indicator on), and not put away. Differs from the web's `sessionNeedsAttention`:
+    /// unread counts here, plugin attention does not.
+    pub fn needs_you(&self) -> bool {
+        !self.is_dismissed()
+            && (matches!(
+                self.status,
+                crate::session::Status::Waiting | crate::session::Status::Error
+            ) || self.is_urgent()
+                || (crate::session::unread_enabled() && self.is_unread()))
     }
 
     /// Combined "don't bother me" sink-state check: trashed, snoozed,

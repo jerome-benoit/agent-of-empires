@@ -896,6 +896,34 @@ impl DaemonClient {
             .await
     }
 
+    /// Change the shared sidebar grouping or sort.
+    pub async fn set_sidebar_view(
+        &self,
+        body: &SidebarViewPatch,
+        epoch: &str,
+    ) -> Result<RuntimeCursor, DaemonClientError> {
+        let url = self
+            .sessions_url
+            .join("sidebar-view")
+            .map_err(|_| DaemonClientError::Transport)?;
+        self.request_mutation(self.http.patch(url).json(body), epoch)
+            .await
+    }
+
+    /// Replace the shared Custom order of rows, of Repository headers, or both.
+    pub async fn set_workspace_ordering(
+        &self,
+        body: &WorkspaceOrderingPatch,
+        epoch: &str,
+    ) -> Result<RuntimeCursor, DaemonClientError> {
+        let url = self
+            .sessions_url
+            .join("workspace-ordering")
+            .map_err(|_| DaemonClientError::Transport)?;
+        self.request_mutation(self.http.put(url).json(body), epoch)
+            .await
+    }
+
     pub async fn reorder(
         &self,
         body: &ReorderBody,

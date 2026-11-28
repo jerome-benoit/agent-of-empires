@@ -87,6 +87,7 @@ impl Instance {
         self.sandbox_info = src.sandbox_info.clone();
         self.capture_started_at = src.capture_started_at;
         self.launch_executable = src.launch_executable.clone();
+        self.sandbox_launch.clone_from(&src.sandbox_launch);
     }
 
     /// Same fields as `merge_post_start`. Resume-probe failure markers are
@@ -229,6 +230,7 @@ impl Instance {
         self.resume_intent = ResumeIntent::Default;
         self.resume_binding = None;
         self.active_execution = None;
+        self.sandbox_launch = None;
         self.terminal_rebind_pending = false;
     }
 
@@ -273,6 +275,7 @@ impl Instance {
         self.acp_load_session_capable = None;
         self.resume_probe_failed_sid = None;
         self.active_execution = None;
+        self.sandbox_launch = None;
         self.acp_effort = None;
         self.acp_model_config.clear();
         self.agent_model = None;
@@ -471,9 +474,6 @@ impl Instance {
         if pre.base_branch_override != post.base_branch_override {
             self.base_branch_override = post.base_branch_override.clone();
         }
-        if pre.sort_index != post.sort_index {
-            self.sort_index = post.sort_index;
-        }
         // Worktree workdir edit (move dir / rename branch) mutates these two;
         // both the TUI and the CLI can write them, so they go through the
         // same conditional-diff path as the triage fields. See #1723.
@@ -566,6 +566,31 @@ mod tests {
 
     fn inst() -> Instance {
         Instance::new("s", "/tmp/x")
+    }
+
+    /// A relaunch's sandbox launch record lands with the launch it describes, an older launch's doesn't,
+    /// and switching agents drops it with the execution.
+    #[test]
+    fn the_sandbox_launch_record_follows_its_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let record = |launch_id: &str| SandboxLaunch {
+            launch_id: launch_id.into(),
+            container: crate::containers::launch_stop::fake_container(dir.path(), "docker", ""),
+        };
+        let mut live = inst();
+        live.tool = "claude".into();
+        live.lifecycle_generation = 2;
+        live.sandbox_launch = Some(record("launch-1"));
+        for (generation, want) in [(1, "launch-1"), (2, "launch-2"), (3, "launch-2")] {
+            let mut relaunched = live.clone();
+            relaunched.lifecycle_generation = generation;
+            relaunched.sandbox_launch = Some(record("launch-2"));
+            let mut merged = live.clone();
+            merged.merge_post_start(&relaunched);
+            assert_eq!(merged.sandbox_launch, Some(record(want)), "{generation}");
+        }
+        live.swap_tool("codex");
+        assert_eq!(live.sandbox_launch, None);
     }
 
     /// An error that never reached disk survives a reload of the same turn of
@@ -723,64 +748,6 @@ mod tests {
             disk.merge_user_action_diff(&pre, &renamed);
             assert!(disk.same_trash_lifecycle(&post));
             assert_eq!(disk.failed_purge_forced(), Some(false));
-        }
-    }
-
-    /// A drag under `SortOrder::Custom` rewrites `sort_index`: the reorder writes a position
-    /// for every row in the new order, so the dragged row and every row it passes shift.
-    /// The `sort_index` arm is what carries that rewrite onto the locked disk row; drop it
-    /// and the persisted order silently reverts on the next load while the TUI keeps
-    /// drawing the dragged one.
-    ///
-    /// Exercised at the splice level, not through the drag: `reorder.rs` writes through
-    /// `Storage::update`, so this covers the merge the storage layer would fall back to.
-    /// The `pre != post` guard is the other half of the arm; a row the action left alone
-    /// keeps disk's own index, so the merge neither places an unplaced row nor erases an
-    /// index a peer placed while the action was renaming it.
-    #[test]
-    fn user_action_diff_splices_sort_index_only_when_the_action_moved_it() {
-        fn placed(id: &str, sort_index: Option<u32>) -> Instance {
-            let mut instance = Instance::new(id, "/tmp/x");
-            instance.sort_index = sort_index;
-            instance
-        }
-        // (label, on disk, pre snapshot, post snapshot, expected on disk)
-        for (label, disk_index, pre_index, post_index, expected) in [
-            (
-                "dragged below its sibling",
-                Some(0),
-                Some(0),
-                Some(1),
-                Some(1),
-            ),
-            (
-                "shifted up past the drag",
-                Some(1),
-                Some(1),
-                Some(0),
-                Some(0),
-            ),
-            ("never moved, never placed", None, None, None, None),
-            (
-                "peer drag lands while the action renames it",
-                Some(4),
-                None,
-                None,
-                Some(4),
-            ),
-        ] {
-            let pre = placed(label, pre_index);
-            let mut post = pre.clone();
-            post.sort_index = post_index;
-            let mut disk = pre.clone();
-            disk.sort_index = disk_index;
-            // The action's own edit is the index alone. A peer renamed the row on disk
-            // between the pre snapshot and the merge; the diff guard must leave that
-            // rename alone rather than treat the whole post snapshot as authoritative.
-            disk.title = "peer rename".to_string();
-            disk.merge_user_action_diff(&pre, &post);
-            assert_eq!(disk.sort_index, expected, "{label}");
-            assert_eq!(disk.title, "peer rename", "{label}: peer title survives");
         }
     }
 
