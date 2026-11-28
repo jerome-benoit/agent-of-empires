@@ -5375,7 +5375,7 @@ sandbox = "unsupported"
                 .err()
                 .expect("invalid Pi target must refuse");
             assert_eq!(
-                ManagedResumeCause::from_error(&error),
+                super::super::resume::managed_resume_cause(&error),
                 expected,
                 "{error:#}"
             );
@@ -5401,7 +5401,7 @@ sandbox = "unsupported"
             .err()
             .expect("explicit Pi target must refuse");
         assert_eq!(
-            ManagedResumeCause::from_error(&error),
+            super::super::resume::managed_resume_cause(&error),
             ManagedResumeCause::PiTranscriptBindingRequired
         );
         assert!(!error.is::<super::super::ManagedResumeRefused>());
