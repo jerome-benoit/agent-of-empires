@@ -356,7 +356,8 @@ async fn proxy_keeps_inherited_fd_numbers_across_closed_slots() {
             .args(["--", "sh", "-c", "cat /dev/fd/9 > \"$0\"; exec sleep 600"])
             .arg(&out);
     });
-    cmd.env("FAKE_PROXY_RECORD_DIR", &record_dir);
+    cmd.env("FAKE_PROXY_RECORD_DIR", &record_dir)
+        .env("FAKE_PROXY_INHERIT_FD", "9");
     let src = std::os::fd::AsRawFd::as_raw_fd(&file);
     // SAFETY: only async-signal-safe libc calls between fork and exec.
     unsafe {
