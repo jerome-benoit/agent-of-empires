@@ -217,7 +217,7 @@ impl PendingInitialSession {
         .expect("actual publication settles this turn");
     }
 
-    async fn submit(&self, text: &str) {
+    async fn submit(&self, mode: u8, text: &str) {
         let response = acp_prompt(
             State(self.state.clone()),
             Path(self.client.id.clone()),
@@ -233,7 +233,7 @@ impl PendingInitialSession {
         assert_eq!(
             status,
             StatusCode::ACCEPTED,
-            "{}",
+            "mode {mode}, prompt {text:?}: {}",
             String::from_utf8_lossy(&body)
         );
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -275,7 +275,7 @@ async fn initial_host_intent_obeys_applied_and_stop_before_native_issue() {
             } else { None };
             let mut live = PendingInitialSession::new(scope, "initial-host-intent").await;
             let owner = live.client.lease.spawned_runner().unwrap();
-            live.submit("original first host intent").await;
+            live.submit(mode, "original first host intent").await;
             let reduced = live.state.session_service.fold_control_state(&live.client.id).await.unwrap();
             let projected = live.state.session_service.native_control_projection(
                 &live.client.id, None, reduced.last_seq).await;
@@ -302,26 +302,30 @@ async fn initial_host_intent_obeys_applied_and_stop_before_native_issue() {
                 assert_eq!(original["params"]["sessionId"], live.sid);
                 assert_eq!(original["params"]["prompt"][0]["text"], "original first host intent");
                 live.finish(&original).await;
-                let reset = live.client.reset_session("/clear");
-                tokio::pin!(reset);
-                let request = tokio::select! {
-                    request = live.requests.recv() => request.unwrap(),
-                    result = &mut reset => panic!("reset answered before its actual Native New: {result:?}"),
-                };
-                assert_eq!(request["method"], "session/new");
                 let replacement = "replacement-native-attempt";
-                live.native.send(serde_json::json!({
-                    "jsonrpc": "2.0", "id": request["id"], "result": {"sessionId": replacement}
-                })).await;
-                let outcome = reset.await.unwrap();
+                let outcome = {
+                    let reset = live.client.reset_session("/clear");
+                    tokio::pin!(reset);
+                    let request = tokio::select! {
+                        request = live.requests.recv() => request.unwrap(),
+                        result = &mut reset => panic!("reset answered before its actual Native New: {result:?}"),
+                    };
+                    assert_eq!(request["method"], "session/new");
+                    live.native.send(serde_json::json!({
+                        "jsonrpc": "2.0", "id": request["id"], "result": {"sessionId": replacement}
+                    })).await;
+                    reset.await.unwrap()
+                };
                 assert!(
                     matches!(&outcome, crate::acp::acp_client::ResetSessionOutcome::Reset { new_acp_session_id } if new_acp_session_id == replacement),
                     "reset must publish its replacement before submitting fresh input: {outcome:?}"
                 );
                 live.sid = replacement.into();
+                // Reset returns after enqueueing its events, not after the drain persists them.
+                live.wait_stopped("session_reset").await;
             }
             assert_eq!(live.client.initial_prompt_identity(), None);
-            live.submit("explicit replacement input").await;
+            live.submit(mode, "explicit replacement input").await;
             let replacement = live.next_request("session/prompt").await;
             assert_eq!(replacement["params"]["sessionId"], live.sid);
             assert_eq!(replacement["params"]["prompt"][0]["text"], "explicit replacement input");
